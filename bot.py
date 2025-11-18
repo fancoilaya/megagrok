@@ -72,7 +72,10 @@ def get_stage(level, table):
 
 def grow(update, context):
     user_id = update.effective_user.id
-    now = datetime.datetime.utcnow()
+   
+from datetime import datetime, timezone
+now = datetime.now(timezone.utc)
+
 
     if user_id not in users:
         users[user_id] = {"level": 1, "xp": 0, "last_grow": None}
