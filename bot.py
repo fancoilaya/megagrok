@@ -93,7 +93,7 @@ def leaderboard(update, context):
         return
 
     sorted_users = sorted(users.items(), key=lambda x: (-x[1]["level"], -x[1]["xp"]))
-    msg = "*🏆 MegaGrok Leaderboard*"
+    msg = *🏆 MegaGrok Leaderboard*
     for i, (uid, data) in enumerate(sorted_users[:10], start=1):
         msg += f"{i}. Level {data['level']} | XP {data['xp']}"
     update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
