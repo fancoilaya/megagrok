@@ -134,6 +134,29 @@ def start(message):
         "Use /growmygrok to gain XP and evolve your Grok!"
     )
 
+
+@bot.message_handler(commands=['mygrok'])
+def mygrok(message):
+    user_id = message.from_user.id
+    user = get_user(user_id)
+
+    if not user:
+        bot.reply_to(message, "🐸 You don't have a MegaGrok yet! Use /growmygrok to start.")
+        return
+
+    _, xp, level, form = user
+    bar = progress_bar(xp)
+
+    profile_text = (
+        f"🐸 *Your MegaGrok Profile*\n\n"
+        f"Level: {level}\n"
+        f"XP: {xp}\n"
+        f"Evolution: {form}\n"
+        f"Progress: {bar}"
+    )
+
+    bot.reply_to(message, profile_text, parse_mode="Markdown")
+
 @bot.message_handler(commands=['growmygrok'])
 def grow(message):
     user_id = message.from_user.id
