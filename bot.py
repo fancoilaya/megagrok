@@ -3,7 +3,7 @@ import os
 import random
 import datetime
 from telegram.ext import Updater, CommandHandler
-from telegram.constant import ParseMode
+from telegram.constants import ParseMode
 
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 
