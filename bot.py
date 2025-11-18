@@ -4,7 +4,7 @@ import datetime
 import random
 from PIL import Image, ImageDraw, ImageFont
 
-API_KEY = "YOUR_TELEGRAM_BOT_TOKEN"
+API_KEY = os.getenv("API_KEY")  # add in Render → Environment → API_KEY=xxxx
 bot = telebot.TeleBot(API_KEY)
 
 # -------------------------
