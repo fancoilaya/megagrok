@@ -3,7 +3,7 @@ import sqlite3
 import datetime
 import random
 
-API_KEY = 8531050065:AAGdzxcixGfmlBSKWMQARxA7MDRHWlyKJFA
+API_KEY = "8531050065:AAGdzxcixGfmlBSKWMQARxA7MDRHWlyKJFA"
 bot = telebot.TeleBot(API_KEY)
 
 # -------------------------
