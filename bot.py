@@ -1,148 +1,147 @@
-
-import os
-import random
+import telebot
+import sqlite3
 import datetime
-from telegram.ext import ApplicationBuilder, CommandHandler
-from telegram.constants import ParseMode
+import random
 
-TOKEN = os.getenv("TELEGRAM_TOKEN")
+API_KEY = "YOUR_API_KEY_HERE"
+bot = telebot.TeleBot(API_KEY)
 
-# In-memory storage for MVP
-users = {}
+conn = sqlite3.connect("grok.db", check_same_thread=False)
+cursor = conn.cursor()
 
-# Evolution stages
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS users (
+    user_id INTEGER PRIMARY KEY,
+    xp INTEGER DEFAULT 0,
+    level INTEGER DEFAULT 1,
+    form TEXT DEFAULT 'Tadpole'
+)
+""")
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS daily_quests (
+    user_id INTEGER PRIMARY KEY,
+    quest_hop INTEGER DEFAULT 0,
+    quest_hopium INTEGER DEFAULT 0,
+    quest_fight INTEGER DEFAULT 0,
+    reset_date TEXT
+)
+""")
+conn.commit()
+
+# Evolution tiers
 EVOLUTIONS = [
     (1, "Tadpole"),
-    (5, "Hopling"),
-    (10, "Meme Adept"),
-    (20, "Quantum Frog"),
-    (35, "Multiverse Hopper"),
-    (50, "ULTRAHOP EMERGENCE")
+    (5, "Hopper"),
+    (10, "Ascended Hopper")
 ]
 
-# HopForce tiers
-TIERS = [
-    (1, "Meme Apprentice"),
-    (10, "Meme Adept"),
-    (20, "Reality Hopper"),
-    (35, "Chrono Frog"),
-    (50, "ULTRAHOP ASCENDANT")
-]
+def get_level(xp):
+    return xp // 200 + 1
 
-# ASCII art for evolutions
-ASCII_ART = {
-    "Tadpole": """
-      (o)
-     /|\
-     / \
-    """,
-    "Hopling": """
-      (o_o)
-     <)   )╯
-      /   \
-    """,
-    "Meme Adept": """
-     (•_•)
-    <)   )╯  HOP!
-     /   \
-    """,
-    "Quantum Frog": """
-      (⚛_⚛)
-     <)   )╯  ∞
-      /   \
-    """,
-    "Multiverse Hopper": """
-      (🌌_🌌)
-     <)   )╯  ✦
-      /   \
-    """,
-    "ULTRAHOP EMERGENCE": """
-      (🔥_🔥)
-     <)   )╯  🚀
-      /   \
-    """
-}
-
-def get_stage(level, table):
-    stage = table[0][1]
-    for lvl, name in table:
+def evolve(level):
+    for lvl, form in reversed(EVOLUTIONS):
         if level >= lvl:
-            stage = name
-    return stage
+            return form
+    return "Tadpole"
 
-def grow(update, context):
-    user_id = update.effective_user.id
-   from datetime import datetime, timezone
-    now = datetime.now(timezone.utc)
+def get_user(user_id):
+    cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
+    row = cursor.fetchone()
+    if not row:
+        cursor.execute("INSERT INTO users (user_id) VALUES (?)", (user_id,))
+        conn.commit()
+        return get_user(user_id)
+    return row
 
+def add_xp(user_id, amount):
+    user = get_user(user_id)
+    xp = user[1] + amount
+    level = get_level(xp)
+    form = evolve(level)
 
-    if user_id not in users:
-        users[user_id] = {"level": 1, "xp": 0, "last_grow": None}
-
-    user = users[user_id]
-
-    if user["last_grow"] and (now - user["last_grow"]).days < 1:
-        update.message.reply_text("⏳ You can only grow once every 24 hours!")
-        return
-
-    xp_gain = random.randint(5, 20)
-    old_level = user["level"]
-    old_tier = get_stage(old_level, TIERS)
-
-    user["xp"] += xp_gain
-    user["last_grow"] = now
-    user["level"] = user["xp"] // 10 + 1
-    new_level = user["level"]
-    new_tier = get_stage(new_level, TIERS)
-
-    evolution = get_stage(new_level, EVOLUTIONS)
-
-    msg = (
-        f"🎉 Your MegaGrok absorbed cosmic hop-energy!"
-        f"You gained *{xp_gain} XP* today."
-        f"Current Level: {old_level} → {new_level}"
-        f"HopForce Tier: {old_tier} → {new_tier}"
-        f"Evolution: {evolution}"
+    cursor.execute(
+        "UPDATE users SET xp = ?, level = ?, form = ? WHERE user_id = ?",
+        (xp, level, form, user_id)
     )
-    update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
+    conn.commit()
 
-def mygrok(update, context):
-    user_id = update.effective_user.id
-    if user_id not in users:
-        update.message.reply_text("You haven't started yet! Use /growmygrok.")
-        return
+def reset_daily_quests(user_id):
+    today = datetime.date.today().isoformat()
+    cursor.execute("""
+        UPDATE daily_quests SET quest_hop = 0, quest_hopium = 0, quest_fight = 0, reset_date = ?
+        WHERE user_id = ?
+    """, (today, user_id))
+    conn.commit()
 
-    user = users[user_id]
-    evolution = get_stage(user["level"], EVOLUTIONS)
-    tier = get_stage(user["level"], TIERS)
-    art = ASCII_ART.get(evolution, "[Art Coming Soon]")
+def get_quests(user_id):
+    today = datetime.date.today().isoformat()
+    cursor.execute("SELECT * FROM daily_quests WHERE user_id = ?", (user_id,))
+    row = cursor.fetchone()
 
-    msg = (
-        f"🐸 *MegaGrok Profile*"
-        f"Level: {user['level']}"
-        f"XP: {user['xp']}"
-        f"Evolution: {evolution}"
-        f"HopForce Tier: {tier}"
-        f"{art}"
-    )
-    update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
+    if not row:
+        cursor.execute("INSERT INTO daily_quests (user_id, reset_date) VALUES (?, ?)", (user_id, today))
+        conn.commit()
+        return get_quests(user_id)
 
-def leaderboard(update, context):
-    if not users:
-        update.message.reply_text("No trainers yet!")
-        return
+    _, hop, hopium, fight, reset_date = row
 
-    sorted_users = sorted(users.items(), key=lambda x: (-x[1]["level"], -x[1]["xp"]))
-    msg = "*🏆 MegaGrok Leaderboard*"
-    for i, (uid, data) in enumerate(sorted_users[:10], start=1):
-        msg += f"{i}. Level {data['level']} | XP {data['xp']}"
-    update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
+    if reset_date != today:
+        reset_daily_quests(user_id)
 
-# ApplicationBuilder for v20+
-app = ApplicationBuilder().token(TOKEN).build()
+    return {"hop": hop, "hopium": hopium, "fight": fight}
 
-app.add_handler(CommandHandler("growmygrok", grow))
-app.add_handler(CommandHandler("mygrok", mygrok))
-app.add_handler(CommandHandler("leaderboard", leaderboard))
+# ------------------------------------------------------
+# Commands
+# ------------------------------------------------------
 
-app.run_polling()
+@bot.message_handler(commands=['start'])
+def start(message):
+    bot.reply_to(message, "🐸 Welcome to MegaGrok! Use /growmygrok to gain XP.")
+
+@bot.message_handler(commands=['growmygrok'])
+def grow(message):
+    user_id = message.from_user.id
+    xp_gain = random.randint(10, 30)
+    add_xp(user_id, xp_gain)
+    bot.reply_to(message, f"✨ MegaGrok grows stronger! +{xp_gain} XP")
+
+@bot.message_handler(commands=['hop'])
+def hop(message):
+    user_id = message.from_user.id
+    quests = get_quests(user_id)
+
+    if quests["hop"]:
+        return bot.reply_to(message, "You've already performed the Hop Ritual today!")
+
+    xp_gain = random.randint(20, 50)
+    add_xp(user_id, xp_gain)
+
+    cursor.execute("UPDATE daily_quests SET quest_hop = 1 WHERE user_id = ?", (user_id,))
+    conn.commit()
+
+    bot.reply_to(message, f"🐸✨ Hop Ritual complete! +{xp_gain} XP")
+
+@bot.message_handler(commands=['fight'])
+def fight(message):
+    user_id = message.from_user.id
+    quests = get_quests(user_id)
+
+    if quests["fight"]:
+        return bot.reply_to(message, "You've already battled today!")
+
+    win = random.choice([True, False])
+
+    if win:
+        xp = random.randint(50, 150)
+        bot.reply_to(message, f"⚡🐸 You defeated a FUDling! +{xp} XP")
+    else:
+        xp = random.randint(10, 20)
+        bot.reply_to(message, f"😵 You slipped but still learned. +{xp} XP")
+
+    add_xp(user_id, xp)
+
+    cursor.execute("UPDATE daily_quests SET quest_fight = 1 WHERE user_id = ?", (user_id,))
+    conn.commit()
+
+bot.polling()
