@@ -2,13 +2,15 @@
 import os
 import random
 import datetime
-from telegram.ext import Updater, CommandHandler
+from telegram.ext import ApplicationBuilder, CommandHandler
 from telegram.constants import ParseMode
 
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 
+# In-memory storage for MVP
 users = {}
 
+# Evolution stages
 EVOLUTIONS = [
     (1, "Tadpole"),
     (5, "Hopling"),
@@ -18,6 +20,7 @@ EVOLUTIONS = [
     (50, "ULTRAHOP EMERGENCE")
 ]
 
+# HopForce tiers
 TIERS = [
     (1, "Meme Apprentice"),
     (10, "Meme Adept"),
@@ -25,6 +28,40 @@ TIERS = [
     (35, "Chrono Frog"),
     (50, "ULTRAHOP ASCENDANT")
 ]
+
+# ASCII art for evolutions
+ASCII_ART = {
+    "Tadpole": """
+      (o)
+     /|\
+     / \
+    """,
+    "Hopling": """
+      (o_o)
+     <)   )╯
+      /   \
+    """,
+    "Meme Adept": """
+     (•_•)
+    <)   )╯  HOP!
+     /   \
+    """,
+    "Quantum Frog": """
+      (⚛_⚛)
+     <)   )╯  ∞
+      /   \
+    """,
+    "Multiverse Hopper": """
+      (🌌_🌌)
+     <)   )╯  ✦
+      /   \
+    """,
+    "ULTRAHOP EMERGENCE": """
+      (🔥_🔥)
+     <)   )╯  🚀
+      /   \
+    """
+}
 
 def get_stage(level, table):
     stage = table[0][1]
@@ -59,10 +96,14 @@ def grow(update, context):
     evolution = get_stage(new_level, EVOLUTIONS)
 
     msg = (
-        f"🎉 Your MegaGrok absorbed cosmic hop-energy!"
-        f"You gained *{xp_gain} XP* today."
-        f"Current Level: {old_level} → {new_level}"
-        f"HopForce Tier: {old_tier} → {new_tier}"
+        f"🎉 Your MegaGrok absorbed cosmic hop-energy!
+"
+        f"You gained *{xp_gain} XP* today.
+"
+        f"Current Level: {old_level} → {new_level}
+"
+        f"HopForce Tier: {old_tier} → {new_tier}
+"
         f"Evolution: {evolution}"
     )
     update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
@@ -76,14 +117,20 @@ def mygrok(update, context):
     user = users[user_id]
     evolution = get_stage(user["level"], EVOLUTIONS)
     tier = get_stage(user["level"], TIERS)
+    art = ASCII_ART.get(evolution, "[Art Coming Soon]")
 
     msg = (
-        f"🐸 *MegaGrok Profile*"
-        f"Level: {user['level']}"
-        f"XP: {user['xp']}"
-        f"Evolution: {evolution}"
-        f"HopForce Tier: {tier}"
-        f"[ASCII Art Coming Soon]"
+        f"🐸 *MegaGrok Profile*
+"
+        f"Level: {user['level']}
+"
+        f"XP: {user['xp']}
+"
+        f"Evolution: {evolution}
+"
+        f"HopForce Tier: {tier}
+"
+        f"{art}"
     )
     update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
 
@@ -93,11 +140,14 @@ def leaderboard(update, context):
         return
 
     sorted_users = sorted(users.items(), key=lambda x: (-x[1]["level"], -x[1]["xp"]))
-    msg = "* MegaGrok Leaderboard*"
+    msg = "*🏆 MegaGrok Leaderboard*
+"
     for i, (uid, data) in enumerate(sorted_users[:10], start=1):
-        msg += f"{i}. Level {data['level']} | XP {data['xp']}"
+        msg += f"{i}. Level {data['level']} | XP {data['xp']}
+"
     update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
 
+# ApplicationBuilder for v20+
 app = ApplicationBuilder().token(TOKEN).build()
 
 app.add_handler(CommandHandler("growmygrok", grow))
@@ -105,4 +155,3 @@ app.add_handler(CommandHandler("mygrok", mygrok))
 app.add_handler(CommandHandler("leaderboard", leaderboard))
 
 app.run_polling()
-
