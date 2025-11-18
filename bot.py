@@ -182,21 +182,7 @@ def fight(message):
     cursor.execute("UPDATE daily_quests SET quest_fight = 1 WHERE user_id = ?", (user_id,))
     conn.commit()
     
-@bot.message_handler(commands=['leaderboard'])
-def leaderboard(message):
-    cursor.execute("SELECT user_id, xp, level, form FROM users ORDER BY level DESC, xp DESC LIMIT 10")
-    rows = cursor.fetchall()
 
-    if not rows:
-        bot.reply_to(message, "🏆 No trainers yet!")
-        return
-
-    leaderboard_text = "🏆 *MegaGrok Leaderboard*\n\n"
-    for i, row in enumerate(rows, start=1):
-        user_id, xp, level, form = row
-        leaderboard_text += f"{i}. Level {level} | XP {xp} | {form}\n"
-
-    bot.reply_to(message, leaderboard_text, parse_mode="Markdown")
 # -------------------------
 # Start Bot
 # -------------------------
