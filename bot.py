@@ -1,15 +1,20 @@
+import os
 import telebot
 import sqlite3
 import datetime
 import random
-from PIL import Image, ImageDraw, ImageFont
+
+# -------------------------
+# Load API Key from Environment
+# -------------------------
 
 API_KEY = os.getenv("API_KEY")  # add in Render → Environment → API_KEY=xxxx
 bot = telebot.TeleBot(API_KEY)
 
 # -------------------------
-# DATABASE INIT
+# Database Initialization
 # -------------------------
+
 conn = sqlite3.connect("grok.db", check_same_thread=False)
 cursor = conn.cursor()
 
@@ -18,8 +23,7 @@ CREATE TABLE IF NOT EXISTS users (
     user_id INTEGER PRIMARY KEY,
     xp INTEGER DEFAULT 0,
     level INTEGER DEFAULT 1,
-    form TEXT DEFAULT 'Tadpole',
-    username TEXT
+    form TEXT DEFAULT 'Tadpole'
 )
 """)
 
@@ -35,7 +39,7 @@ CREATE TABLE IF NOT EXISTS daily_quests (
 conn.commit()
 
 # -------------------------
-# EVOLUTION SYSTEM
+# Evolution System
 # -------------------------
 
 EVOLUTIONS = [
@@ -54,20 +58,17 @@ def evolve(level):
     return "Tadpole"
 
 # -------------------------
-# USER MANAGEMENT
+# User Management
 # -------------------------
 
-def get_user(user_id, username=None):
+def get_user(user_id):
     cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
     row = cursor.fetchone()
 
     if not row:
-        cursor.execute(
-            "INSERT INTO users (user_id, username) VALUES (?, ?)",
-            (user_id, username)
-        )
+        cursor.execute("INSERT INTO users (user_id) VALUES (?)", (user_id,))
         conn.commit()
-        return get_user(user_id, username)
+        return get_user(user_id)
 
     return row
 
@@ -78,16 +79,20 @@ def add_xp(user_id, amount):
     new_form = evolve(new_level)
 
     cursor.execute("""
-        UPDATE users SET xp = ?, level = ?, form = ? WHERE user_id = ?
+        UPDATE users
+        SET xp = ?, level = ?, form = ?
+        WHERE user_id = ?
     """, (current_xp, new_level, new_form, user_id))
+
     conn.commit()
 
 # -------------------------
-# DAILY QUESTS
+# Daily Quests
 # -------------------------
 
 def reset_daily_quests(user_id):
     today = datetime.date.today().isoformat()
+
     cursor.execute("""
         UPDATE daily_quests
         SET quest_hop = 0, quest_hopium = 0, quest_fight = 0, reset_date = ?
@@ -101,100 +106,84 @@ def get_quests(user_id):
     cursor.execute("SELECT * FROM daily_quests WHERE user_id = ?", (user_id,))
     row = cursor.fetchone()
 
+    # Create row if missing
     if not row:
-        cursor.execute(
-            "INSERT INTO daily_quests (user_id, reset_date) VALUES (?, ?)",
-            (user_id, today)
-        )
+        cursor.execute("""
+            INSERT INTO daily_quests (user_id, reset_date)
+            VALUES (?, ?)
+        """, (user_id, today))
         conn.commit()
         return get_quests(user_id)
 
     _, hop, hopium, fight, reset_date = row
 
+    # Reset if new day
     if reset_date != today:
         reset_daily_quests(user_id)
 
     return {"hop": hop, "hopium": hopium, "fight": fight}
 
 # -------------------------
-# PROFILE CARD GENERATOR
-# -------------------------
-
-def generate_profile_card(username, xp, level, form):
-    width, height = 600, 350
-    card = Image.new("RGB", (width, height), (25, 25, 35))
-    draw = ImageDraw.Draw(card)
-
-    font_large = ImageFont.truetype("arial.ttf", 40)
-    font_small = ImageFont.truetype("arial.ttf", 28)
-
-    # Frame
-    draw.rectangle([10, 10, width - 10, height - 10], outline=(80, 200, 120), width=4)
-
-    # Text
-    draw.text((30, 30), f"MegaGrok Profile", font=font_large, fill=(120, 255, 150))
-    draw.text((30, 110), f"User: @{username}", font=font_small, fill=(255, 255, 255))
-    draw.text((30, 160), f"Level: {level}", font=font_small, fill=(180, 255, 180))
-    draw.text((30, 210), f"XP: {xp}", font=font_small, fill=(180, 220, 255))
-    draw.text((30, 260), f"Form: {form}", font=font_small, fill=(255, 220, 150))
-
-    # Save
-    filename = f"profile_{username}.png"
-    card.save(filename)
-
-    return filename
-
-# -------------------------
-# BOT COMMANDS
+# Commands
 # -------------------------
 
 @bot.message_handler(commands=['start'])
 def start(message):
-    username = message.from_user.username
-    user_id = message.from_user.id
-    get_user(user_id, username)
-
     bot.reply_to(message,
         "🐸 Welcome to **MegaGrok Evolution Bot!**\n"
-        "Use /growmygrok to gain XP."
+        "Use /growmygrok to gain XP and evolve your Grok!"
     )
 
 @bot.message_handler(commands=['growmygrok'])
 def grow(message):
     user_id = message.from_user.id
     xp_gain = random.randint(10, 30)
+
     add_xp(user_id, xp_gain)
     bot.reply_to(message, f"✨ Your MegaGrok grows! +{xp_gain} XP")
 
-@bot.message_handler(commands=['profile'])
-def profile(message):
+@bot.message_handler(commands=['hop'])
+def hop(message):
     user_id = message.from_user.id
-    username = message.from_user.username
-    user = get_user(user_id, username)
+    quests = get_quests(user_id)
 
-    xp = user[1]
-    level = user[2]
-    form = user[3]
+    if quests["hop"] == 1:
+        bot.reply_to(message, "🐸 You've already done your Hop Ritual today!")
+        return
 
-    img = generate_profile_card(username, xp, level, form)
-    with open(img, "rb") as f:
-        bot.send_photo(message.chat.id, f)
+    xp_gain = random.randint(20, 50)
+    add_xp(user_id, xp_gain)
 
-@bot.message_handler(commands=['leaderboard'])
-def leaderboard(message):
-    cursor.execute("SELECT username, xp FROM users ORDER BY xp DESC LIMIT 10")
-    top = cursor.fetchall()
+    cursor.execute("UPDATE daily_quests SET quest_hop = 1 WHERE user_id = ?", (user_id,))
+    conn.commit()
 
-    text = "🏆 **MegaGrok Leaderboard**\n\n"
-    rank = 1
+    bot.reply_to(message, f"🐸✨ Hop Ritual complete! +{xp_gain} XP")
 
-    for user, xp in top:
-        text += f"{rank}. @{user} — {xp} XP\n"
-        rank += 1
+@bot.message_handler(commands=['fight'])
+def fight(message):
+    user_id = message.from_user.id
+    quests = get_quests(user_id)
 
-    bot.reply_to(message, text)
+    if quests["fight"] == 1:
+        bot.reply_to(message, "⚔️ You've already fought a FUDling today!")
+        return
+
+    win = random.choice([True, False])
+
+    if win:
+        xp = random.randint(50, 150)
+        bot.reply_to(message, f"⚡🐸 You defeated a FUDling! +{xp} XP")
+    else:
+        xp = random.randint(10, 20)
+        bot.reply_to(message, f"😵 You slipped but still gained wisdom. +{xp} XP")
+
+    add_xp(user_id, xp)
+
+    cursor.execute("UPDATE daily_quests SET quest_fight = 1 WHERE user_id = ?", (user_id,))
+    conn.commit()
 
 # -------------------------
-# START BOT
+# Start Bot
 # -------------------------
-bot.polling()
+
+bot.polling(none_stop=True)
