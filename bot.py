@@ -7,7 +7,6 @@ from telegram import ParseMode
 
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 
-# In-memory storage for MVP
 users = {}
 
 EVOLUTIONS = [
@@ -36,36 +35,29 @@ def get_stage(level, table):
 
 def grow(update, context):
     user_id = update.effective_user.id
-    username = update.effective_user.username or "Anonymous"
     now = datetime.datetime.utcnow()
 
-    # Initialize user if not exists
     if user_id not in users:
         users[user_id] = {"level": 1, "xp": 0, "last_grow": None}
 
     user = users[user_id]
 
-    # Check cooldown
     if user["last_grow"] and (now - user["last_grow"]).days < 1:
         update.message.reply_text("⏳ You can only grow once every 24 hours!")
         return
 
-    # Random XP
     xp_gain = random.randint(5, 20)
     old_level = user["level"]
     old_tier = get_stage(old_level, TIERS)
 
-    # Update XP and Level
     user["xp"] += xp_gain
     user["last_grow"] = now
-    user["level"] = user["xp"] // 10 + 1  # Example: every 10 XP = +1 level
+    user["level"] = user["xp"] // 10 + 1
     new_level = user["level"]
     new_tier = get_stage(new_level, TIERS)
 
-    # Evolution
     evolution = get_stage(new_level, EVOLUTIONS)
 
-    # Response
     msg = (
         f"🎉 Your MegaGrok absorbed cosmic hop-energy!
 "
@@ -117,7 +109,6 @@ def leaderboard(update, context):
 "
     update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
 
-# Bot setup
 updater = Updater(TOKEN)
 dp = updater.dispatcher
 dp.add_handler(CommandHandler("growmygrok", grow))
