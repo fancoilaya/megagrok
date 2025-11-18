@@ -116,16 +116,11 @@ def mygrok(update, context):
     art = ASCII_ART.get(evolution, "[Art Coming Soon]")
 
     msg = (
-        f"🐸 *MegaGrok Profile*
-"
-        f"Level: {user['level']}
-"
-        f"XP: {user['xp']}
-"
-        f"Evolution: {evolution}
-"
-        f"HopForce Tier: {tier}
-"
+        f"🐸 *MegaGrok Profile*"
+        f"Level: {user['level']}"
+        f"XP: {user['xp']}"
+        f"Evolution: {evolution}"
+        f"HopForce Tier: {tier}"
         f"{art}"
     )
     update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
@@ -136,11 +131,9 @@ def leaderboard(update, context):
         return
 
     sorted_users = sorted(users.items(), key=lambda x: (-x[1]["level"], -x[1]["xp"]))
-    msg = "*🏆 MegaGrok Leaderboard*
-"
+    msg = "*🏆 MegaGrok Leaderboard*"
     for i, (uid, data) in enumerate(sorted_users[:10], start=1):
-        msg += f"{i}. Level {data['level']} | XP {data['xp']}
-"
+        msg += f"{i}. Level {data['level']} | XP {data['xp']}"
     update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
 
 # ApplicationBuilder for v20+
