@@ -98,11 +98,11 @@ def leaderboard(update, context):
         msg += f"{i}. Level {data['level']} | XP {data['xp']}"
     update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
 
-updater = Updater(TOKEN)
-dp = updater.dispatcher
-dp.add_handler(CommandHandler("growmygrok", grow))
-dp.add_handler(CommandHandler("mygrok", mygrok))
-dp.add_handler(CommandHandler("leaderboard", leaderboard))
+app = ApplicationBuilder().token(TOKEN).build()
 
-updater.start_polling()
-updater.idle()
+app.add_handler(CommandHandler("growmygrok", grow))
+app.add_handler(CommandHandler("mygrok", mygrok))
+app.add_handler(CommandHandler("leaderboard", leaderboard))
+
+app.run_polling()
+
