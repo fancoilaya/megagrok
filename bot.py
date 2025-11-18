@@ -59,14 +59,10 @@ def grow(update, context):
     evolution = get_stage(new_level, EVOLUTIONS)
 
     msg = (
-        f"🎉 Your MegaGrok absorbed cosmic hop-energy!
-"
-        f"You gained *{xp_gain} XP* today.
-"
-        f"Current Level: {old_level} → {new_level}
-"
-        f"HopForce Tier: {old_tier} → {new_tier}
-"
+        f"🎉 Your MegaGrok absorbed cosmic hop-energy!"
+        f"You gained *{xp_gain} XP* today."
+        f"Current Level: {old_level} → {new_level}"
+        f"HopForce Tier: {old_tier} → {new_tier}"
         f"Evolution: {evolution}"
     )
     update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
@@ -82,16 +78,11 @@ def mygrok(update, context):
     tier = get_stage(user["level"], TIERS)
 
     msg = (
-        f"🐸 *MegaGrok Profile*
-"
-        f"Level: {user['level']}
-"
-        f"XP: {user['xp']}
-"
-        f"Evolution: {evolution}
-"
-        f"HopForce Tier: {tier}
-"
+        f"🐸 *MegaGrok Profile*"
+        f"Level: {user['level']}"
+        f"XP: {user['xp']}"
+        f"Evolution: {evolution}"
+        f"HopForce Tier: {tier}"
         f"[ASCII Art Coming Soon]"
     )
     update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
