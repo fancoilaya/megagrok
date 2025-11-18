@@ -3,7 +3,7 @@ import sqlite3
 import datetime
 import random
 
-API_KEY = "8531050065:AAGdzxcixGfmlBSKWMQARxA7MDRHWlyKJFA"
+API_KEY = "YOUR_API_KEY_HERE"
 bot = telebot.TeleBot(API_KEY)
 
 # -------------------------
@@ -86,4 +86,93 @@ def add_xp(user_id, amount):
 def reset_daily_quests(user_id):
     today = datetime.date.today().isoformat()
     cursor.execute("""
-        UPD
+        UPDATE daily_quests
+        SET quest_hop = 0, quest_hopium = 0, quest_fight = 0, reset_date = ?
+        WHERE user_id = ?
+    """, (today, user_id))
+    conn.commit()
+
+def get_quests(user_id):
+    today = datetime.date.today().isoformat()
+
+    cursor.execute("SELECT * FROM daily_quests WHERE user_id = ?", (user_id,))
+    row = cursor.fetchone()
+
+    if not row:
+        cursor.execute(
+            "INSERT INTO daily_quests (user_id, reset_date) VALUES (?, ?)",
+            (user_id, today)
+        )
+        conn.commit()
+        return get_quests(user_id)
+
+    _, hop, hopium, fight, reset_date = row
+
+    if reset_date != today:
+        reset_daily_quests(user_id)
+
+    return {"hop": hop, "hopium": hopium, "fight": fight}
+
+# -------------------------
+# Bot Commands
+# -------------------------
+
+@bot.message_handler(commands=['start'])
+def start(message):
+    bot.reply_to(message,
+        "🐸 Welcome to **MegaGrok Evolution Bot!**\n"
+        "Use /growmygrok to gain XP."
+    )
+
+@bot.message_handler(commands=['growmygrok'])
+def grow(message):
+    user_id = message.from_user.id
+    xp_gain = random.randint(10, 30)
+    add_xp(user_id, xp_gain)
+    bot.reply_to(message, f"✨ Your MegaGrok grows! +{xp_gain} XP")
+
+@bot.message_handler(commands=['hop'])
+def hop(message):
+    user_id = message.from_user.id
+    quests = get_quests(user_id)
+
+    if quests["hop"] == 1:
+        bot.reply_to(message, "🐸 You've already done your Hop Ritual today!")
+        return
+
+    xp_gain = random.randint(20, 50)
+    add_xp(user_id, xp_gain)
+
+    cursor.execute("UPDATE daily_quests SET quest_hop = 1 WHERE user_id = ?", (user_id,))
+    conn.commit()
+
+    bot.reply_to(message, f"🐸✨ Hop Ritual complete! +{xp_gain} XP")
+
+@bot.message_handler(commands=['fight'])
+def fight(message):
+    user_id = message.from_user.id
+    quests = get_quests(user_id)
+
+    if quests["fight"] == 1:
+        bot.reply_to(message, "⚔️ You've already fought a FUDling today!")
+        return
+
+    win = random.choice([True, False])
+
+    if win:
+        xp = random.randint(50, 150)
+        bot.reply_to(message, f"⚡🐸 You defeated a FUDling! +{xp} XP")
+    else:
+        xp = random.randint(10, 20)
+        bot.reply_to(message, f"😵 You slipped but still gained wisdom. +{xp} XP")
+
+    add_xp(user_id, xp)
+
+    cursor.execute("UPDATE daily_quests SET quest_fight = 1 WHERE user_id = ?", (user_id,))
+    conn.commit()
+
+# -------------------------
+# Start Bot
+# -------------------------
+
+bot.polling()
