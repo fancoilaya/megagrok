@@ -96,14 +96,10 @@ def grow(update, context):
     evolution = get_stage(new_level, EVOLUTIONS)
 
     msg = (
-        f"🎉 Your MegaGrok absorbed cosmic hop-energy!
-"
-        f"You gained *{xp_gain} XP* today.
-"
-        f"Current Level: {old_level} → {new_level}
-"
-        f"HopForce Tier: {old_tier} → {new_tier}
-"
+        f"🎉 Your MegaGrok absorbed cosmic hop-energy!"
+        f"You gained *{xp_gain} XP* today."
+        f"Current Level: {old_level} → {new_level}"
+        f"HopForce Tier: {old_tier} → {new_tier}"
         f"Evolution: {evolution}"
     )
     update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
