@@ -133,6 +133,7 @@ def start(message):
     bot.reply_to(message,
         "🐸 Welcome to **MegaGrok Evolution Bot!**\n"
         "Use /growmygrok to gain XP and evolve your Grok!"
+        "/help - Show the help menu.\n\n"
     )
 
 @bot.message_handler(commands=['growmygrok'])
