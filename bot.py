@@ -6,10 +6,10 @@ import random
 from PIL import Image, ImageDraw, ImageFont
 
 # -------------------------
-# Load API Key
+# Load API Key from Environment
 # -------------------------
 
-API_KEY = os.getenv("API_KEY")
+API_KEY = os.getenv("API_KEY")  # add in Render → Environment → API_KEY=xxxx
 bot = telebot.TeleBot(API_KEY)
 
 # -------------------------
@@ -107,6 +107,7 @@ def get_quests(user_id):
     cursor.execute("SELECT * FROM daily_quests WHERE user_id = ?", (user_id,))
     row = cursor.fetchone()
 
+    # Create row if missing
     if not row:
         cursor.execute("""
             INSERT INTO daily_quests (user_id, reset_date)
@@ -117,62 +118,11 @@ def get_quests(user_id):
 
     _, hop, hopium, fight, reset_date = row
 
+    # Reset if new day
     if reset_date != today:
         reset_daily_quests(user_id)
 
     return {"hop": hop, "hopium": hopium, "fight": fight}
-
-# -------------------------
-# PROFILE CARD GENERATOR
-# -------------------------
-
-def generate_profile_card(user_id, username, xp, level, form):
-    # Load correct frog image
-    if form == "Tadpole":
-        frog_img = Image.open("assets/tadpole.png").convert("RGBA")
-    elif form == "Hopper":
-        frog_img = Image.open("assets/hopper.png").convert("RGBA")
-    else:
-        frog_img = Image.open("assets/ascended.png").convert("RGBA")
-
-    # Create card canvas
-    card = Image.new("RGBA", (800, 400), (30, 30, 40, 255))
-    draw = ImageDraw.Draw(card)
-
-    # Paste frog art
-    frog_img = frog_img.resize((300, 300))
-    card.paste(frog_img, (20, 50), frog_img)
-
-    # Fonts (Render has DejaVu by default)
-    font_big = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 40)
-    font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 28)
-
-    # Username
-    draw.text((350, 40), f"@{username}", fill="white", font=font_big)
-
-    # Level + Form
-    draw.text((350, 120), f"Level: {level}", fill="white", font=font_small)
-    draw.text((350, 170), f"Form: {form}", fill="white", font=font_small)
-
-    # XP + Progress Bar
-    xp_needed = (level * 200)
-    progress = min(xp / xp_needed, 1.0)
-
-    draw.text((350, 230), f"XP: {xp} / {xp_needed}", fill="white", font=font_small)
-
-    # Progress background
-    bar_x, bar_y = 350, 280
-    bar_w, bar_h = 350, 30
-    draw.rectangle([bar_x, bar_y, bar_x + bar_w, bar_y + bar_h], fill=(70, 70, 90))
-
-    # Progress fill
-    draw.rectangle([bar_x, bar_y, bar_x + int(bar_w * progress), bar_y + bar_h], fill=(80, 200, 120))
-
-    # Save temporary file
-    filepath = f"profile_{user_id}.png"
-    card.save(filepath)
-
-    return filepath
 
 # -------------------------
 # Commands
@@ -184,21 +134,6 @@ def start(message):
         "🐸 Welcome to **MegaGrok Evolution Bot!**\n"
         "Use /growmygrok to gain XP and evolve your Grok!"
     )
-
-@bot.message_handler(commands=['profile'])
-def profile(message):
-    user_id = message.from_user.id
-    username = message.from_user.username or "Unknown"
-
-    user = get_user(user_id)
-    xp = user[1]
-    level = user[2]
-    form = user[3]
-
-    filepath = generate_profile_card(user_id, username, xp, level, form)
-
-    with open(filepath, "rb") as img:
-        bot.send_photo(message.chat.id, img)
 
 @bot.message_handler(commands=['growmygrok'])
 def grow(message):
@@ -247,6 +182,7 @@ def fight(message):
 
     cursor.execute("UPDATE daily_quests SET quest_fight = 1 WHERE user_id = ?", (user_id,))
     conn.commit()
+    
 
 # -------------------------
 # Start Bot
