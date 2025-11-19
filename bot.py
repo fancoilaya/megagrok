@@ -161,8 +161,25 @@ def start(message):
         "🐸 Welcome to MegaGrok Evolution Bot!\n"
         "Use /growmygrok to gain XP.\n"
         "Use /profile to see your Grok.\n"
-        "Use /leaderboard to see the top players."
+        "Use /leaderboard to see the top players.\n"
+        "Use /help to see commands.\n"                 
     )
+
+@bot.message_handler(commands=['help'])
+def help_command(message):
+    help_text = (
+        "🐸 *MegaGrok Bot Commands*\n\n"
+        "/start – Begin your MegaGrok journey\n"
+        "/help – Show this help menu\n"
+        "/profile – View your Grok’s profile card\n"
+        "/growmygrok – Gain XP (Randomized)\n"
+        "/hop – Daily Hop Ritual (1/day)\n"
+        "/fight – Fight a FUDling for XP (1/day)\n"
+        "/leaderboard – View the top MegaGrok players\n\n"
+        "✨ Level up your Grok, complete quests, and evolve into legendary forms!"
+    )
+    bot.reply_to(message, help_text, parse_mode="Markdown")
+
 
 @bot.message_handler(commands=['growmygrok'])
 def grow(message):
