@@ -3,6 +3,7 @@ import telebot
 import sqlite3
 import datetime
 import random
+from PIL import Image, ImageDraw, ImageFont
 
 # -------------------------
 # Load API Key from Environment
