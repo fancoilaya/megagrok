@@ -132,17 +132,30 @@ def get_quests(user_id):
 def start(message):
     bot.reply_to(message,
         "🐸 Welcome to **MegaGrok Evolution Bot!**\n"
-        "Use /growmygrok to gain XP and evolve your Grok!"
+        "Use /growmygrok to gain XP and evolve your Grok!\n"
         "/help - Show the help menu.\n\n"
     )
 
 @bot.message_handler(commands=['growmygrok'])
 def grow(message):
     user_id = message.from_user.id
-    xp_gain = random.randint(10, 30)
+    xp_gain = random.randint(-10, 20)
 
     add_xp(user_id, xp_gain)
-    bot.reply_to(message, f"✨ Your MegaGrok grows! +{xp_gain} XP")
+    user = get_user(user_id)
+
+    current_xp = user[1]
+    level = user[2]
+    next_level_xp = level * 200  # Example: 200 XP per level
+    progress = int((current_xp / next_level_xp) * 10)
+    progress_bar = "[" + "█" * progress + "-" * (10 - progress) + "]"
+
+    bot.reply_to(message,
+        f"✨ Your MegaGrok grows! +{xp_gain} XP\n"
+        f"Level: {level}\n"
+        f"XP: {current_xp}/{next_level_xp}\n"
+        f"Progress: {progress_bar}"
+    )
 
 @bot.message_handler(commands=['hop'])
 def hop(message):
