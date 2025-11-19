@@ -182,7 +182,20 @@ def fight(message):
 
     cursor.execute("UPDATE daily_quests SET quest_fight = 1 WHERE user_id = ?", (user_id,))
     conn.commit()
-    
+
+@bot.message_handler(commands=['help'])
+def help_command(message):
+    help_text = (
+        "🐸 **MegaGrok Bot Commands**\n\n"
+        "/start - Begin your MegaGrok journey.\n"
+        "/growmygrok - Feed your MegaGrok cosmic hop-energy! Gain XP and evolve.\n"
+        "/hop - Perform the Hop Ritual for extra XP (once per day).\n"
+        "/fight - Battle a FUDling for XP rewards.\n"
+        "/help - Show this help menu.\n\n"
+        "✨ Level up, complete quests, and evolve your MegaGrok into legendary forms!"
+    )
+    bot.reply_to(message, help_text)
+
 
 # -------------------------
 # Start Bot
