@@ -172,7 +172,12 @@ def hop(message):
     cursor.execute("UPDATE daily_quests SET quest_hop = 1 WHERE user_id = ?", (user_id,))
     conn.commit()
 
-    bot.reply_to(message, f"🐸✨ Hop Ritual complete! +{xp_gain} XP")
+    bot.reply_to(message,
+                f"🐸✨ Hop Ritual complete! +{xp_gain} XP\n"
+                f"🔍 *What is Hop Ritual?*\n"
+                f"Performing the Hop Ritual channels cosmic hop-energy to boost your MegaGrok's growth. "
+                f"You can do this once per day for extra XP!"
+                )
 
 @bot.message_handler(commands=['fight'])
 def fight(message):
