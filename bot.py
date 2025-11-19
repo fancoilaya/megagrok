@@ -138,15 +138,16 @@ def start(message):
 
 @bot.message_handler(commands=['growmygrok'])
 def grow(message):
-    user_id = message.from_user.id
-    xp_gain = random.randint(-10, 20)
+   
+user_id = message.from_user.id
+    xp_gain = random.randint(10, 30)
 
     add_xp(user_id, xp_gain)
     user = get_user(user_id)
 
     current_xp = user[1]
-    level = user[2]
-    next_level_xp = level * 200  # Example: 200 XP per level
+    level = max(user[2], 1)  # Ensure level is at least 1
+    next_level_xp = max(level * 200, 1)  # Avoid zero division
     progress = int((current_xp / next_level_xp) * 10)
     progress_bar = "[" + "█" * progress + "-" * (10 - progress) + "]"
 
