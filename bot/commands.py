@@ -17,16 +17,16 @@ def register_handlers(bot):
 
     @bot.message_handler(commands=['help'])
     def help_cmd(message):
-        help_text = (
-            "🐸 MegaGrok Commands\n"
-            "/start - Start\n"
-            "/help - This menu\n"
-            "/growmygrok - Gain XP\n"
-            "/hop - Daily hop (1/day)\n"
-            "/fight - Battle a mob (1/day)\n"
-            "/profile - View your profile card\n"
-            "/leaderboard - Top players\"
-        )
+        HELP_TEXT = (
+        "🐸 *MegaGrok Bot Commands*\n\n"
+        "/start - Begin your MegaGrok journey.\n"
+        "/growmygrok - Gain XP and evolve your Grok.\n"
+        "/profile - Show your Grok profile card.\n"
+        "/hop - Perform daily Hop Ritual.\n"
+        "/fight - Battle a mob for XP.\n"
+        "/leaderboard - View the top MegaGroks.\n"
+        "/help - Show this help menu.\n"
+    )
         bot.reply_to(message, help_text)
 
     def get_user_row(user_id, username=None):
