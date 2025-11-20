@@ -7,43 +7,48 @@ import random
 MOBS = [
     {
         "name": "FUDling",
-        "min_xp_win": 50,
-        "max_xp_win": 150,
-        "min_xp_fail": 10,
-        "max_xp_fail": 25,
-        "gif": "fudling.gif"
+        "intro": "A sneaky FUDling appears spreading doubt!",
+        "win_text": "You blasted the FUDling into oblivion! 💥",
+        "lose_text": "The FUDling confused you, but you still learned something.",
+        "min_xp": 50,
+        "max_xp": 150,
+        "gif": "assets/gifs/fight1.gif"
     },
     {
-        "name": "Bear Goblin",
-        "min_xp_win": 70,
-        "max_xp_win": 180,
-        "min_xp_fail": 15,
-        "max_xp_fail": 35,
-        "gif": "bear_goblin.gif"
+        "name": "Doom Hopper",
+        "intro": "A Doom Hopper drops from the sky, croaking menacingly!",
+        "win_text": "You out-hopped the Doom Hopper! ⚡",
+        "lose_text": "The Doom Hopper overwhelmed you with chaos hops!",
+        "min_xp": 40,
+        "max_xp": 120,
+        "gif": "assets/gifs/fight2.gif"
     },
     {
-        "name": "Rug Serpent",
-        "min_xp_win": 100,
-        "max_xp_win": 220,
-        "min_xp_fail": 20,
-        "max_xp_fail": 40,
-        "gif": "rug_serpent.gif"
+        "name": "FOMO Beast",
+        "intro": "The FOMO Beast charges at you at lightspeed!",
+        "win_text": "You tamed the FOMO Beast! 🐸🔥",
+        "lose_text": "FOMO clouded your mind… but you gained resilience.",
+        "min_xp": 60,
+        "max_xp": 160,
+        "gif": "assets/gifs/fight3.gif"
     },
     {
-        "name": "Liquidity Phantom",
-        "min_xp_win": 120,
-        "max_xp_win": 260,
-        "min_xp_fail": 25,
-        "max_xp_fail": 50,
-        "gif": "liq_phantom.gif"
+        "name": "Bear Ogre",
+        "intro": "A Bear Ogre emerges from the shadows!",
+        "win_text": "You slayed the Bear Ogre’s negativity! 🪓",
+        "lose_text": "The Bear Ogre smacked you, but wisdom grows!",
+        "min_xp": 70,
+        "max_xp": 180,
+        "gif": "assets/gifs/fight4.gif"
     },
     {
-        "name": "The Gas Fiend",
-        "min_xp_win": 80,
-        "max_xp_win": 200,
-        "min_xp_fail": 15,
-        "max_xp_fail": 30,
-        "gif": "gas_fiend.gif"
+        "name": "Hop Goblin",
+        "intro": "A Hop Goblin cackles and blocks your path!",
+        "win_text": "You defeated the Hop Goblin with supreme hop-power!",
+        "lose_text": "The Hop Goblin tricked you, but you’ll return stronger.",
+        "min_xp": 30,
+        "max_xp": 100,
+        "gif": "assets/gifs/fight5.gif"
     }
 ]
 
