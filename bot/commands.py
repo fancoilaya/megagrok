@@ -6,6 +6,7 @@ from bot.db import get_user, add_xp, get_quests, record_quest
 from bot.images import generate_profile_image, generate_leaderboard_image
 from bot.mobs import MOBS
 from bot.utils import safe_send_gif
+from bot.grokdex import GROKDEX
 
 
 # ------------------------
@@ -168,3 +169,50 @@ def register_handlers(bot: TeleBot):
                 bot.send_photo(message.chat.id, f)
         except Exception as e:
             bot.reply_to(message, f"Error generating leaderboard: {e}")
+
+    # ---------------- GROKDEX ----------------
+    @bot.message_handler(commands=['grokdex'])
+    def grokdex(message):
+        text = "📘 *MEGAGROK DEX — Known Creatures*\n\n"
+
+        for name, mob in GROKDEX.items():
+            text += f"• *{mob['name']}* — {mob['rarity']}\n"
+
+        text += "\nUse `/mob <name>` for details."
+
+        bot.reply_to(message, text, parse_mode="Markdown")
+
+    # ---------------- MOBS ----------------
+    @bot.message_handler(commands=['mob'])
+    def mob_info(message):
+       try:
+            name = message.text.split(" ", 1)[1].strip()
+        except:
+            bot.reply_to(message, "Usage: `/mob FUDling`", parse_mode="Markdown")
+            return
+
+        if name not in GROKDEX:
+            bot.reply_to(message, "❌ Creature not found in the GrokDex.")
+            return
+
+        mob = GROKDEX[name]
+
+    # Build text block
+    text = (
+        f"📘 *{mob['name']}*\n"
+        f"⭐ Rarity: *{mob['rarity']}*\n"
+        f"🎭 Type: {mob['type']}\n"
+        f"💥 Power: {mob['combat_power']}\n\n"
+        f"📜 *Lore*\n{mob['description']}\n\n"
+        f"⚔️ Strength: {mob['strength']}\n"
+        f"🛡 Weakness: {mob['weakness']}\n"
+        f"🎁 Drops: {', '.join(mob['drops'])}\n"
+    )
+
+    # Send portrait
+    try:
+        with open(mob["portrait"], "rb") as img:
+            bot.send_photo(message.chat.id, img, caption=text, parse_mode="Markdown")
+    except:
+        bot.reply_to(message, text, parse_mode="Markdown")
+
