@@ -147,20 +147,20 @@ def register_handlers(bot: TeleBot):
         )
 
    # ---------------- PROFILE ----------------
-@bot.message_handler(commands=['profile'])
-def profile(message):
-    user_id = message.from_user.id
-    user = get_user(user_id)
+    @bot.message_handler(commands=['profile'])
+    def profile(message):
+        user_id = message.from_user.id
+        user = get_user(user_id)
 
-    try:
-        # NEW: Pass the entire user dictionary
-        img_path = generate_profile_image(user)
+        try:
+            # NEW: Pass the entire user dictionary
+            img_path = generate_profile_image(user)
 
-        with open(img_path, "rb") as f:
-            bot.send_photo(message.chat.id, f)
+            with open(img_path, "rb") as f:
+                bot.send_photo(message.chat.id, f)
 
-    except Exception as e:
-        bot.reply_to(message, f"Error generating profile: {e}")
+        except Exception as e:
+            bot.reply_to(message, f"Error generating profile: {e}")
 
     # ---------------- LEADERBOARD ----------------
     @bot.message_handler(commands=['leaderboard'])
