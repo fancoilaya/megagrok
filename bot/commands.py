@@ -100,45 +100,57 @@ def register_handlers(bot: TeleBot):
 
     # ---------------- FIGHT ----------------
     @bot.message_handler(commands=['fight'])
-    def fight(message):
+        def fight(message):
         user_id = message.from_user.id
         quests = get_quests(user_id)
 
-        if quests["fight"] == 1:
-            bot.reply_to(message, "⚔️ You've already fought today!")
-            return
+    if quests["fight"] == 1:
+        bot.reply_to(message, "⚔️ You've already fought today! Come back tomorrow.")
+        return
 
-        # Select mob
-        mob = random.choice(MOBS)
+    # Choose a random mob
+    mob = random.choice(MOBS)
 
-        bot.reply_to(
-            message,
-            f"⚔️ **A wild {mob['name']} appears!**\n"
-            f"{mob['intro']}"
-        )
+    mob_name = mob["name"]
+    mob_intro = mob["intro"]
+    mob_portrait = mob["portrait"]
+    mob_gif = mob["gif"]
 
-        # Send GIF
-        if mob.get("gif"):
-            safe_send_gif(bot, message.chat.id, mob["gif"])
+    # Send intro text
+    bot.reply_to(message, f"⚔️ **{mob_name} Encounter!**\n\n{mob_intro}")
 
-        # Determine win
-        win = random.choice([True, False, False])  # harder mobs = 33% win
+    # Send mob portrait
+    try:
+        with open(mob_portrait, "rb") as img:
+            bot.send_photo(message.chat.id, img)
+    except Exception as e:
+        bot.reply_to(message, f"⚠️ Error loading mob portrait: {e}")
 
-        if win:
-            xp = random.randint(80, 150)
-            bot.send_message(
-                message.chat.id,
-                f"🔥 **Victory!**\nYour MegaGrok destroyed the {mob['name']}! +{xp} XP"
-            )
-        else:
-            xp = random.randint(10, 40)
-            bot.send_message(
-                message.chat.id,
-                f"💀 Defeat.\nThe {mob['name']} overpowered you, but you learned. +{xp} XP"
-            )
+    # Simulate win/loss
+    win = random.choice([True, False])
 
-        add_xp(user_id, xp)
-        record_quest(user_id, "fight")
+    if win:
+        xp = random.randint(mob["min_xp"], mob["max_xp"])
+        outcome_text = mob["win_text"]
+    else:
+        xp = random.randint(10, 25)
+        outcome_text = mob["lose_text"]
+
+    # Send fight GIF
+    safe_send_gif(bot, message.chat.id, mob_gif)
+
+    # Apply XP
+    add_xp(user_id, xp)
+
+    cursor.execute("UPDATE daily_quests SET quest_fight = 1 WHERE user_id = ?", (user_id,))
+    conn.commit()
+
+    bot.send_message(
+        message.chat.id,
+        f"{outcome_text}\n\n"
+        f"✨ **XP Gained:** {xp}"
+    )
+
 
     # ---------------- PROFILE ----------------
     @bot.message_handler(commands=['profile'])
