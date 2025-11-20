@@ -30,10 +30,10 @@ CREATE TABLE IF NOT EXISTS daily_quests (
 
 conn.commit()
 
-# --------------------------
-# Evolution System
-# --------------------------
 
+# --------------------------
+# EVOLUTION SYSTEM
+# --------------------------
 EVOLUTIONS = [
     (1, "Tadpole"),
     (5, "Hopper"),
@@ -51,9 +51,8 @@ def get_form(level):
 
 
 # --------------------------
-# USERS
+# USER OPERATIONS
 # --------------------------
-
 def get_user(user_id):
     cursor.execute("SELECT user_id, xp, level, form FROM users WHERE user_id = ?", (user_id,))
     row = cursor.fetchone()
@@ -87,16 +86,41 @@ def add_xp(user_id, amount):
     conn.commit()
 
 
+def get_top_users(limit=10):
+    """
+    Returns top users ordered by XP (descending).
+    Returns a list of dictionaries so other modules can use them easily.
+    """
+    cursor.execute("""
+        SELECT user_id, xp, level, form
+        FROM users
+        ORDER BY xp DESC
+        LIMIT ?
+    """, (limit,))
+
+    rows = cursor.fetchall()
+
+    result = []
+    for row in rows:
+        result.append({
+            "user_id": row[0],
+            "xp": row[1],
+            "level": row[2],
+            "form": row[3]
+        })
+    return result
+
+
 # --------------------------
 # DAILY QUESTS
 # --------------------------
-
 def get_quests(user_id):
     today = datetime.date.today().isoformat()
 
     cursor.execute("SELECT * FROM daily_quests WHERE user_id = ?", (user_id,))
     row = cursor.fetchone()
 
+    # Create row if new
     if not row:
         cursor.execute("""
             INSERT INTO daily_quests (user_id, reset_date)
@@ -107,7 +131,7 @@ def get_quests(user_id):
 
     _, hop, hopium, fight, reset_date = row
 
-    # Reset on new day
+    # Reset if day changed
     if reset_date != today:
         cursor.execute("""
             UPDATE daily_quests
@@ -118,6 +142,7 @@ def get_quests(user_id):
             WHERE user_id = ?
         """, (today, user_id))
         conn.commit()
+
         return {"hop": 0, "hopium": 0, "fight": 0}
 
     return {"hop": hop, "hopium": hopium, "fight": fight}
