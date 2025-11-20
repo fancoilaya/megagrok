@@ -100,7 +100,7 @@ def register_handlers(bot: TeleBot):
 
     # ---------------- FIGHT ----------------
     @bot.message_handler(commands=['fight'])
-        def fight(message):
+    def fight(message):
         user_id = message.from_user.id
         quests = get_quests(user_id)
 
@@ -110,7 +110,7 @@ def register_handlers(bot: TeleBot):
 
     # Choose a random mob
     mob = random.choice(MOBS)
-
+    
     mob_name = mob["name"]
     mob_intro = mob["intro"]
     mob_portrait = mob["portrait"]
