@@ -12,6 +12,7 @@ MOBS = [
         "lose_text": "The FUDling confused you, but you still learned something.",
         "min_xp": 50,
         "max_xp": 150,
+        "portrait": "assets/mobs/fudling.png",
         "gif": "assets/gifs/fight1.gif"
     },
     {
@@ -21,6 +22,7 @@ MOBS = [
         "lose_text": "The Doom Hopper overwhelmed you with chaos hops!",
         "min_xp": 40,
         "max_xp": 120,
+        "portrait": "assets/mobs/doomhopper.png",
         "gif": "assets/gifs/fight2.gif"
     },
     {
@@ -30,6 +32,7 @@ MOBS = [
         "lose_text": "FOMO clouded your mind… but you gained resilience.",
         "min_xp": 60,
         "max_xp": 160,
+        "portrait": "assets/mobs/fomobeast.png",
         "gif": "assets/gifs/fight3.gif"
     },
     {
@@ -39,6 +42,7 @@ MOBS = [
         "lose_text": "The Bear Ogre smacked you, but wisdom grows!",
         "min_xp": 70,
         "max_xp": 180,
+        "portrait": "assets/mobs/bearogre.png",
         "gif": "assets/gifs/fight4.gif"
     },
     {
@@ -48,9 +52,11 @@ MOBS = [
         "lose_text": "The Hop Goblin tricked you, but you’ll return stronger.",
         "min_xp": 30,
         "max_xp": 100,
+        "portrait": "assets/mobs/hopgoblin.png",
         "gif": "assets/gifs/fight5.gif"
     }
 ]
+
 
 
 # ------------------------------
