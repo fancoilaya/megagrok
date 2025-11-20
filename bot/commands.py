@@ -25,6 +25,19 @@ HELP_TEXT = (
     "Evolve your Grok, level up, complete quests and climb the ranks!"
 )
 
+start_text = (
+    "🐸🌌 *THE COSMIC AMPHIBIAN HAS AWAKENED* 🌌🐸\n\n"
+    "✨ A portal cracks open…\n"
+    "✨ Your MegaGrok emerges from the liquidity void…\n"
+    "✨ Your evolution begins *now*.\n\n"
+    "⚡ *Core Commands*\n"
+    "🐸 /growmygrok — Feed cosmic hop-energy\n"
+    "🔮 /hop — Daily ritual boost\n"
+    "⚔️ /fight — Battle Hop-Verse creatures\n"
+    "🧬 /profile — View your Grok\n"
+    "📜 /help — Full command list\n\n"
+    "🚀 Train him. Evolve him. Conquer the Hop-Verse."
+)
 
 # ------------------------
 # REGISTER COMMANDS
@@ -32,13 +45,10 @@ HELP_TEXT = (
 def register_handlers(bot: TeleBot):
 
     # ---------------- START ----------------
+    
     @bot.message_handler(commands=['start'])
     def start(message):
-        bot.reply_to(
-            message,
-            "🐸 Welcome to **MegaGrok Evolution!**\n"
-            "Use /growmygrok to begin your journey!"
-        )
+        bot.reply_to(message, start_text, parse_mode="Markdown")
 
     # ---------------- HELP ----------------
     @bot.message_handler(commands=['help'])
