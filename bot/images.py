@@ -1,45 +1,103 @@
-from PIL import Image, ImageDraw, ImageFont
 import os
+from PIL import Image, ImageDraw, ImageFont
 
-ASSETS = {
-    "Tadpole": "assets/tadpole.png",
-    "Hopper": "assets/hopper.png",
-    "Ascended Hopper": "assets/ascended.png",
-}
+ASSET_DIR = "assets"
 
-def generate_profile_card(username, level, xp):
-    # horizontal card 800x400
-    width, height = 800, 400
-    card = Image.new("RGBA", (width, height), (18, 18, 28, 255))
-    draw = ImageDraw.Draw(card)
-    try:
-        font_b = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 36)
-        font_m = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 24)
-    except:
-        font_b = ImageFont.load_default()
-        font_m = ImageFont.load_default()
-    draw.text((240, 40), f"@{username}", font=font_b, fill=(255,255,255,255))
-    draw.text((240, 90), f"Level {level}", font=font_m, fill=(200,200,200,255))
-    draw.text((240, 130), f"XP: {xp}/200", font=font_m, fill=(180,240,180,255))
-    bar_x, bar_y, bar_w, bar_h = 240, 170, 480, 28
-    draw.rectangle([bar_x, bar_y, bar_x+bar_w, bar_y+bar_h], fill=(50,50,60,255))
-    filled = int((xp/200)*bar_w) if xp>0 else 0
-    draw.rectangle([bar_x, bar_y, bar_x+filled, bar_y+bar_h], fill=(100,220,140,255))
-    form = "Tadpole"
-    if level >= 10:
-        form = "Ascended Hopper"
-    elif level >=5:
-        form = "Hopper"
-    sprite_path = ASSETS.get(form)
-    if sprite_path and os.path.exists(sprite_path):
-        try:
-            sprite = Image.open(sprite_path).convert("RGBA")
-            sprite = sprite.resize((360,360))
-            card.paste(sprite, (420,20), sprite)
-        except:
-            pass
-    out_dir = "profiles"
-    os.makedirs(out_dir, exist_ok=True)
-    out_path = os.path.join(out_dir, f"profile_{username}.png")
-    card.save(out_path)
-    return out_path
+# Non-TTF default font (always available)
+DEFAULT_FONT = ImageFont.load_default()
+
+
+# ----------------------------
+# Load Grok form image
+# ----------------------------
+def load_form_image(form_name):
+    form_map = {
+        "Tadpole": "tadpole.png",
+        "Hopper": "hopper.png",
+        "Ascended": "ascended.png"
+    }
+
+    filename = form_map.get(form_name, "tadpole.png")
+    path = os.path.join(ASSET_DIR, filename)
+
+    if not os.path.exists(path):
+        return None
+
+    return Image.open(path).convert("RGBA")
+
+
+# ----------------------------
+# Profile Image Generator
+# ----------------------------
+def generate_profile_image(user, xp_current, xp_next):
+    width, height = 600, 350
+    img = Image.new("RGBA", (width, height), (15, 15, 15, 255))
+    draw = ImageDraw.Draw(img)
+
+    # Title
+    draw.text((20, 20), f"MegaGrok Profile", font=DEFAULT_FONT, fill="white")
+
+    # Stats text
+    draw.text((20, 70), f"User ID: {user['user_id']}", font=DEFAULT_FONT, fill="white")
+    draw.text((20, 100), f"Level: {user['level']}", font=DEFAULT_FONT, fill="white")
+    draw.text((20, 130), f"Form: {user['form']}", font=DEFAULT_FONT, fill="white")
+    draw.text((20, 160), f"XP: {xp_current}/{xp_next}", font=DEFAULT_FONT, fill="white")
+
+    # XP bar
+    bar_x = 20
+    bar_y = 200
+    bar_width = 400
+    bar_height = 25
+
+    pct = min(max(xp_current / xp_next, 0), 1)
+    progress_width = int(bar_width * pct)
+
+    draw.rectangle([bar_x, bar_y, bar_x + bar_width, bar_y + bar_height], fill="#444444")
+    draw.rectangle([bar_x, bar_y, bar_x + progress_width, bar_y + bar_height], fill="#00FF00")
+
+    # Load Froggy sprite
+    sprite = load_form_image(user["form"])
+    if sprite:
+        sprite = sprite.resize((160, 160))
+        img.paste(sprite, (420, 160), sprite)
+
+    output_path = f"/tmp/profile_{user['user_id']}.png"
+    img.save(output_path)
+
+    return output_path
+
+
+# ----------------------------
+# Leaderboard Image Generator
+# ----------------------------
+def generate_leaderboard_image(rows):
+    width, height = 800, 1100
+    img = Image.new("RGBA", (width, height), (10, 10, 10, 255))
+    draw = ImageDraw.Draw(img)
+
+    draw.text((20, 20), "🏆 MegaGrok Leaderboard — Top 10", font=DEFAULT_FONT, fill="white")
+
+    y = 80
+
+    for rank, row in enumerate(rows, start=1):
+        user_id, xp, level, form = row
+
+        # Text line
+        draw.text(
+            (20, y),
+            f"{rank}. User {user_id} — Lv {level} — {form} — {xp} XP",
+            font=DEFAULT_FONT,
+            fill="white"
+        )
+
+        # Icon
+        sprite = load_form_image(form)
+        if sprite:
+            sprite_small = sprite.resize((80, 80))
+            img.paste(sprite_small, (700, y - 10), sprite_small)
+
+        y += 100
+
+    output_path = "/tmp/leaderboard.png"
+    img.save(output_path)
+    return output_path
