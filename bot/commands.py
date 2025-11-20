@@ -146,23 +146,21 @@ def register_handlers(bot: TeleBot):
             f"{outcome_text}\n\n✨ **XP Gained:** {xp}"
         )
 
-    # ---------------- PROFILE ----------------
-    @bot.message_handler(commands=['profile'])
-    def profile(message):
-        user_id = message.from_user.id
-        user = get_user(user_id)
+   # ---------------- PROFILE ----------------
+@bot.message_handler(commands=['profile'])
+def profile(message):
+    user_id = message.from_user.id
+    user = get_user(user_id)
 
-        try:
-            img_path = generate_profile_image(
-                user_id=user_id,
-                level=user["level"],
-                xp=user["xp"],
-                form=user["form"]
-            )
-            with open(img_path, "rb") as f:
-                bot.send_photo(message.chat.id, f)
-        except Exception as e:
-            bot.reply_to(message, f"Error generating profile: {e}")
+    try:
+        # NEW: Pass the entire user dictionary
+        img_path = generate_profile_image(user)
+
+        with open(img_path, "rb") as f:
+            bot.send_photo(message.chat.id, f)
+
+    except Exception as e:
+        bot.reply_to(message, f"Error generating profile: {e}")
 
     # ---------------- LEADERBOARD ----------------
     @bot.message_handler(commands=['leaderboard'])
