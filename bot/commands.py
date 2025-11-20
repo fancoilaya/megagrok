@@ -1,165 +1,159 @@
 import os
 import random
-from bot.db import get_db, init_db
-from bot.quests import get_quests
-from bot.fights import choose_enemy, pick_fight_gif
-from bot.images import generate_profile_card
-from bot.evolutions import evolve
+import datetime
+from telebot import TeleBot
+from PIL import Image, ImageDraw, ImageFont
 
-# Initialize DB on import
-init_db()
+from bot.db import get_user, add_xp, get_quests, record_quest
+from bot.images import generate_profile_image, generate_leaderboard_image
+from bot.mobs import MOBS
+from bot.utils import safe_send_gif
 
-def register_handlers(bot):
 
+# ------------------------
+# HELP TEXT
+# ------------------------
+HELP_TEXT = (
+    "🐸 **MegaGrok Bot Commands**\n\n"
+    "/start – Begin your journey.\n"
+    "/help – Show this help menu.\n"
+    "/growmygrok – Gain XP and grow your Grok.\n"
+    "/hop – Perform your daily hop ritual.\n"
+    "/fight – Fight a random mob for XP.\n"
+    "/profile – Show your Grok profile card.\n"
+    "/leaderboard – View the Top 10 Grok tamers.\n\n"
+    "Evolve your Grok, level up, complete quests and climb the ranks!"
+)
+
+
+# ------------------------
+# REGISTER COMMANDS
+# ------------------------
+def register_handlers(bot: TeleBot):
+
+    # ---------------- START ----------------
     @bot.message_handler(commands=['start'])
     def start(message):
-        bot.reply_to(message, "🐸 Welcome to MegaGrok! Use /help to see commands.")
+        bot.reply_to(
+            message,
+            "🐸 Welcome to **MegaGrok Evolution!**\n"
+            "Use /growmygrok to begin your journey!"
+        )
 
+    # ---------------- HELP ----------------
     @bot.message_handler(commands=['help'])
     def help_cmd(message):
-        HELP_TEXT = (
-        "🐸 *MegaGrok Bot Commands*\n\n"
-        "/start - Begin your MegaGrok journey.\n"
-        "/growmygrok - Gain XP and evolve your Grok.\n"
-        "/profile - Show your Grok profile card.\n"
-        "/hop - Perform daily Hop Ritual.\n"
-        "/fight - Battle a mob for XP.\n"
-        "/leaderboard - View the top MegaGroks.\n"
-        "/help - Show this help menu.\n"
-    )
-        bot.reply_to(message, help_text)
+        bot.reply_to(message, HELP_TEXT)
 
-    def get_user_row(user_id, username=None):
-        conn, cursor = get_db()
-        cursor.execute("SELECT user_id, xp, level, form, username FROM users WHERE user_id = ?", (user_id,))
-        row = cursor.fetchone()
-        if not row:
-            cursor.execute("INSERT INTO users (user_id, xp, level, form, username) VALUES (?, 0, 1, 'Tadpole', ?)", (user_id, username))
-            conn.commit()
-            cursor.execute("SELECT user_id, xp, level, form, username FROM users WHERE user_id = ?", (user_id,))
-            row = cursor.fetchone()
-        conn.close()
-        return row
-
-    def update_user_row(user_id, xp, level, form, username=None):
-        conn, cursor = get_db()
-        cursor.execute("UPDATE users SET xp = ?, level = ?, form = ?, username = ? WHERE user_id = ?", (xp, level, form, username, user_id))
-        conn.commit()
-        conn.close()
-
+    # ---------------- GROW ----------------
     @bot.message_handler(commands=['growmygrok'])
     def grow(message):
         user_id = message.from_user.id
-        username = message.from_user.username or message.from_user.first_name or str(user_id)
-        row = get_user_row(user_id, username)
-        xp = row['xp']
-        level = row['level']
-        gain = random.randint(5,35)
-        xp += gain
-        while xp >= 200:
-            xp -= 200
-            level += 1
-        form = evolve(level)
-        update_user_row(user_id, xp, level, form, username)
-        bot.reply_to(message, f"✨ +{gain} XP — Level {level} | {xp}/200 XP")
+        xp_gain = random.randint(5, 25)
 
+        add_xp(user_id, xp_gain)
+        user = get_user(user_id)
+        current_xp = user["xp"]
+        level = user["level"]
+        next_xp = level * 200
+
+        progress = int((current_xp / next_xp) * 10)
+        progress_bar = "█" * progress + "░" * (10 - progress)
+
+        bot.reply_to(
+            message,
+            f"✨ Your MegaGrok grew! +{xp_gain} XP\n"
+            f"**Level {level}**\n"
+            f"XP: {current_xp}/{next_xp}\n"
+            f"`{progress_bar}`"
+        )
+
+    # ---------------- HOP ----------------
     @bot.message_handler(commands=['hop'])
     def hop(message):
         user_id = message.from_user.id
-        username = message.from_user.username or message.from_user.first_name or str(user_id)
-        row = get_user_row(user_id, username)
         quests = get_quests(user_id)
-        if quests['hop'] == 1:
-            bot.reply_to(message, "You've already done /hop today!")
-            return
-        gain = random.randint(20,50)
-        xp = row['xp'] + gain
-        level = row['level']
-        while xp >= 200:
-            xp -= 200
-            level += 1
-        form = evolve(level)
-        update_user_row(user_id, xp, level, form, username)
-        conn, cursor = get_db()
-        cursor.execute("UPDATE daily_quests SET quest_hop = 1 WHERE user_id = ?", (user_id,))
-        conn.commit()
-        conn.close()
-        bot.reply_to(message, f"🐸 Hop ritual +{gain} XP — Level {level} | {xp}/200 XP")
 
+        if quests["hop"] == 1:
+            bot.reply_to(message, "🐸 You've already performed your Hop Ritual today!")
+            return
+
+        xp_gain = random.randint(20, 50)
+        add_xp(user_id, xp_gain)
+        record_quest(user_id, "hop")
+
+        bot.reply_to(
+            message,
+            f"🐸✨ Hop Ritual complete! +{xp_gain} XP\n"
+            f"The cosmic hop-energy flows through your MegaGrok!"
+        )
+
+    # ---------------- FIGHT ----------------
     @bot.message_handler(commands=['fight'])
     def fight(message):
         user_id = message.from_user.id
-        username = message.from_user.username or message.from_user.first_name or str(user_id)
-        row = get_user_row(user_id, username)
         quests = get_quests(user_id)
-        if quests['fight'] == 1:
+
+        if quests["fight"] == 1:
             bot.reply_to(message, "⚔️ You've already fought today!")
             return
-        enemy, min_xp, max_xp = choose_enemy()
-        outcome = random.choices(['win','crit','dodge','lose','loot'], weights=[55,8,12,15,10], k=1)[0]
-        if outcome == 'crit':
-            gain = random.randint(max_xp, max_xp+150)
-            text = f"💥 CRITICAL! You obliterated the {enemy}! +{gain} XP"
-        elif outcome == 'dodge':
-            gain = random.randint(20,40)
-            text = f"🌀 You dodged the {enemy}! +{gain} XP"
-        elif outcome == 'lose':
-            gain = random.randint(-10,10)
-            text = f"😵 You got hit by the {enemy}. {gain:+} XP"
-        elif outcome == 'loot':
-            gain = random.randint(30,70)
-            loot = random.choice(['Hop Crystal','Cosmic Pebble','FUD Shield'])
-            text = f"🎁 LOOT: {loot}! +{gain} XP"
-        else:
-            gain = random.randint(min_xp, max_xp)
-            text = f"⚡ Victory vs {enemy}! +{gain} XP"
-        xp = row['xp'] + gain
-        level = row['level']
-        while xp >= 200:
-            xp -= 200
-            level += 1
-        form = evolve(level)
-        update_user_row(user_id, xp, level, form, username)
-        conn, cursor = get_db()
-        cursor.execute("UPDATE daily_quests SET quest_fight = 1 WHERE user_id = ?", (user_id,))
-        conn.commit()
-        conn.close()
-        from bot.fights import pick_fight_gif
-        gif_path = pick_fight_gif()
-        if gif_path:
-            try:
-                with open(gif_path, 'rb') as g:
-                    bot.send_animation(message.chat.id, g)
-            except Exception:
-                pass
-        bot.reply_to(message, text)
 
+        # Select mob
+        mob = random.choice(MOBS)
+
+        bot.reply_to(
+            message,
+            f"⚔️ **A wild {mob['name']} appears!**\n"
+            f"{mob['intro']}"
+        )
+
+        # Send GIF
+        if mob.get("gif"):
+            safe_send_gif(bot, message.chat.id, mob["gif"])
+
+        # Determine win
+        win = random.choice([True, False, False])  # harder mobs = 33% win
+
+        if win:
+            xp = random.randint(80, 150)
+            bot.send_message(
+                message.chat.id,
+                f"🔥 **Victory!**\nYour MegaGrok destroyed the {mob['name']}! +{xp} XP"
+            )
+        else:
+            xp = random.randint(10, 40)
+            bot.send_message(
+                message.chat.id,
+                f"💀 Defeat.\nThe {mob['name']} overpowered you, but you learned. +{xp} XP"
+            )
+
+        add_xp(user_id, xp)
+        record_quest(user_id, "fight")
+
+    # ---------------- PROFILE ----------------
     @bot.message_handler(commands=['profile'])
     def profile(message):
         user_id = message.from_user.id
-        username = message.from_user.username or message.from_user.first_name or str(user_id)
-        row = get_user_row(user_id, username)
-        xp = row['xp']; level = row['level']
-        path = generate_profile_card(username, level, xp)
+        user = get_user(user_id)
+
         try:
-            with open(path, 'rb') as f:
+            img_path = generate_profile_image(
+                user_id=user_id,
+                level=user["level"],
+                xp=user["xp"],
+                form=user["form"]
+            )
+            with open(img_path, "rb") as f:
                 bot.send_photo(message.chat.id, f)
         except Exception as e:
-            bot.reply_to(message, f"Could not generate profile: {e}")
+            bot.reply_to(message, f"Error generating profile: {e}")
 
+    # ---------------- LEADERBOARD ----------------
     @bot.message_handler(commands=['leaderboard'])
     def leaderboard(message):
-        conn, cursor = get_db()
-        cursor.execute("SELECT username, xp, level, form FROM users ORDER BY level DESC, xp DESC LIMIT 10")
-        rows = cursor.fetchall()
-        conn.close()
-        if not rows:
-            bot.reply_to(message, "No players yet.")
-            return
-        lines = ["🏆 MegaGrok Leaderboard 🐸\n"]
-        rank = 1
-        for r in rows:
-            name = r['username'] or 'anonymous'
-            lines.append(f"{rank}. {name} — Lv{r['level']} {r['form']} — {r['xp']} XP")
-            rank += 1
-        bot.reply_to(message, "\n".join(lines))
+        try:
+            img_path = generate_leaderboard_image()
+            with open(img_path, "rb") as f:
+                bot.send_photo(message.chat.id, f)
+        except Exception as e:
+            bot.reply_to(message, f"Error generating leaderboard: {e}")
