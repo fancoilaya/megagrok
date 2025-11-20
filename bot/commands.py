@@ -1,6 +1,5 @@
 import os
 import random
-import datetime
 from telebot import TeleBot
 from PIL import Image, ImageDraw, ImageFont
 
@@ -39,13 +38,13 @@ start_text = (
     "🚀 Train him. Evolve him. Conquer the Hop-Verse."
 )
 
-# ------------------------
-# REGISTER COMMANDS
-# ------------------------
+
+# ---------------------------------------------------------
+# REGISTER ALL COMMAND HANDLERS
+# ---------------------------------------------------------
 def register_handlers(bot: TeleBot):
 
     # ---------------- START ----------------
-    
     @bot.message_handler(commands=['start'])
     def start(message):
         bot.reply_to(message, start_text, parse_mode="Markdown")
@@ -99,58 +98,53 @@ def register_handlers(bot: TeleBot):
         )
 
     # ---------------- FIGHT ----------------
-# ---------------- FIGHT ----------------
-@bot.message_handler(commands=['fight'])
-def fight(message):
-    user_id = message.from_user.id
-    quests = get_quests(user_id)
+    @bot.message_handler(commands=['fight'])
+    def fight(message):
+        user_id = message.from_user.id
+        quests = get_quests(user_id)
 
-    # Already fought today?
-    if quests["fight"] == 1:
-        bot.reply_to(message, "⚔️ You've already fought today! Come back tomorrow.")
-        return
+        if quests["fight"] == 1:
+            bot.reply_to(message, "⚔️ You've already fought today! Come back tomorrow.")
+            return
 
-    # Choose a random mob
-    mob = random.choice(MOBS)
+        # Pick a mob
+        mob = random.choice(MOBS)
+        mob_name = mob["name"]
+        mob_intro = mob["intro"]
+        mob_portrait = mob["portrait"]
+        mob_gif = mob["gif"]
 
-    mob_name = mob["name"]
-    mob_intro = mob["intro"]
-    mob_portrait = mob["portrait"]
-    mob_gif = mob["gif"]
+        # Send intro text
+        bot.reply_to(message, f"⚔️ **{mob_name} Encounter!**\n\n{mob_intro}")
 
-    # Send intro text
-    bot.reply_to(message, f"⚔️ **{mob_name} Encounter!**\n\n{mob_intro}")
+        # Send mob portrait
+        try:
+            with open(mob_portrait, "rb") as img:
+                bot.send_photo(message.chat.id, img)
+        except Exception as e:
+            bot.reply_to(message, f"⚠️ Error loading mob portrait: {e}")
 
-    # Send mob portrait
-    try:
-        with open(mob_portrait, "rb") as img:
-            bot.send_photo(message.chat.id, img)
-    except Exception as e:
-        bot.reply_to(message, f"⚠️ Error loading mob portrait: {e}")
+        # Determine win/loss
+        win = random.choice([True, False])
 
-    # Simulate win/loss
-    win = random.choice([True, False])
+        if win:
+            xp = random.randint(mob["min_xp"], mob["max_xp"])
+            outcome_text = mob["win_text"]
+        else:
+            xp = random.randint(10, 25)
+            outcome_text = mob["lose_text"]
 
-    if win:
-        xp = random.randint(mob["min_xp"], mob["max_xp"])
-        outcome_text = mob["win_text"]
-    else:
-        xp = random.randint(10, 25)
-        outcome_text = mob["lose_text"]
+        # Send animated fight GIF
+        safe_send_gif(bot, message.chat.id, mob_gif)
 
-    # Send fight GIF
-    safe_send_gif(bot, message.chat.id, mob_gif)
+        # Award XP
+        add_xp(user_id, xp)
+        record_quest(user_id, "fight")
 
-    # Apply XP and mark quest complete
-    add_xp(user_id, xp)
-    record_quest(user_id, "fight")
-
-    # Send result
-    bot.send_message(
-        message.chat.id,
-        f"{outcome_text}\n\n✨ **XP Gained:** {xp}"
-    )
-
+        bot.send_message(
+            message.chat.id,
+            f"{outcome_text}\n\n✨ **XP Gained:** {xp}"
+        )
 
     # ---------------- PROFILE ----------------
     @bot.message_handler(commands=['profile'])
