@@ -1,7 +1,6 @@
 import os
 import random
 from telebot import TeleBot
-from PIL import Image, ImageDraw, ImageFont
 
 from bot.db import get_user, add_xp, get_quests, record_quest
 from bot.images import generate_profile_image, generate_leaderboard_image
@@ -109,22 +108,23 @@ def register_handlers(bot: TeleBot):
 
         # Pick a mob
         mob = random.choice(MOBS)
+
         mob_name = mob["name"]
         mob_intro = mob["intro"]
         mob_portrait = mob["portrait"]
         mob_gif = mob["gif"]
 
-        # Send intro text
+        # Intro text
         bot.reply_to(message, f"⚔️ **{mob_name} Encounter!**\n\n{mob_intro}")
 
-        # Send mob portrait
+        # Portrait
         try:
             with open(mob_portrait, "rb") as img:
                 bot.send_photo(message.chat.id, img)
         except Exception as e:
             bot.reply_to(message, f"⚠️ Error loading mob portrait: {e}")
 
-        # Determine win/loss
+        # Outcome
         win = random.choice([True, False])
 
         if win:
@@ -134,10 +134,10 @@ def register_handlers(bot: TeleBot):
             xp = random.randint(10, 25)
             outcome_text = mob["lose_text"]
 
-        # Send animated fight GIF
+        # Fight GIF
         safe_send_gif(bot, message.chat.id, mob_gif)
 
-        # Award XP
+        # Award XP + record
         add_xp(user_id, xp)
         record_quest(user_id, "fight")
 
@@ -146,19 +146,16 @@ def register_handlers(bot: TeleBot):
             f"{outcome_text}\n\n✨ **XP Gained:** {xp}"
         )
 
-   # ---------------- PROFILE ----------------
+    # ---------------- PROFILE ----------------
     @bot.message_handler(commands=['profile'])
     def profile(message):
         user_id = message.from_user.id
         user = get_user(user_id)
 
         try:
-            # NEW: Pass the entire user dictionary
             img_path = generate_profile_image(user)
-
             with open(img_path, "rb") as f:
                 bot.send_photo(message.chat.id, f)
-
         except Exception as e:
             bot.reply_to(message, f"Error generating profile: {e}")
 
