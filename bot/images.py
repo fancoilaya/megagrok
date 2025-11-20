@@ -52,42 +52,38 @@ def load_form_image(form_name):
 # ----------------------------
 # Profile Image Generator
 # ----------------------------
-def generate_profile_image(user, xp_current, xp_next):
+def generate_profile_image(user_id, level, xp, form):
     width, height = 600, 350
     img = Image.new("RGBA", (width, height), (15, 15, 15, 255))
     draw = ImageDraw.Draw(img)
 
-    title_font = load_font(40)
-    stat_font = load_font(28)
+    # XP math
+    xp_current = xp
+    xp_next = level * 200
+    pct = min(max(xp_current / xp_next, 0), 1)
+    progress_width = int(400 * pct)
 
     # Title
-    draw.text((20, 20), "MegaGrok Profile", font=title_font, fill="white")
+    draw.text((20, 20), "MegaGrok Profile", font=DEFAULT_FONT, fill="white")
 
-    # Stats
-    draw.text((20, 80), f"User ID: {user['user_id']}", font=stat_font, fill="white")
-    draw.text((20, 120), f"Level: {user['level']}", font=stat_font, fill="white")
-    draw.text((20, 160), f"Form: {user['form']}", font=stat_font, fill="white")
-    draw.text((20, 200), f"XP: {xp_current}/{xp_next}", font=stat_font, fill="white")
+    # Stats text
+    draw.text((20, 70), f"User: {user_id}", font=DEFAULT_FONT, fill="white")
+    draw.text((20, 100), f"Level: {level}", font=DEFAULT_FONT, fill="white")
+    draw.text((20, 130), f"Form: {form}", font=DEFAULT_FONT, fill="white")
+    draw.text((20, 160), f"XP: {xp_current}/{xp_next}", font=DEFAULT_FONT, fill="white")
 
-    # XP bar
-    bar_x = 20
-    bar_y = 250
-    bar_width = 400
-    bar_height = 25
+    # XP bar background
+    draw.rectangle([20, 200, 20 + 400, 225], fill="#444444")
+    # XP bar fill
+    draw.rectangle([20, 200, 20 + progress_width, 225], fill="#00FF00")
 
-    pct = min(max(xp_current / xp_next, 0), 1)
-    progress_width = int(bar_width * pct)
-
-    draw.rectangle([bar_x, bar_y, bar_x + bar_width, bar_y + bar_height], fill="#444444")
-    draw.rectangle([bar_x, bar_y, bar_x + progress_width, bar_y + bar_height], fill="#00FF00")
-
-    # Grok sprite
-    sprite = load_form_image(user["form"])
+    # Load Grok sprite
+    sprite = load_form_image(form)
     if sprite:
         sprite = sprite.resize((160, 160))
         img.paste(sprite, (420, 160), sprite)
 
-    output_path = f"/tmp/profile_{user['user_id']}.png"
+    output_path = f"/tmp/profile_{user_id}.png"
     img.save(output_path)
 
     return output_path
