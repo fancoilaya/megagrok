@@ -20,7 +20,9 @@ HELP_TEXT = (
     "/hop – Perform your daily hop ritual.\n"
     "/fight – Fight a random mob for XP.\n"
     "/profile – Show your Grok profile card.\n"
-    "/leaderboard – View the Top 10 Grok tamers.\n\n"
+    "/leaderboard – View the Top 10 Grok tamers.\n"
+    "/grokdex – View all known creatures.\n"
+    "/mob <name> – Inspect a specific creature.\n\n"
     "Evolve your Grok, level up, complete quests and climb the ranks!"
 )
 
@@ -107,7 +109,6 @@ def register_handlers(bot: TeleBot):
             bot.reply_to(message, "⚔️ You've already fought today! Come back tomorrow.")
             return
 
-        # Pick a mob
         mob = random.choice(MOBS)
 
         mob_name = mob["name"]
@@ -115,17 +116,16 @@ def register_handlers(bot: TeleBot):
         mob_portrait = mob["portrait"]
         mob_gif = mob["gif"]
 
-        # Intro text
+        # Intro
         bot.reply_to(message, f"⚔️ **{mob_name} Encounter!**\n\n{mob_intro}")
 
         # Portrait
         try:
             with open(mob_portrait, "rb") as img:
                 bot.send_photo(message.chat.id, img)
-        except Exception as e:
-            bot.reply_to(message, f"⚠️ Error loading mob portrait: {e}")
+        except:
+            bot.reply_to(message, "⚠️ Failed to load mob portrait.")
 
-        # Outcome
         win = random.choice([True, False])
 
         if win:
@@ -135,10 +135,8 @@ def register_handlers(bot: TeleBot):
             xp = random.randint(10, 25)
             outcome_text = mob["lose_text"]
 
-        # Fight GIF
         safe_send_gif(bot, message.chat.id, mob_gif)
 
-        # Award XP + record
         add_xp(user_id, xp)
         record_quest(user_id, "fight")
 
@@ -175,44 +173,45 @@ def register_handlers(bot: TeleBot):
     def grokdex(message):
         text = "📘 *MEGAGROK DEX — Known Creatures*\n\n"
 
-        for name, mob in GROKDEX.items():
+        for key, mob in GROKDEX.items():
             text += f"• *{mob['name']}* — {mob['rarity']}\n"
 
         text += "\nUse `/mob <name>` for details."
 
         bot.reply_to(message, text, parse_mode="Markdown")
 
-    # ---------------- MOBS ----------------
+    # ---------------- SPECIFIC MOB INFO ----------------
     @bot.message_handler(commands=['mob'])
     def mob_info(message):
-       try:
+        # Extract name
+        try:
             name = message.text.split(" ", 1)[1].strip()
         except:
             bot.reply_to(message, "Usage: `/mob FUDling`", parse_mode="Markdown")
             return
 
+        # Validate
         if name not in GROKDEX:
             bot.reply_to(message, "❌ Creature not found in the GrokDex.")
             return
 
         mob = GROKDEX[name]
 
-    # Build text block
-    text = (
-        f"📘 *{mob['name']}*\n"
-        f"⭐ Rarity: *{mob['rarity']}*\n"
-        f"🎭 Type: {mob['type']}\n"
-        f"💥 Power: {mob['combat_power']}\n\n"
-        f"📜 *Lore*\n{mob['description']}\n\n"
-        f"⚔️ Strength: {mob['strength']}\n"
-        f"🛡 Weakness: {mob['weakness']}\n"
-        f"🎁 Drops: {', '.join(mob['drops'])}\n"
-    )
+        # Build info text
+        text = (
+            f"📘 *{mob['name']}*\n"
+            f"⭐ Rarity: *{mob['rarity']}*\n"
+            f"🎭 Type: {mob['type']}\n"
+            f"💥 Power: {mob['combat_power']}\n\n"
+            f"📜 *Lore*\n{mob['description']}\n\n"
+            f"⚔️ Strength: {mob['strength']}\n"
+            f"🛡 Weakness: {mob['weakness']}\n"
+            f"🎁 Drops: {', '.join(mob['drops'])}\n"
+        )
 
-    # Send portrait
-    try:
-        with open(mob["portrait"], "rb") as img:
-            bot.send_photo(message.chat.id, img, caption=text, parse_mode="Markdown")
-    except:
-        bot.reply_to(message, text, parse_mode="Markdown")
-
+        # Send portrait
+        try:
+            with open(mob["portrait"], "rb") as img:
+                bot.send_photo(message.chat.id, img, caption=text, parse_mode="Markdown")
+        except:
+            bot.reply_to(message, text, parse_mode="Markdown")
