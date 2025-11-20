@@ -99,10 +99,10 @@ def register_handlers(bot: TeleBot):
         )
 
     # ---------------- FIGHT ----------------
-    @bot.message_handler(commands=['fight'])
-    def fight(message):
-        user_id = message.from_user.id
-        quests = get_quests(user_id)
+  @bot.message_handler(commands=['fight'])
+def fight(message):
+    user_id = message.from_user.id
+    quests = get_quests(user_id)
 
     if quests["fight"] == 1:
         bot.reply_to(message, "⚔️ You've already fought today! Come back tomorrow.")
@@ -110,7 +110,7 @@ def register_handlers(bot: TeleBot):
 
     # Choose a random mob
     mob = random.choice(MOBS)
-    
+
     mob_name = mob["name"]
     mob_intro = mob["intro"]
     mob_portrait = mob["portrait"]
@@ -141,16 +141,13 @@ def register_handlers(bot: TeleBot):
 
     # Apply XP
     add_xp(user_id, xp)
-
-    cursor.execute("UPDATE daily_quests SET quest_fight = 1 WHERE user_id = ?", (user_id,))
-    conn.commit()
+    record_quest(user_id, "fight")  # replace old SQL with the correct helper if using modules
 
     bot.send_message(
         message.chat.id,
         f"{outcome_text}\n\n"
         f"✨ **XP Gained:** {xp}"
     )
-
 
     # ---------------- PROFILE ----------------
     @bot.message_handler(commands=['profile'])
