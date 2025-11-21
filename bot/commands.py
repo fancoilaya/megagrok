@@ -1,9 +1,15 @@
 import os
 import random
-from datetime import datetime, timedelta
 from telebot import TeleBot
 
-from bot.db import get_user, update_user_xp, get_quests, record_quest
+from bot.db import (
+    get_user,
+    update_user_xp,
+    get_quests,
+    record_quest,
+    increment_win,
+    increment_ritual
+)
 from bot.images import generate_profile_image, generate_leaderboard_image
 from bot.mobs import MOBS
 from bot.utils import safe_send_gif
@@ -43,72 +49,6 @@ start_text = (
 
 
 # ---------------------------------------------------------
-# XP SYSTEM HELPERS
-# ---------------------------------------------------------
-
-def xp_needed_for_level(level: int, factor: float = 1.15):
-    base = 200
-    return int(base * (factor ** (level - 1)))
-
-
-def xp_bar(current, needed, length=12):
-    pct = current / needed
-    filled = int(length * pct)
-    empty = length - filled
-    return f"⚡【{'█' * filled}{'▒' * empty}】⚡"
-
-
-GROW_COOLDOWN_MINUTES = 30
-last_grow_use = {}
-
-
-def process_xp(user, xp_change: int):
-    """
-    Applies XP change and returns (new_user_data, leveled_up, levels_gained)
-    Uses:
-      - xp_current
-      - xp_total
-      - xp_to_next_level
-    """
-
-    # Extract current values
-    xp_total = user["xp_total"]
-    xp_current = user["xp_current"]
-    xp_needed = user["xp_to_next_level"]
-    level = user["level"]
-    factor = user.get("level_curve_factor", 1.15)
-
-    # Apply XP gain/loss
-    xp_total += max(0, xp_change)  # total XP never decreases
-    xp_current += xp_change
-
-    # Clamp XP floor
-    if xp_current < 0:
-        xp_current = 0
-
-    # Handle multi-level leveling
-    levels_gained = 0
-    leveled_up = False
-
-    while xp_current >= xp_needed:
-        xp_current -= xp_needed
-        level += 1
-        levels_gained += 1
-        xp_needed = xp_needed_for_level(level, factor)
-        leveled_up = True
-
-    # Prepare updated dict for DB
-    updated_user = {
-        "xp_total": xp_total,
-        "xp_current": xp_current,
-        "xp_to_next_level": xp_needed,
-        "level": level
-    }
-
-    return updated_user, leveled_up, levels_gained
-
-
-# ---------------------------------------------------------
 # REGISTER ALL COMMAND HANDLERS
 # ---------------------------------------------------------
 def register_handlers(bot: TeleBot):
@@ -123,64 +63,47 @@ def register_handlers(bot: TeleBot):
     def help_cmd(message):
         bot.reply_to(message, HELP_TEXT)
 
-    # ---------------- GROW (NEW SYSTEM) ----------------
+    # ---------------- GROW ----------------
     @bot.message_handler(commands=['growmygrok'])
-    def growmygrok(message):
+    def grow(message):
         user_id = message.from_user.id
-        now = datetime.now()
-
-        # Cooldown check
-        if user_id in last_grow_use:
-            next_ok = last_grow_use[user_id] + timedelta(minutes=GROW_COOLDOWN_MINUTES)
-            if now < next_ok:
-                remain = int((next_ok - now).total_seconds() // 60)
-                bot.reply_to(message, f"⏳ Your Grok is still digesting cosmic energy… ({remain} min left)")
-                return
-
-        last_grow_use[user_id] = now
-
-        # XP gain/loss roll
-        outcome = random.choice(["gain", "gain", "gain", "loss"])
-        xp_change = random.randint(15, 35) if outcome == "gain" else -random.randint(5, 20)
-
-        # Get user
         user = get_user(user_id)
 
-        # Process XP through new system
-        updated_user, leveled_up, levels_gained = process_xp(user, xp_change)
+        # XP gain/loss
+        xp_gain = random.randint(-10, 25)
 
-        # Update DB
-        update_user_xp(user_id, updated_user)
+        # Update XP system
+        xp_total = max(user["xp_total"] + xp_gain, 0)
+        xp_current = max(user["xp_current"] + xp_gain, 0)
+        xp_to_next = user["xp_to_next_level"]
+        level = user["level"]
 
-        # Prepare response visuals
-        xp_current = updated_user["xp_current"]
-        xp_needed = updated_user["xp_to_next_level"]
-        level = updated_user["level"]
+        # Level up/down
+        if xp_current >= xp_to_next:
+            xp_current -= xp_to_next
+            level += 1
+            xp_to_next = int(xp_to_next * user["level_curve_factor"])
+        elif xp_current < 0 and level > 1:
+            level -= 1
+            xp_to_next = int(xp_to_next / user["level_curve_factor"])
+            xp_current = max(0, xp_current)
 
-        bar = xp_bar(xp_current, xp_needed)
+        update_user_xp(user_id, {
+            "xp_total": xp_total,
+            "xp_current": xp_current,
+            "xp_to_next_level": xp_to_next,
+            "level": level
+        })
 
-        # Text
-        if xp_change >= 0:
-            change_text = f"✨ Your MegaGrok grew! +{xp_change} XP"
-        else:
-            change_text = f"💀 Your Grok stumbled in the Hop-Verse… {xp_change} XP"
-
-        msg = (
-            f"{change_text}\n\n"
-            f"**Level {level}**\n"
-            f"{bar}\n"
-            f"XP: {xp_current}/{xp_needed}"
+        sign = "+" if xp_gain >= 0 else ""
+        bot.reply_to(
+            message,
+            f"✨ Your MegaGrok grew! {sign}{xp_gain} XP\n"
+            f"Level {level}\n"
+            f"XP: {xp_current}/{xp_to_next}"
         )
 
-        if leveled_up:
-            msg = (
-                f"🎉 *LEVEL UP!* Your MegaGrok ascended **{levels_gained} levels!**\n\n" +
-                msg
-            )
-
-        bot.reply_to(message, msg, parse_mode="Markdown")
-
-    # ---------------- HOP ----------------
+    # ---------------- HOP (RITUAL) ----------------
     @bot.message_handler(commands=['hop'])
     def hop(message):
         user_id = message.from_user.id
@@ -193,10 +116,29 @@ def register_handlers(bot: TeleBot):
         xp_gain = random.randint(20, 50)
         user = get_user(user_id)
 
-        updated_user, _, _ = process_xp(user, xp_gain)
-        update_user_xp(user_id, updated_user)
+        # XP updates
+        xp_total = user["xp_total"] + xp_gain
+        xp_current = user["xp_current"] + xp_gain
+        xp_to_next = user["xp_to_next_level"]
+        level = user["level"]
 
+        if xp_current >= xp_to_next:
+            xp_current -= xp_to_next
+            level += 1
+            xp_to_next = int(xp_to_next * user["level_curve_factor"])
+
+        update_user_xp(user_id, {
+            "xp_total": xp_total,
+            "xp_current": xp_current,
+            "xp_to_next_level": xp_to_next,
+            "level": level
+        })
+
+        # Record daily ritual
         record_quest(user_id, "hop")
+
+        # 🟩 NEW: Count ritual stat
+        increment_ritual(user_id, 1)
 
         bot.reply_to(
             message,
@@ -234,16 +176,34 @@ def register_handlers(bot: TeleBot):
         if win:
             xp = random.randint(mob["min_xp"], mob["max_xp"])
             outcome_text = mob["win_text"]
+
+            # 🟩 NEW: Register win + mob defeated
+            increment_win(user_id, 1)
+
         else:
             xp = random.randint(10, 25)
             outcome_text = mob["lose_text"]
 
         safe_send_gif(bot, message.chat.id, mob_gif)
 
-        # Apply XP
+        # XP update
         user = get_user(user_id)
-        updated_user, _, _ = process_xp(user, xp)
-        update_user_xp(user_id, updated_user)
+        xp_total = user["xp_total"] + xp
+        xp_current = user["xp_current"] + xp
+        xp_to_next = user["xp_to_next_level"]
+        level = user["level"]
+
+        if xp_current >= xp_to_next:
+            xp_current -= xp_to_next
+            level += 1
+            xp_to_next = int(xp_to_next * user["level_curve_factor"])
+
+        update_user_xp(user_id, {
+            "xp_total": xp_total,
+            "xp_current": xp_current,
+            "xp_to_next_level": xp_to_next,
+            "level": level
+        })
 
         record_quest(user_id, "fight")
 
@@ -275,46 +235,4 @@ def register_handlers(bot: TeleBot):
         except Exception as e:
             bot.reply_to(message, f"Error generating leaderboard: {e}")
 
-    # ---------------- GROKDEX ----------------
-    @bot.message_handler(commands=['grokdex'])
-    def grokdex(message):
-        text = "📘 *MEGAGROK DEX — Known Creatures*\n\n"
-
-        for key, mob in GROKDEX.items():
-            text += f"• *{mob['name']}* — {mob['rarity']}\n"
-
-        text += "\nUse `/mob <name>` for details."
-
-        bot.reply_to(message, text, parse_mode="Markdown")
-
-    # ---------------- SPECIFIC MOB INFO ----------------
-    @bot.message_handler(commands=['mob'])
-    def mob_info(message):
-        try:
-            name = message.text.split(" ", 1)[1].strip()
-        except:
-            bot.reply_to(message, "Usage: `/mob FUDling`", parse_mode="Markdown")
-            return
-
-        if name not in GROKDEX:
-            bot.reply_to(message, "❌ Creature not found in the GrokDex.")
-            return
-
-        mob = GROKDEX[name]
-
-        text = (
-            f"📘 *{mob['name']}*\n"
-            f"⭐ Rarity: *{mob['rarity']}*\n"
-            f"🎭 Type: {mob['type']}\n"
-            f"💥 Power: {mob['combat_power']}\n\n"
-            f"📜 *Lore*\n{mob['description']}\n\n"
-            f"⚔️ Strength: {mob['strength']}\n"
-            f"🛡 Weakness: {mob['weakness']}\n"
-            f"🎁 Drops: {', '.join(mob['drops'])}\n"
-        )
-
-        try:
-            with open(mob["portrait"], "rb") as img:
-                bot.send_photo(message.chat.id, img, caption=text, parse_mode="Markdown")
-        except:
-            bot.reply_to(message, text, parse_mode="Markdown")
+    # -
