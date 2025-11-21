@@ -268,7 +268,8 @@ def generate_profile_image(user):
     # Left column: XP big
     left_w = int(inner_w * 0.55)
     # XP heading
-    outline_text(draw, (px + 8, py), "XP", SMALL_FONT, fill=deep_purple := (45, 14, 60), outline=black, stroke=2)
+    deep_purple = (45, 14, 60)
+    outline_text(draw, (px + 8, py), "XP", SMALL_FONT, fill=deep_purple, outline=black, stroke=2)
     outline_text(draw, (px + 8, py + 36), f"{xp_current} / {xp_next}", NUM_FONT, fill=deep_purple, outline=black, stroke=4)
     # progress bar
     bar_bbox = (px + 8, py + 120, px + 8 + left_w - 24, py + 120 + 36)
