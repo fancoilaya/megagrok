@@ -209,4 +209,10 @@ def generate_leaderboard_image():
         # Comic FX for top rankings
         if rank <= 3 and os.path.exists(icon_comic):
             fx = Image.open(icon_comic).convert("RGBA").resize((90, 90))
-            img.paste(fx,
+            img.paste(fx, (width - 160, y + 15), fx)
+
+        y += 140
+
+    out = "/tmp/leaderboard.png"
+    img.save(out)
+    return out
