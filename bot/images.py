@@ -260,12 +260,26 @@ def generate_profile_image(user):
 
     # Small level badge centered on the ring
     lvl_badge_radius = 28
-    badge_box = [sprite_cx - lvl_badge_radius, sprite_cy + 90, sprite_cx + lvl_badge_radius, sprite_cy + 90 + lvl_badge_radius*2]
+    badge_box = [
+        sprite_cx - lvl_badge_radius,
+        sprite_cy + 90,
+        sprite_cx + lvl_badge_radius,
+        sprite_cy + 90 + lvl_badge_radius * 2
+    ]
     draw.ellipse(badge_box, fill=(20, 150, 110))
-    # draw level number centered in the badge
+
+    # Draw level number centered in the badge (modern Pillow-safe)
     level_text = str(level)
-    w, h = draw.textsize(level_text, font=big_font)
-    draw.text((sprite_cx - w//2, sprite_cy + 98), level_text, font=big_font, fill=(255, 255, 255))
+    bbox = draw.textbbox((0, 0), level_text, font=big_font)
+    w = bbox[2] - bbox[0]
+    h = bbox[3] - bbox[1]
+
+    draw.text(
+        (sprite_cx - w // 2, sprite_cy + 98),
+        level_text,
+        font=big_font,
+        fill=(255, 255, 255)
+    )
 
     # Save
     out_path = f"/tmp/profile_{user_id}.png"
