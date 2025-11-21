@@ -22,7 +22,7 @@ GROKDEX = {
             "with destructive hop-energy.",
         "weakness": "Light",
         "strength": "Burst damage",
-        "portrait": "assets/mobs/doom_hopper.png",
+        "portrait": "assets/mobs/doomhopper.png",
         "combat_power": 3,
         "drops": ["+XP", "Hopium Core"]
     },
@@ -36,7 +36,7 @@ GROKDEX = {
             "Every growl sends prices down 3%.",
         "weakness": "Bullish Sentiment",
         "strength": "Tanky HP",
-        "portrait": "assets/mobs/bear_ogre.png",
+        "portrait": "assets/mobs/bearogre.png",
         "combat_power": 4,
         "drops": ["+XP", "Bull Talisman"]
     },
