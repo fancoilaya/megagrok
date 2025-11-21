@@ -1,6 +1,5 @@
 import sqlite3
 import datetime
-import math
 
 DB_PATH = "grok.db"
 
@@ -10,7 +9,8 @@ DB_PATH = "grok.db"
 conn = sqlite3.connect(DB_PATH, check_same_thread=False)
 cursor = conn.cursor()
 
-# --- USERS TABLE MIGRATION / CREATION ---
+
+# --- USERS TABLE (original) ---
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS users (
     user_id INTEGER PRIMARY KEY,
@@ -20,14 +20,22 @@ CREATE TABLE IF NOT EXISTS users (
 )
 """)
 
-# New upgraded columns (added safely if missing)
-cursor.execute("ALTER TABLE users ADD COLUMN xp_total INTEGER DEFAULT 0") if "xp_total" not in [c[1] for c in cursor.execute("PRAGMA table_info(users)")] else None
-cursor.execute("ALTER TABLE users ADD COLUMN xp_current INTEGER DEFAULT 0") if "xp_current" not in [c[1] for c in cursor.execute("PRAGMA table_info(users)")] else None
-cursor.execute("ALTER TABLE users ADD COLUMN xp_to_next_level INTEGER DEFAULT 200") if "xp_to_next_level" not in [c[1] for c in cursor.execute("PRAGMA table_info(users)")] else None
-cursor.execute("ALTER TABLE users ADD COLUMN level_curve_factor FLOAT DEFAULT 1.15") if "level_curve_factor" not in [c[1] for c in cursor.execute("PRAGMA table_info(users)")] else None
-cursor.execute("ALTER TABLE users ADD COLUMN last_xp_change TEXT") if "last_xp_change" not in [c[1] for c in cursor.execute("PRAGMA table_info(users)")] else None
 
-# DAILY QUESTS TABLE
+# --- Automatic schema upgrades (safe migrations) ---
+existing_cols = [c[1] for c in cursor.execute("PRAGMA table_info(users)").fetchall()]
+
+def add_column_if_missing(col, definition):
+    if col not in existing_cols:
+        cursor.execute(f"ALTER TABLE users ADD COLUMN {col} {definition}")
+
+add_column_if_missing("xp_total", "INTEGER DEFAULT 0")
+add_column_if_missing("xp_current", "INTEGER DEFAULT 0")
+add_column_if_missing("xp_to_next_level", "INTEGER DEFAULT 200")
+add_column_if_missing("level_curve_factor", "FLOAT DEFAULT 1.15")
+add_column_if_missing("last_xp_change", "TEXT")
+
+
+# --- DAILY QUESTS TABLE ---
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS daily_quests (
     user_id INTEGER PRIMARY KEY,
@@ -45,7 +53,6 @@ conn.commit()
 # LEVEL CURVE
 # --------------------------
 def xp_needed_for_level(level: int, factor: float = 1.15):
-    """Return dynamic XP needed for a given level."""
     base = 200
     return int(base * (factor ** (level - 1)))
 
@@ -70,15 +77,19 @@ def get_form(level):
 # USER OPERATIONS
 # --------------------------
 def get_user(user_id):
+    """
+    Returns the full upgraded user row.
+    If the user does not exist, it is created with full new XP system fields.
+    """
     cursor.execute("""
-        SELECT user_id, xp_total, xp_current, xp_to_next_level, level,
-               form, level_curve_factor, last_xp_change
+        SELECT user_id, xp_total, xp_current, xp_to_next_level,
+               level, form, level_curve_factor, last_xp_change
         FROM users WHERE user_id = ?
     """, (user_id,))
     row = cursor.fetchone()
 
-    # Create new user with upgraded structure
     if not row:
+        # NEW USER INIT (full new XP system)
         cursor.execute("""
             INSERT INTO users (user_id, xp_total, xp_current, xp_to_next_level, level, form)
             VALUES (?, 0, 0, 200, 1, 'Tadpole')
@@ -98,22 +109,53 @@ def get_user(user_id):
     }
 
 
-def update_user_xp(user_id, u):
-    """Updates user XP, level, form and timestamps."""
-    new_form = get_form(u["level"])
+def update_user_xp(user_id, data):
+    """Updates XP, level, form, and timestamp."""
+    new_form = get_form(data["level"])
     now = datetime.datetime.utcnow().isoformat()
 
     cursor.execute("""
         UPDATE users
         SET xp_total = ?, xp_current = ?, xp_to_next_level = ?,
-            level = ?, form = ?, last_xp_change = ?
+            level = ?, form = ?, level_curve_factor = level_curve_factor,
+            last_xp_change = ?
         WHERE user_id = ?
     """, (
-        u["xp_total"], u["xp_current"], u["xp_to_next_level"],
-        u["level"], new_form, now,
-        user_id
+        data["xp_total"], data["xp_current"], data["xp_to_next_level"],
+        data["level"], new_form, now, user_id
     ))
     conn.commit()
+
+
+# --------------------------
+# LEADERBOARD
+# --------------------------
+def get_top_users(limit=10):
+    """
+    Returns top users ordered by xp_total (lifetime XP).
+    Used by profile images and leaderboard.
+    """
+    cursor.execute("""
+        SELECT user_id, xp_total, xp_current, xp_to_next_level, level, form
+        FROM users
+        ORDER BY xp_total DESC
+        LIMIT ?
+    """, (limit,))
+
+    rows = cursor.fetchall()
+    result = []
+
+    for row in rows:
+        result.append({
+            "user_id": row[0],
+            "xp_total": row[1],
+            "xp_current": row[2],
+            "xp_to_next_level": row[3],
+            "level": row[4],
+            "form": row[5]
+        })
+
+    return result
 
 
 # --------------------------
@@ -135,7 +177,7 @@ def get_quests(user_id):
 
     _, hop, hopium, fight, reset_date = row
 
-    # Daily reset
+    # Reset daily counters if needed
     if reset_date != today:
         cursor.execute("""
             UPDATE daily_quests
