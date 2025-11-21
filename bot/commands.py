@@ -1,4 +1,5 @@
 import os
+import time
 import random
 from telebot import TeleBot
 
@@ -14,6 +15,7 @@ from bot.images import generate_profile_image, generate_leaderboard_image
 from bot.mobs import MOBS
 from bot.utils import safe_send_gif
 from bot.grokdex import GROKDEX
+from PIL import Image
 
 
 # ------------------------
@@ -49,7 +51,7 @@ start_text = (
 
 
 # ---------------------------------------------------------
-# REGISTER ALL COMMAND HANDLERS
+# MAIN HANDLER REGISTRATION
 # ---------------------------------------------------------
 def register_handlers(bot: TeleBot):
 
@@ -58,10 +60,12 @@ def register_handlers(bot: TeleBot):
     def start(message):
         bot.reply_to(message, start_text, parse_mode="Markdown")
 
+
     # ---------------- HELP ----------------
     @bot.message_handler(commands=['help'])
     def help_cmd(message):
         bot.reply_to(message, HELP_TEXT)
+
 
     # ---------------- GROW ----------------
     @bot.message_handler(commands=['growmygrok'])
@@ -69,20 +73,19 @@ def register_handlers(bot: TeleBot):
         user_id = message.from_user.id
         user = get_user(user_id)
 
-        # XP gain/loss
         xp_gain = random.randint(-10, 25)
 
-        # Update XP system
         xp_total = max(user["xp_total"] + xp_gain, 0)
         xp_current = max(user["xp_current"] + xp_gain, 0)
         xp_to_next = user["xp_to_next_level"]
         level = user["level"]
 
-        # Level up/down
+        # level adjustments
         if xp_current >= xp_to_next:
             xp_current -= xp_to_next
             level += 1
             xp_to_next = int(xp_to_next * user["level_curve_factor"])
+
         elif xp_current < 0 and level > 1:
             level -= 1
             xp_to_next = int(xp_to_next / user["level_curve_factor"])
@@ -103,6 +106,7 @@ def register_handlers(bot: TeleBot):
             f"XP: {xp_current}/{xp_to_next}"
         )
 
+
     # ---------------- HOP (RITUAL) ----------------
     @bot.message_handler(commands=['hop'])
     def hop(message):
@@ -116,7 +120,6 @@ def register_handlers(bot: TeleBot):
         xp_gain = random.randint(20, 50)
         user = get_user(user_id)
 
-        # XP updates
         xp_total = user["xp_total"] + xp_gain
         xp_current = user["xp_current"] + xp_gain
         xp_to_next = user["xp_to_next_level"]
@@ -134,10 +137,7 @@ def register_handlers(bot: TeleBot):
             "level": level
         })
 
-        # Record daily ritual
         record_quest(user_id, "hop")
-
-        # 🟩 NEW: Count ritual stat
         increment_ritual(user_id, 1)
 
         bot.reply_to(
@@ -145,6 +145,7 @@ def register_handlers(bot: TeleBot):
             f"🐸✨ Hop Ritual complete! +{xp_gain} XP\n"
             f"The cosmic hop-energy flows through your MegaGrok!"
         )
+
 
     # ---------------- FIGHT ----------------
     @bot.message_handler(commands=['fight'])
@@ -158,15 +159,10 @@ def register_handlers(bot: TeleBot):
 
         mob = random.choice(MOBS)
 
-        mob_name = mob["name"]
-        mob_intro = mob["intro"]
-        mob_portrait = mob["portrait"]
-        mob_gif = mob["gif"]
-
-        bot.reply_to(message, f"⚔️ **{mob_name} Encounter!**\n\n{mob_intro}")
+        bot.reply_to(message, f"⚔️ **{mob['name']} Encounter!**\n\n{mob['intro']}", parse_mode="Markdown")
 
         try:
-            with open(mob_portrait, "rb") as img:
+            with open(mob["portrait"], "rb") as img:
                 bot.send_photo(message.chat.id, img)
         except:
             bot.reply_to(message, "⚠️ Failed to load mob portrait.")
@@ -176,17 +172,13 @@ def register_handlers(bot: TeleBot):
         if win:
             xp = random.randint(mob["min_xp"], mob["max_xp"])
             outcome_text = mob["win_text"]
-
-            # 🟩 NEW: Register win + mob defeated
             increment_win(user_id, 1)
-
         else:
             xp = random.randint(10, 25)
             outcome_text = mob["lose_text"]
 
-        safe_send_gif(bot, message.chat.id, mob_gif)
+        safe_send_gif(bot, message.chat.id, mob["gif"])
 
-        # XP update
         user = get_user(user_id)
         xp_total = user["xp_total"] + xp
         xp_current = user["xp_current"] + xp
@@ -212,18 +204,48 @@ def register_handlers(bot: TeleBot):
             f"{outcome_text}\n\n✨ **XP Gained:** {xp}"
         )
 
+
     # ---------------- PROFILE ----------------
     @bot.message_handler(commands=['profile'])
     def profile(message):
+        """
+        Fog-proof version: converts PNG → flattened JPEG before sending.
+        Prevents Telegram client preview tinting.
+        """
         user_id = message.from_user.id
         user = get_user(user_id)
 
         try:
-            img_path = generate_profile_image(user)
-            with open(img_path, "rb") as f:
+            png_path = generate_profile_image(user)
+
+            # Unique safe jpeg path
+            jpeg_path = f"/tmp/profile_{user_id}_{int(time.time())}.jpg"
+
+            img = Image.open(png_path).convert("RGBA")
+            paper = (255, 249, 230)
+            bg = Image.new("RGB", img.size, paper)
+
+            if img.mode == "RGBA":
+                bg.paste(img, mask=img.split()[3])
+            else:
+                bg.paste(img)
+
+            bg.save(jpeg_path, format="JPEG", quality=95)
+
+            with open(jpeg_path, "rb") as f:
                 bot.send_photo(message.chat.id, f)
+
+            # clean temp jpeg
+            try:
+                os.remove(jpeg_path)
+            except:
+                pass
+
         except Exception as e:
             bot.reply_to(message, f"Error generating profile: {e}")
+            print("PROFILE ERROR:", e)
+
+
 
     # ---------------- LEADERBOARD ----------------
     @bot.message_handler(commands=['leaderboard'])
@@ -235,4 +257,47 @@ def register_handlers(bot: TeleBot):
         except Exception as e:
             bot.reply_to(message, f"Error generating leaderboard: {e}")
 
-    # -
+
+    # ---------------- GROKDEX ----------------
+    @bot.message_handler(commands=['grokdex'])
+    def grokdex(message):
+        text = "📘 *MEGAGROK DEX — Known Creatures*\n\n"
+
+        for key, mob in GROKDEX.items():
+            text += f"• *{mob['name']}* — {mob['rarity']}\n"
+
+        text += "\nUse `/mob <name>` for details."
+        bot.reply_to(message, text, parse_mode="Markdown")
+
+
+    # ---------------- MOB INFO ----------------
+    @bot.message_handler(commands=['mob'])
+    def mob_info(message):
+        try:
+            name = message.text.split(" ", 1)[1].strip()
+        except:
+            bot.reply_to(message, "Usage: `/mob FUDling`", parse_mode="Markdown")
+            return
+
+        if name not in GROKDEX:
+            bot.reply_to(message, "❌ Creature not found in the GrokDex.")
+            return
+
+        mob = GROKDEX[name]
+
+        text = (
+            f"📘 *{mob['name']}*\n"
+            f"⭐ Rarity: *{mob['rarity']}*\n"
+            f"🎭 Type: {mob['type']}\n"
+            f"💥 Power: {mob['combat_power']}\n\n"
+            f"📜 *Lore*\n{mob['description']}\n\n"
+            f"⚔️ Strength: {mob['strength']}\n"
+            f"🛡 Weakness: {mob['weakness']}\n"
+            f"🎁 Drops: {', '.join(mob['drops'])}\n"
+        )
+
+        try:
+            with open(mob["portrait"], "rb") as img:
+                bot.send_photo(message.chat.id, img, caption=text, parse_mode="Markdown")
+        except:
+            bot.reply_to(message, text, parse_mode="Markdown")
