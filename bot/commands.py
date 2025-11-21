@@ -1,8 +1,9 @@
 import os
 import random
+from datetime import datetime, timedelta
 from telebot import TeleBot
 
-from bot.db import get_user, add_xp, get_quests, record_quest
+from bot.db import get_user, update_user_xp, get_quests, record_quest
 from bot.images import generate_profile_image, generate_leaderboard_image
 from bot.mobs import MOBS
 from bot.utils import safe_send_gif
@@ -42,6 +43,72 @@ start_text = (
 
 
 # ---------------------------------------------------------
+# XP SYSTEM HELPERS
+# ---------------------------------------------------------
+
+def xp_needed_for_level(level: int, factor: float = 1.15):
+    base = 200
+    return int(base * (factor ** (level - 1)))
+
+
+def xp_bar(current, needed, length=12):
+    pct = current / needed
+    filled = int(length * pct)
+    empty = length - filled
+    return f"⚡【{'█' * filled}{'▒' * empty}】⚡"
+
+
+GROW_COOLDOWN_MINUTES = 30
+last_grow_use = {}
+
+
+def process_xp(user, xp_change: int):
+    """
+    Applies XP change and returns (new_user_data, leveled_up, levels_gained)
+    Uses:
+      - xp_current
+      - xp_total
+      - xp_to_next_level
+    """
+
+    # Extract current values
+    xp_total = user["xp_total"]
+    xp_current = user["xp_current"]
+    xp_needed = user["xp_to_next_level"]
+    level = user["level"]
+    factor = user.get("level_curve_factor", 1.15)
+
+    # Apply XP gain/loss
+    xp_total += max(0, xp_change)  # total XP never decreases
+    xp_current += xp_change
+
+    # Clamp XP floor
+    if xp_current < 0:
+        xp_current = 0
+
+    # Handle multi-level leveling
+    levels_gained = 0
+    leveled_up = False
+
+    while xp_current >= xp_needed:
+        xp_current -= xp_needed
+        level += 1
+        levels_gained += 1
+        xp_needed = xp_needed_for_level(level, factor)
+        leveled_up = True
+
+    # Prepare updated dict for DB
+    updated_user = {
+        "xp_total": xp_total,
+        "xp_current": xp_current,
+        "xp_to_next_level": xp_needed,
+        "level": level
+    }
+
+    return updated_user, leveled_up, levels_gained
+
+
+# ---------------------------------------------------------
 # REGISTER ALL COMMAND HANDLERS
 # ---------------------------------------------------------
 def register_handlers(bot: TeleBot):
@@ -56,28 +123,62 @@ def register_handlers(bot: TeleBot):
     def help_cmd(message):
         bot.reply_to(message, HELP_TEXT)
 
-    # ---------------- GROW ----------------
+    # ---------------- GROW (NEW SYSTEM) ----------------
     @bot.message_handler(commands=['growmygrok'])
-    def grow(message):
+    def growmygrok(message):
         user_id = message.from_user.id
-        xp_gain = random.randint(5, 25)
+        now = datetime.now()
 
-        add_xp(user_id, xp_gain)
+        # Cooldown check
+        if user_id in last_grow_use:
+            next_ok = last_grow_use[user_id] + timedelta(minutes=GROW_COOLDOWN_MINUTES)
+            if now < next_ok:
+                remain = int((next_ok - now).total_seconds() // 60)
+                bot.reply_to(message, f"⏳ Your Grok is still digesting cosmic energy… ({remain} min left)")
+                return
+
+        last_grow_use[user_id] = now
+
+        # XP gain/loss roll
+        outcome = random.choice(["gain", "gain", "gain", "loss"])
+        xp_change = random.randint(15, 35) if outcome == "gain" else -random.randint(5, 20)
+
+        # Get user
         user = get_user(user_id)
-        current_xp = user["xp"]
-        level = user["level"]
-        next_xp = level * 200
 
-        progress = int((current_xp / next_xp) * 10)
-        progress_bar = "█" * progress + "░" * (10 - progress)
+        # Process XP through new system
+        updated_user, leveled_up, levels_gained = process_xp(user, xp_change)
 
-        bot.reply_to(
-            message,
-            f"✨ Your MegaGrok grew! +{xp_gain} XP\n"
+        # Update DB
+        update_user_xp(user_id, updated_user)
+
+        # Prepare response visuals
+        xp_current = updated_user["xp_current"]
+        xp_needed = updated_user["xp_to_next_level"]
+        level = updated_user["level"]
+
+        bar = xp_bar(xp_current, xp_needed)
+
+        # Text
+        if xp_change >= 0:
+            change_text = f"✨ Your MegaGrok grew! +{xp_change} XP"
+        else:
+            change_text = f"💀 Your Grok stumbled in the Hop-Verse… {xp_change} XP"
+
+        msg = (
+            f"{change_text}\n\n"
             f"**Level {level}**\n"
-            f"XP: {current_xp}/{next_xp}\n"
-            f"`{progress_bar}`"
+            f"{bar}\n"
+            f"XP: {xp_current}/{xp_needed}"
         )
+
+        if leveled_up:
+            msg = (
+                f"🎉 *LEVEL UP!* Your MegaGrok ascended **{levels_gained} levels!**\n\n" +
+                msg
+            )
+
+        bot.reply_to(message, msg, parse_mode="Markdown")
 
     # ---------------- HOP ----------------
     @bot.message_handler(commands=['hop'])
@@ -90,7 +191,11 @@ def register_handlers(bot: TeleBot):
             return
 
         xp_gain = random.randint(20, 50)
-        add_xp(user_id, xp_gain)
+        user = get_user(user_id)
+
+        updated_user, _, _ = process_xp(user, xp_gain)
+        update_user_xp(user_id, updated_user)
+
         record_quest(user_id, "hop")
 
         bot.reply_to(
@@ -116,10 +221,8 @@ def register_handlers(bot: TeleBot):
         mob_portrait = mob["portrait"]
         mob_gif = mob["gif"]
 
-        # Intro
         bot.reply_to(message, f"⚔️ **{mob_name} Encounter!**\n\n{mob_intro}")
 
-        # Portrait
         try:
             with open(mob_portrait, "rb") as img:
                 bot.send_photo(message.chat.id, img)
@@ -137,7 +240,11 @@ def register_handlers(bot: TeleBot):
 
         safe_send_gif(bot, message.chat.id, mob_gif)
 
-        add_xp(user_id, xp)
+        # Apply XP
+        user = get_user(user_id)
+        updated_user, _, _ = process_xp(user, xp)
+        update_user_xp(user_id, updated_user)
+
         record_quest(user_id, "fight")
 
         bot.send_message(
@@ -183,21 +290,18 @@ def register_handlers(bot: TeleBot):
     # ---------------- SPECIFIC MOB INFO ----------------
     @bot.message_handler(commands=['mob'])
     def mob_info(message):
-        # Extract name
         try:
             name = message.text.split(" ", 1)[1].strip()
         except:
             bot.reply_to(message, "Usage: `/mob FUDling`", parse_mode="Markdown")
             return
 
-        # Validate
         if name not in GROKDEX:
             bot.reply_to(message, "❌ Creature not found in the GrokDex.")
             return
 
         mob = GROKDEX[name]
 
-        # Build info text
         text = (
             f"📘 *{mob['name']}*\n"
             f"⭐ Rarity: *{mob['rarity']}*\n"
@@ -209,7 +313,6 @@ def register_handlers(bot: TeleBot):
             f"🎁 Drops: {', '.join(mob['drops'])}\n"
         )
 
-        # Send portrait
         try:
             with open(mob["portrait"], "rb") as img:
                 bot.send_photo(message.chat.id, img, caption=text, parse_mode="Markdown")
