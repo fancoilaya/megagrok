@@ -1,7 +1,9 @@
 import os
 import time
+import json
 import random
 from telebot import TeleBot
+from datetime import datetime, timedelta
 
 from bot.db import (
     get_user,
@@ -16,7 +18,6 @@ from bot.mobs import MOBS
 from bot.utils import safe_send_gif
 from bot.grokdex import GROKDEX
 from PIL import Image
-
 
 # ------------------------
 # HELP TEXT
@@ -49,9 +50,49 @@ start_text = (
     "🚀 Train him. Evolve him. Conquer the Hop-Verse."
 )
 
+# -------------------------
+# COOLDOWN STORAGE (file-based)
+# -------------------------
+COOLDOWN_FILE = "/tmp/grow_cooldowns.json"
+GROW_COOLDOWN_SECONDS = 30 * 60  # 30 minutes
+
+
+def _load_cooldowns():
+    try:
+        if os.path.exists(COOLDOWN_FILE):
+            with open(COOLDOWN_FILE, "r") as fh:
+                return json.load(fh)
+    except Exception:
+        pass
+    return {}
+
+
+def _save_cooldowns(d):
+    try:
+        with open(COOLDOWN_FILE, "w") as fh:
+            json.dump(d, fh)
+    except Exception:
+        pass
+
+
+def _format_seconds_left(secs):
+    mins = int(secs // 60)
+    sec = int(secs % 60)
+    return f"{mins}m {sec}s" if mins else f"{sec}s"
+
+
+def _render_progress_bar(pct, length=20):
+    """Return a textual progress bar using block characters."""
+    pct = max(0.0, min(1.0, pct))
+    filled = int(round(pct * length))
+    empty = length - filled
+    bar = "█" * filled + "░" * empty
+    percent_text = f"{int(pct * 100)}%"
+    return f"`{bar}` {percent_text}"
+
 
 # ---------------------------------------------------------
-# MAIN HANDLER REGISTRATION
+# REGISTER ALL COMMAND HANDLERS
 # ---------------------------------------------------------
 def register_handlers(bot: TeleBot):
 
@@ -60,52 +101,108 @@ def register_handlers(bot: TeleBot):
     def start(message):
         bot.reply_to(message, start_text, parse_mode="Markdown")
 
-
     # ---------------- HELP ----------------
     @bot.message_handler(commands=['help'])
     def help_cmd(message):
         bot.reply_to(message, HELP_TEXT)
 
-
     # ---------------- GROW ----------------
     @bot.message_handler(commands=['growmygrok'])
     def grow(message):
-        user_id = message.from_user.id
-        user = get_user(user_id)
+        user_id = str(message.from_user.id)
 
-        xp_gain = random.randint(-10, 25)
+        # load cooldowns and check
+        cds = _load_cooldowns()
+        now_ts = time.time()
+        last_ts = cds.get(user_id, 0)
+        elapsed = now_ts - last_ts
+        if last_ts and elapsed < GROW_COOLDOWN_SECONDS:
+            left = GROW_COOLDOWN_SECONDS - elapsed
+            bot.reply_to(message, f"⏳ You must wait { _format_seconds_left(left) } before using /growmygrok again.")
+            return
 
-        xp_total = max(user["xp_total"] + xp_gain, 0)
-        xp_current = max(user["xp_current"] + xp_gain, 0)
-        xp_to_next = user["xp_to_next_level"]
-        level = user["level"]
+        # compute xp change: allow small negative outcomes as requested
+        xp_change = random.randint(-10, 25)  # may be negative
 
-        # level adjustments
-        if xp_current >= xp_to_next:
-            xp_current -= xp_to_next
+        # fetch current user record from DB
+        user = get_user(int(user_id))
+
+        # We expect DB user to have at least these keys:
+        # xp_total, xp_current, xp_to_next_level, level
+        # For level curve, fall back to a sensible default if missing.
+        xp_total = int(user.get("xp_total", user.get("xp", 0)))
+        xp_current = int(user.get("xp_current", user.get("xp", 0)))
+        xp_to_next = int(user.get("xp_to_next_level", max(200, user.get("level", 1) * 200)))
+        level = int(user.get("level", 1))
+
+        # level growth factor (slightly increasing requirement per level)
+        level_curve_factor = float(user.get("level_curve_factor", 1.12))
+
+        # Apply XP change
+        new_xp_total = max(0, xp_total + xp_change)
+        new_xp_current = xp_current + xp_change
+
+        leveled_up = False
+        leveled_down = False
+        level_events = []
+
+        # Handle level ups (support multiple level-ups in one gain)
+        while new_xp_current >= xp_to_next:
+            new_xp_current -= xp_to_next
             level += 1
-            xp_to_next = int(xp_to_next * user["level_curve_factor"])
+            # increase xp_to_next by the curve factor
+            xp_to_next = int(max(50, xp_to_next * level_curve_factor))
+            leveled_up = True
+            level_events.append(f"⬆️ Leveled up to {level}")
 
-        elif xp_current < 0 and level > 1:
+        # Handle level down (if xp went negative and level > 1)
+        while new_xp_current < 0 and level > 1:
+            # step one level down
             level -= 1
-            xp_to_next = int(xp_to_next / user["level_curve_factor"])
-            xp_current = max(0, xp_current)
+            # approximate previous level requirement by reversing the factor
+            xp_to_next = max(200, int(xp_to_next / level_curve_factor))
+            # add the reduced level threshold to current xp (don't go below 0)
+            new_xp_current += xp_to_next
+            leveled_down = True
+            level_events.append(f"⬇️ Leveled down to {level}")
+            if new_xp_current < 0:
+                new_xp_current = 0
+                break
 
-        update_user_xp(user_id, {
-            "xp_total": xp_total,
-            "xp_current": xp_current,
+        # ensure non-negative
+        new_xp_current = max(0, new_xp_current)
+        new_xp_total = max(0, new_xp_total)
+
+        # Persist to DB using update_user_xp (same pattern as other commands)
+        update_user_xp(int(user_id), {
+            "xp_total": new_xp_total,
+            "xp_current": new_xp_current,
             "xp_to_next_level": xp_to_next,
             "level": level
         })
 
-        sign = "+" if xp_gain >= 0 else ""
-        bot.reply_to(
-            message,
-            f"✨ Your MegaGrok grew! {sign}{xp_gain} XP\n"
-            f"Level {level}\n"
-            f"XP: {xp_current}/{xp_to_next}"
-        )
+        # record cooldown
+        cds[user_id] = now_ts
+        _save_cooldowns(cds)
 
+        # Build user-facing message including a nicer progress bar
+        progress_bar = _render_progress_bar(new_xp_current / xp_to_next, length=20)
+
+        # friendly XP sign
+        sign = "+" if xp_change >= 0 else ""
+        lines = []
+        lines.append(f"✨ Your MegaGrok {'grew' if xp_change>=0 else 'changed'}! {sign}{xp_change} XP")
+        lines.append(f"**Level {level}**")
+        lines.append(f"XP: {new_xp_current}/{xp_to_next}")
+        lines.append(progress_bar)
+
+        if leveled_up:
+            lines.append("🎉 **Level up!** Your Grok has evolved.")
+        if leveled_down:
+            lines.append("💀 Ouch — your Grok regressed. Keep training!")
+
+        # Combine and send as Markdown (progress bar uses backticks)
+        bot.reply_to(message, "\n".join(lines), parse_mode="Markdown")
 
     # ---------------- HOP (RITUAL) ----------------
     @bot.message_handler(commands=['hop'])
@@ -145,7 +242,6 @@ def register_handlers(bot: TeleBot):
             f"🐸✨ Hop Ritual complete! +{xp_gain} XP\n"
             f"The cosmic hop-energy flows through your MegaGrok!"
         )
-
 
     # ---------------- FIGHT ----------------
     @bot.message_handler(commands=['fight'])
@@ -204,7 +300,6 @@ def register_handlers(bot: TeleBot):
             f"{outcome_text}\n\n✨ **XP Gained:** {xp}"
         )
 
-
     # ---------------- PROFILE ----------------
     @bot.message_handler(commands=['profile'])
     def profile(message):
@@ -245,8 +340,6 @@ def register_handlers(bot: TeleBot):
             bot.reply_to(message, f"Error generating profile: {e}")
             print("PROFILE ERROR:", e)
 
-
-
     # ---------------- LEADERBOARD ----------------
     @bot.message_handler(commands=['leaderboard'])
     def leaderboard(message):
@@ -256,7 +349,6 @@ def register_handlers(bot: TeleBot):
                 bot.send_photo(message.chat.id, f)
         except Exception as e:
             bot.reply_to(message, f"Error generating leaderboard: {e}")
-
 
     # ---------------- GROKDEX ----------------
     @bot.message_handler(commands=['grokdex'])
@@ -268,7 +360,6 @@ def register_handlers(bot: TeleBot):
 
         text += "\nUse `/mob <name>` for details."
         bot.reply_to(message, text, parse_mode="Markdown")
-
 
     # ---------------- MOB INFO ----------------
     @bot.message_handler(commands=['mob'])
