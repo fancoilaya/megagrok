@@ -1,217 +1,344 @@
+# bot/images.py
 import os
-from PIL import Image, ImageDraw, ImageFont
+import math
+from typing import List, Dict, Any, Optional
+from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageOps
 
 ASSET_DIR = "assets"
+
+# Expected asset filenames (must exist in assets/ or /mnt/data)
 PROFILE_BASE = "profile_base.png"
 LEADERBOARD_BASE = "leaderboard_base.png"
+TADPOLE = "tadpole.png"
+HOPPER = "hopper.png"
+ASCENDED = "ascended.png"
 
-# Load fonts
-def load_font(name, size):
-    path1 = os.path.join(ASSET_DIR, name)
-    path2 = os.path.join("/mnt/data", name)
+FONT_FILES = {
+    "bold": "Roboto-Bold.ttf",
+    "regular": "Roboto-Regular.ttf",
+    "light": "Roboto-Light.ttf"
+}
 
-    if os.path.exists(path1):
-        return ImageFont.truetype(path1, size)
-    if os.path.exists(path2):
-        return ImageFont.truetype(path2, size)
+# -------------------------
+# Font loader with fallback
+# -------------------------
+def _font_path_candidates(name: str) -> List[str]:
+    return [
+        os.path.join(ASSET_DIR, name),
+        os.path.join("/mnt/data", name),
+        name
+    ]
+
+def load_font_with_fallback(font_name: str, size: int):
+    from PIL import ImageFont
+    for p in _font_path_candidates(font_name):
+        try:
+            if os.path.exists(p):
+                return ImageFont.truetype(p, size)
+        except Exception:
+            continue
     return ImageFont.load_default()
 
-TITLE_FONT     = load_font("Roboto-Bold.ttf", 76)
-USERNAME_FONT  = load_font("Roboto-Bold.ttf", 52)
-LABEL_FONT     = load_font("Roboto-Regular.ttf", 36)
-NUMBER_FONT    = load_font("Roboto-Bold.ttf", 64)
-SMALL_FONT     = load_font("Roboto-Regular.ttf", 32)
-FOOTER_FONT    = load_font("Roboto-Light.ttf", 26)
+TITLE_FONT = load_font_with_fallback(FONT_FILES["bold"], 72)
+USERNAME_FONT = load_font_with_fallback(FONT_FILES["regular"], 44)
+LABEL_FONT = load_font_with_fallback(FONT_FILES["regular"], 32)
+BIG_NUM_FONT = load_font_with_fallback(FONT_FILES["bold"], 72)
+SMALL_FONT = load_font_with_fallback(FONT_FILES["regular"], 26)
+FOOTER_FONT = load_font_with_fallback(FONT_FILES["light"], 22)
 
-# ---------------------------------------
-# LOAD SPRITE BY FORM
-# ---------------------------------------
-def load_sprite(form):
-    fname_map = {
-        "Tadpole": "tadpole.png",
-        "Hopper": "hopper.png",
-        "Ascended": "ascended.png"
-    }
-    fname = fname_map.get(form, "tadpole.png")
-    path = os.path.join(ASSET_DIR, fname)
-    if not os.path.exists(path):
+# -------------------------
+# Asset helpers
+# -------------------------
+def _asset_path(name: str) -> Optional[str]:
+    p = os.path.join(ASSET_DIR, name)
+    if os.path.exists(p):
+        return p
+    alt = os.path.join("/mnt/data", name)
+    if os.path.exists(alt):
+        return alt
+    if os.path.exists(name):
+        return name
+    return None
+
+def _load_image(name: str, mode: str = "RGBA") -> Optional[Image.Image]:
+    p = _asset_path(name)
+    if not p:
         return None
-    return Image.open(path).convert("RGBA")
-
-# ---------------------------------------
-# DRAW CENTERED TEXT
-# ---------------------------------------
-def centered(draw, box, text, font, fill=(0,0,0)):
-    x1, y1, x2, y2 = box
-    w = x2 - x1
     try:
-        tw, th = draw.textbbox((0,0), text, font=font)[2:]
-    except:
-        tw, th = draw.textsize(text, font=font)
-    return (x1 + (w - tw)//2, y1, text, font, fill)
+        return Image.open(p).convert(mode)
+    except Exception:
+        return None
 
-# ---------------------------------------
+# -------------------------
+# Evolution mapping
+# -------------------------
+FORM_TO_SPRITE = {
+    "Tadpole": TADPOLE,
+    "Hopper": HOPPER,
+    "Ascended": ASCENDED,
+    "Ascended Hopper": ASCENDED
+}
+
+def load_form_image(form_name: str) -> Optional[Image.Image]:
+    fname = FORM_TO_SPRITE.get(form_name, TADPOLE)
+    return _load_image(fname, mode="RGBA")
+
+# -------------------------
+# Drawing helpers
+# -------------------------
+def draw_outline_text(draw: ImageDraw.Draw, xy, text: str, font: ImageFont.FreeTypeFont,
+                      fill=(0,0,0), outline=(255,255,255), stroke=3, anchor=None):
+    try:
+        draw.text(xy, text, font=font, fill=fill, stroke_width=stroke, stroke_fill=outline, anchor=anchor)
+    except TypeError:
+        x, y = xy
+        offs = [-stroke, 0, stroke]
+        for ox in offs:
+            for oy in offs:
+                draw.text((x+ox, y+oy), text, font=font, fill=outline)
+        draw.text(xy, text, font=font, fill=fill)
+
+def _centered_x_for_text(draw: ImageDraw.Draw, text: str, font: ImageFont.FreeTypeFont, left: int, right: int) -> int:
+    try:
+        bbox = draw.textbbox((0,0), text, font=font)
+        tw = bbox[2] - bbox[0]
+    except Exception:
+        tw, _ = draw.textsize(text, font=font)
+    return left + ( (right - left) - tw ) // 2
+
+# -------------------------
 # PROFILE GENERATOR
-# ---------------------------------------
-def generate_profile_image(user):
+# -------------------------
+def generate_profile_image(user: Dict[str, Any]) -> str:
+    """
+    user keys:
+      user_id, username, form, level, xp_total, xp_current, xp_to_next_level,
+      wins, fights, rituals, tg (optional), ca (optional)
+    """
+    uid = str(user.get("user_id", "unknown"))
+    username = str(user.get("username", f"User{uid}"))
+    form = str(user.get("form", "Tadpole"))
+    level = int(user.get("level", 1))
+    xp_total = int(user.get("xp_total", 0))
+    xp_current = int(user.get("xp_current", 0))
+    xp_to_next = int(user.get("xp_to_next_level", max(200, 200)))
+    wins = int(user.get("wins", 0))
+    fights = int(user.get("fights", user.get("mobs_defeated", 0)))
+    rituals = int(user.get("rituals", 0))
+    tg_text = user.get("tg", "") or ""
+    ca_text = user.get("ca", "") or ""
 
-    uid = user.get("user_id")
-    username = user.get("username", f"User{uid}")
-    form = user.get("form", "Tadpole")
-    level = user.get("level", 1)
-    wins = user.get("wins", 0)
-    rituals = user.get("rituals", 0)
-    fights = user.get("fights", user.get("mobs_defeated", 0))
+    base_path = _asset_path(PROFILE_BASE)
+    if base_path:
+        card = Image.open(base_path).convert("RGBA")
+    else:
+        # fallback card (same aspect as your template)
+        card = Image.new("RGBA", (900, 1280), (255, 249, 230, 255))
 
-    tg = user.get("tg", "")
-    ca = user.get("ca", "")
-
-    # Load template
-    base_path = os.path.join(ASSET_DIR, PROFILE_BASE)
-    card = Image.open(base_path).convert("RGBA")
+    WIDTH, HEIGHT = card.size
     draw = ImageDraw.Draw(card)
 
-    W, H = card.size
+    # Header area: use the top yellow band (we center in the full width minus safe margins)
+    header_left = int(WIDTH * 0.05)
+    header_right = int(WIDTH * 0.95)
+    title_text = "MEGAGROK"
+    title_x = _centered_x_for_text(draw, title_text, TITLE_FONT, header_left, header_right)
+    title_y = int(HEIGHT * 0.02)  # small offset from very top
+    draw_outline_text(draw, (title_x, title_y), title_text, TITLE_FONT, fill=(20,20,20), outline=(255,220,120), stroke=6)
 
-    # ---------------------------------------
-    # A) MEGAGROK centered in yellow bar
-    # ---------------------------------------
-    title_box = (0, 40, W, 140)
-    tx, ty, text, font, fill = centered(draw, title_box, "MEGAGROK", TITLE_FONT)
-    draw.text((tx, ty), text, font=font, fill=(0,0,0))
+    # Username centered under MEGAGROK (inside same header band visually)
+    uname_text = username
+    uname_x = _centered_x_for_text(draw, uname_text, USERNAME_FONT, header_left, header_right)
+    uname_y = title_y + int(TITLE_FONT.size * 0.9)  # place directly beneath
+    draw_outline_text(draw, (uname_x, uname_y), uname_text, USERNAME_FONT, fill=(20,20,20), outline=(255,255,255), stroke=3)
 
-    # ---------------------------------------
-    # B) Username centered under MEGAGROK
-    # ---------------------------------------
-    username_box = (0, 150, W, 220)
-    ux, uy, text, font, fill = centered(draw, username_box, username, USERNAME_FONT)
-    draw.text((ux, uy), text, font=font, fill=(20,20,20))
+    # Center art box coordinates (we try to align with your template)
+    # These fractions match the profile_base layout you provided
+    center_left = int(WIDTH * 0.07)
+    center_right = int(WIDTH * 0.93)
+    center_top = int(HEIGHT * 0.12)
+    center_bottom = int(HEIGHT * 0.67)
+    center_w = center_right - center_left
+    center_h = center_bottom - center_top
 
-    # ---------------------------------------
-    # C) Sprite placed in the center frame
-    # (Auto-detect box from template coordinates)
-    # ---------------------------------------
-    center_box = (140, 240, 760, 820)  # ← fixed from your template
-    sprite = load_sprite(form)
-
+    # Sprite placement: scale to ~50% of center width and place slightly right (per brief)
+    sprite = load_form_image(form)
     if sprite:
-        max_w = center_box[2] - center_box[0]
-        max_h = center_box[3] - center_box[1]
+        target_w = int(center_w * 0.5)
+        aspect = sprite.height / sprite.width if sprite.width else 1.0
+        target_h = int(target_w * aspect)
+        sprite_resized = sprite.resize((target_w, target_h), resample=Image.LANCZOS)
+        sx = center_left + (center_w // 2) - (sprite_resized.width // 2) + int(center_w * 0.12)
+        sy = center_top + (center_h // 2) - (sprite_resized.height // 2)
+        card.paste(sprite_resized, (sx, sy), sprite_resized)
 
-        # Scale sprite to 75% of center box
-        scale_w = int(max_w * 0.75)
-        aspect = sprite.height / sprite.width
-        scale_h = int(scale_w * aspect)
-        sprite = sprite.resize((scale_w, scale_h), Image.LANCZOS)
+    # Bottom stats boxes positions (match template proportions)
+    bottom_area_top = int(HEIGHT * 0.68)
+    bottom_area_left = int(WIDTH * 0.07)
+    bottom_area_right = int(WIDTH * 0.93)
+    total_bottom_w = bottom_area_right - bottom_area_left
+    gutter = int(total_bottom_w * 0.02)
 
-        sx = center_box[0] + (max_w - scale_w)//2
-        sy = center_box[1] + (max_h - scale_h)//2
+    left_w = int(total_bottom_w * 0.22)
+    mid_w = int(total_bottom_w * 0.48)
+    right_w = total_bottom_w - left_w - mid_w - (2 * gutter)
 
-        card.paste(sprite, (sx, sy), sprite)
+    left_bbox = (bottom_area_left, bottom_area_top, bottom_area_left + left_w, bottom_area_top + int(HEIGHT * 0.12))
+    mid_bbox = (left_bbox[2] + gutter, bottom_area_top, left_bbox[2] + gutter + mid_w, bottom_area_top + int(HEIGHT * 0.12))
+    right_bbox = (mid_bbox[2] + gutter, bottom_area_top, bottom_area_right, bottom_area_top + int(HEIGHT * 0.12))
 
-    # ---------------------------------------
-    # D) Fights/Wins block inside left big center box
-    # ---------------------------------------
-    stats_x = center_box[0] + 10
-    stats_y = center_box[1] + 20
+    # LEVEL
+    lvl_label_y = left_bbox[1] + 10
+    lvl_num_y = lvl_label_y + 38
+    draw_outline_text(draw, (left_bbox[0] + 18, lvl_label_y), "LEVEL", LABEL_FONT, fill=(20,20,20), outline=(255,255,255), stroke=3)
+    draw_outline_text(draw, (left_bbox[0] + 18, lvl_num_y), str(level), BIG_NUM_FONT, fill=(20,20,20), outline=(255,255,255), stroke=4)
 
-    draw.text((stats_x, stats_y), "FIGHTS / WINS", font=SMALL_FONT, fill=(20,20,20))
-    draw.text((stats_x, stats_y + 40), f"{fights} / {wins}", font=LABEL_FONT, fill=(20,20,20))
+    # WINS
+    wins_label_y = mid_bbox[1] + 10
+    wins_num_y = wins_label_y + 38
+    draw_outline_text(draw, (mid_bbox[0] + 18, wins_label_y), "WINS", LABEL_FONT, fill=(20,20,20), outline=(255,255,255), stroke=3)
+    draw_outline_text(draw, (mid_bbox[0] + 18, wins_num_y), str(wins), BIG_NUM_FONT, fill=(20,20,20), outline=(255,255,255), stroke=4)
 
-    # ---------------------------------------
-    # E) Bottom boxes — level / wins / rituals
-    # bottom boxes taken from template coordinates
-    # ---------------------------------------
-    # Level box
-    lvl_box = (140, 860, 300, 990)
-    draw.text((lvl_box[0]+20, lvl_box[1]+10), "LEVEL", font=LABEL_FONT, fill=(0,0,0))
-    draw.text((lvl_box[0]+20, lvl_box[1]+60), str(level), font=NUMBER_FONT, fill=(0,0,0))
+    # RITUALS
+    rit_label_y = right_bbox[1] + 10
+    rit_num_y = rit_label_y + 38
+    draw_outline_text(draw, (right_bbox[0] + 18, rit_label_y), "RITUALS", LABEL_FONT, fill=(20,20,20), outline=(255,255,255), stroke=3)
+    draw_outline_text(draw, (right_bbox[0] + 18, rit_num_y), str(rituals), BIG_NUM_FONT, fill=(20,20,20), outline=(255,255,255), stroke=4)
 
-    # Wins box
-    wins_box = (320, 860, 580, 990)
-    draw.text((wins_box[0]+20, wins_box[1]+10), "WINS", font=LABEL_FONT, fill=(0,0,0))
-    draw.text((wins_box[0]+20, wins_box[1]+60), str(wins), font=NUMBER_FONT, fill=(0,0,0))
+    # LEFT-side stats block inside center box (FIGHTS / WINS) — placed near top-left of center box
+    stats_x = center_left + 18
+    stats_y = center_top + 18
+    draw_outline_text(draw, (stats_x, stats_y), "FIGHTS / WINS", SMALL_FONT, fill=(10,10,10), outline=(255,255,255), stroke=2)
+    draw_outline_text(draw, (stats_x, stats_y + 30), f"{fights} / {wins}", LABEL_FONT, fill=(10,10,10), outline=(255,255,255), stroke=2)
 
-    # Rituals box
-    rit_box = (600, 860, 760, 990)
-    draw.text((rit_box[0]+20, rit_box[1]+10), "RITUALS", font=LABEL_FONT, fill=(0,0,0))
-    draw.text((rit_box[0]+20, rit_box[1]+60), str(rituals), font=NUMBER_FONT, fill=(0,0,0))
-
-    # ---------------------------------------
-    # F) Footer TG + CA centered
-    # ---------------------------------------
-    footer_box = (0, 1020, W, 1150)
-
-    if tg:
-        fx, fy, text, font, fill = centered(draw, footer_box, f"TG: {tg}", FOOTER_FONT)
-        draw.text((fx, fy), text, font=font, fill=(10,10,10))
-
-    if ca:
-        fx2, fy2, text2, font2, fill2 = centered(draw, footer_box, f"CA: {ca}", FOOTER_FONT)
-        draw.text((fx2, fy2+34), text2, font=font2, fill=(10,10,10))
+    # Footer: TG (one line) and CA (below) centered in footer box (one line above bottom frame)
+    footer_top = int(HEIGHT * 0.83)
+    footer_left = bottom_area_left
+    footer_right = bottom_area_right
+    if tg_text:
+        ft = f"TG: {tg_text}"
+        tx = _centered_x_for_text(draw, ft, FOOTER_FONT, footer_left + 8, footer_right - 8)
+        draw.text((tx, footer_top + 6), ft, font=FOOTER_FONT, fill=(18,18,18))
+    if ca_text:
+        ca_display = f"CA: {ca_text}"
+        tx2 = _centered_x_for_text(draw, ca_display, FOOTER_FONT, footer_left + 8, footer_right - 8)
+        draw.text((tx2, footer_top + 30), ca_display, font=FOOTER_FONT, fill=(18,18,18))
 
     out = f"/tmp/profile_{uid}.png"
     card.save(out)
     return out
 
-
-
-# ================================================================
-#                    LEADERBOARD GENERATOR
-# ================================================================
-def generate_leaderboard_image():
+# -------------------------
+# LEADERBOARD GENERATOR
+# -------------------------
+def generate_leaderboard_image() -> str:
     try:
         from bot.db import get_top_users
-        rows = get_top_users(5)
-    except:
-        rows = []
+    except Exception:
+        def get_top_users(limit=5):
+            return [
+                {"user_id": 1001, "username": "Alpha", "xp_total": 3450, "level": 12, "form": "Hopper", "wins": 50, "mobs_defeated": 70},
+                {"user_id": 1002, "username": "Bravo", "xp_total": 3020, "level": 11, "form": "Hopper", "wins": 45, "mobs_defeated": 65},
+                {"user_id": 1003, "username": "Charlie", "xp_total": 2800, "level": 10, "form": "Hopper", "wins": 40, "mobs_defeated": 60},
+                {"user_id": 1004, "username": "Delta", "xp_total": 2550, "level": 9, "form": "Tadpole", "wins": 35, "mobs_defeated": 55},
+                {"user_id": 1005, "username": "Echo", "xp_total": 2400, "level": 8, "form": "Tadpole", "wins": 30, "mobs_defeated": 50},
+            ]
 
-    base = _load_img(LEADERBOARD_BASE)
-    if base is None:
-        return None
+    rows = get_top_users(limit=5)
 
-    W, H = base.size
-    draw = ImageDraw.Draw(base)
+    base_path = _asset_path(LEADERBOARD_BASE)
+    if base_path:
+        img = Image.open(base_path).convert("RGBA")
+    else:
+        img = Image.new("RGBA", (1000, 1600), (22,18,40,255))
 
-    # --------------------
-    # HEADER
-    # --------------------
+    WIDTH, HEIGHT = img.size
+    draw = ImageDraw.Draw(img)
+
+    # Header title (centered)
+    header_left = int(WIDTH * 0.05)
+    header_right = int(WIDTH * 0.95)
     title = "TOP 5 LEADERBOARD"
-    tw = draw.textlength(title, font=FONT_TITLE)
-    draw.text(((W - tw) / 2, 45), title, font=FONT_TITLE, fill=(0, 0, 0))
+    tx = _centered_x_for_text(draw, title, TITLE_FONT, header_left, header_right)
+    draw_outline_text(draw, (tx, int(HEIGHT*0.02)), title, TITLE_FONT, fill=(255,200,60), outline=(10,10,40), stroke=6)
 
-    # --------------------
-    # ROW COORDINATES
-    # --------------------
-    ROW_TOP_START = 230
-    ROW_HEIGHT = 210
+    # Rows area
+    rows_top = int(HEIGHT * 0.18)
+    rows_left = int(WIDTH * 0.06)
+    rows_right = int(WIDTH * 0.94)
+    row_height = int((HEIGHT - rows_top - 60) / 5)
 
     for i, r in enumerate(rows):
-        y = ROW_TOP_START + i * ROW_HEIGHT
+        rank = i + 1
+        y = rows_top + i * row_height
 
-        # Rank number (large number inside circle)
-        rank = str(i + 1)
-        draw.text((100, y + 50), rank, font=FONT_VALUE, fill=(0, 0, 0))
+        # rank number area (left)
+        rank_circle_x = rows_left + 10
+        rank_box_size = int(row_height * 0.6)
+        # draw rank number using BIG_NUM_FONT, approximate centering inside circle area
+        num_text = str(rank)
+        try:
+            bbox = draw.textbbox((0,0), num_text, font=BIG_NUM_FONT)
+            w = bbox[2] - bbox[0]
+            h = bbox[3] - bbox[1]
+        except Exception:
+            w, h = draw.textsize(num_text, font=BIG_NUM_FONT)
+        num_x = rank_circle_x + (rank_box_size - w) // 2
+        num_y = y + (rank_box_size - h) // 2 + int(row_height * 0.08)
+        draw.text((num_x, num_y), num_text, font=BIG_NUM_FONT, fill=(10,10,10))
 
-        # Sprite
-        sprite = _load_img(FORM_SPRITES.get(r.get("form", "Tadpole"), TADPOLE))
+        # sprite area to the right of rank
+        sprite = load_form_image(r.get("form", "Tadpole"))
         if sprite:
-            sp = sprite.resize((160, 160), Image.LANCZOS)
-            base.paste(sp, (200, y + 10), sp)
+            sp_w = int(rank_box_size * 0.9)
+            asp = sprite.height / sprite.width if sprite.width else 1.0
+            sp_h = int(sp_w * asp)
+            sp = sprite.resize((sp_w, sp_h), resample=Image.LANCZOS)
+            sp_x = rank_circle_x + rank_box_size + 18
+            sp_y = y + (row_height - sp_h) // 2
+            img.paste(sp, (sp_x, sp_y), sp)
+        else:
+            sp_x = rank_circle_x + rank_box_size + 18
 
-        # Username
-        name = r.get("username", f"User{r['user_id']}")
-        draw.text((390, y + 35), name, font=FONT_ROW_NAME, fill=(0, 0, 0))
+        # text block to the right
+        text_block_x = rank_circle_x + rank_box_size + 18 + int(rank_box_size)
+        text_block_y = y + int(row_height * 0.12)
+        name = r.get("username", f"User{r.get('user_id', rank)}")
+        draw_outline_text(draw, (text_block_x, text_block_y), name, USERNAME_FONT, fill=(10,10,10), outline=(255,255,255), stroke=3)
 
-        # Stats line:
-        xp = r.get("xp_total", 0)
+        # second line: XP + FIGHTS / WINS
+        line2_y = text_block_y + 46
+        xp = r.get("xp_total", r.get("xp", 0))
         fights = r.get("mobs_defeated", r.get("fights", 0))
         wins = r.get("wins", 0)
+        line2 = f"XP: {xp}   FIGHTS / WINS: {fights} / {wins}"
+        draw.text((text_block_x, line2_y), line2, font=LABEL_FONT, fill=(10,10,10))
 
-        stat = f"XP: {xp}     FIGHTS / WINS: {fights} / {wins}"
-        draw.text((390, y + 95), stat, font=FONT_ROW_STATS, fill=(0, 0, 0))
-
-    # Output
     out = "/tmp/leaderboard.png"
-    base.save(out)
+    img.save(out)
     return out
+
+# -------------------------
+# Demo preview generator if run directly
+# -------------------------
+if __name__ == "__main__":
+    sample_user = {
+        "user_id": 12345,
+        "username": "MegaHero",
+        "form": "Hopper",
+        "level": 7,
+        "xp_total": 1750,
+        "xp_current": 150,
+        "xp_to_next_level": 250,
+        "wins": 12,
+        "fights": 20,
+        "rituals": 3,
+        "tg": "t.me/megagrok",
+        "ca": "FZL2K9TBybDh32KfJWQBhMtQ71PExyNXiry8Y5e2pump"
+    }
+    print("Writing demo profile to /tmp/profile_demo.png ...")
+    p = generate_profile_image(sample_user)
+    print("Profile written:", p)
+    print("Writing demo leaderboard to /tmp/leaderboard_demo.png ...")
+    l = generate_leaderboard_image()
+    print("Leaderboard written:", l)
