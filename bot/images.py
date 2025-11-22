@@ -127,7 +127,7 @@ def generate_leaderboard_image(rows: List[Dict]=None, size=(1000,1600)):
         font = ImageFont.load_default()
     y = int(im.height*0.18)
     for r in rows:
-        draw.text((int(im.width*0.28), y), f\"{r['username']} - XP {r['xp']}  F/W: {r['fights']}/{r['wins']}\", font=font, fill=(10,10,10))
+        draw.text((int(im.width*0.28), y), f"{r['username']} - XP {r['xp']}  F/W: {r['fights']}/{r['wins']}", font=font, fill=(10,10,10))
         y += int(im.height*0.18)
     im.save(out)
     return out
