@@ -1,434 +1,392 @@
-import os
-import math
-from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageOps
+"""
+images.py — Overlay renderer for MegaGrok profile card and leaderboard.
 
-# Assets directory (relative to repo root)
+This script **does not** attempt to redraw the artistic templates.
+Instead it:
+ - Loads your clean templates from assets/ (profile_base.png & leaderboard_base.png)
+ - Pastes the appropriate evolution sprite (tadpole/hopper/ascended)
+ - Draws crisp outlined text into the exact areas (username, level, evolution name,
+   wins, rituals, TG, CA, XP, fights/wins)
+ - Writes output images to /tmp for use by your bot.
+
+USAGE:
+ - Put these files in your repo's assets/ folder:
+     assets/profile_base.png         # blank profile template (no text, no sprite)
+     assets/leaderboard_base.png     # blank leaderboard template (no text, no sprites)
+     assets/tadpole.png
+     assets/hopper.png
+     assets/ascended.png
+     assets/Roboto-Bold.ttf          # optional (recommended)
+ - Call generate_profile_image(user_dict)
+ - Call generate_leaderboard_image(rows_list)
+
+Return values: local filesystem path to generated PNGs.
+"""
+
+import os
+from PIL import Image, ImageDraw, ImageFont, ImageFilter
+
 ASSET_DIR = "assets"
 
-# Filenames expected in assets/
+# Template filenames (expected)
+PROFILE_TEMPLATE = os.path.join(ASSET_DIR, "profile_base.png")
+LEADERBOARD_TEMPLATE = os.path.join(ASSET_DIR, "leaderboard_base.png")
+
 FORM_SPRITES = {
-    "Tadpole": "tadpole.png",
-    "Hopper": "hopper.png",
-    "Ascended": "ascended.png",
+    "Tadpole": os.path.join(ASSET_DIR, "tadpole.png"),
+    "Hopper": os.path.join(ASSET_DIR, "hopper.png"),
+    "Ascended": os.path.join(ASSET_DIR, "ascended.png"),
 }
+# Fallback sprite
+DEFAULT_SPRITE = os.path.join(ASSET_DIR, "tadpole.png")
 
-# Fallback names if form not matched
-DEFAULT_SPRITE = "tadpole.png"
-
-# Footer text (project-level, static)
+# Default project text (can be overridden by code when calling functions)
 PROJECT_TG = "t.me/megagrok"
 PROJECT_CA = "FZL2K9TBybDh32KfJWQBhMtQ71PExyNXiry8Y5e2pump"
 
 # -------------------------
-# Font loader (safe fallback)
+# Font helpers
 # -------------------------
-def load_font(path_or_size, size=None):
+def _load_font(name_or_size, size=None):
     """
-    load_font("Roboto-Bold.ttf", 32) or load_font(size=28) fallback to default
+    Robust font loader.
+    - _load_font(28) -> load default size
+    - _load_font("Roboto-Bold.ttf", 32) -> load specific file from ASSET_DIR
+    Falls back to ImageFont.load_default() if truetype fails.
     """
-    # If called as load_font(size=28) or load_font(28)
-    if size is None and isinstance(path_or_size, int):
-        size = path_or_size
-        path = None
-    elif size is None and isinstance(path_or_size, str):
-        # user passed only path string (no size) -> fallback
-        path = path_or_size
-        size = 24
-    else:
-        path = path_or_size
-
     try:
-        if path:
-            font_path = os.path.join(ASSET_DIR, path)
+        if size is None and isinstance(name_or_size, int):
+            size = name_or_size
+            font_path = os.path.join(ASSET_DIR, "Roboto-Bold.ttf")
+        elif size is None and isinstance(name_or_size, str):
+            # only name provided (use default size)
+            font_path = os.path.join(ASSET_DIR, name_or_size)
+            size = 24
+        else:
+            font_path = os.path.join(ASSET_DIR, name_or_size)
+
+        # try provided path first
+        if os.path.exists(font_path):
             return ImageFont.truetype(font_path, size)
-        # try Roboto by default
-        rpath = os.path.join(ASSET_DIR, "Roboto-Bold.ttf")
-        return ImageFont.truetype(rpath, size)
-    except Exception:
-        return ImageFont.load_default()
-
-
-TITLE_FONT = load_font(56)
-SUBTITLE_FONT = load_font(36)
-LABEL_FONT = load_font(22)
-BIG_NUM_FONT = load_font(56)
-BODY_FONT = load_font(20)
-SMALL_FONT = load_font(16)
-
-
-# -------------------------
-# Utility: outlined text helper
-# -------------------------
-def outline_text(draw, xy, text, font, fill=(255,255,255), outline=(0,0,0), stroke=3, anchor=None):
-    """
-    Robust wrapper for Pillow text with stroke.
-    """
-    try:
-        draw.text(xy, text, font=font, fill=fill, stroke_width=stroke, stroke_fill=outline, anchor=anchor)
-    except TypeError:
-        # Older Pillow versions may not support stroke_width; draw a manual outline
-        x, y = xy
-        oxs = [-1,0,1,-1,1,-1,0,1]
-        oys = [-1,-1,-1,0,0,1,1,1]
-        for ox, oy in zip(oxs, oys):
-            draw.text((x+ox, y+oy), text, font=font, fill=outline, anchor=anchor)
-        draw.text(xy, text, font=font, fill=fill, anchor=anchor)
-
-
-# -------------------------
-# Load sprite by form/evolution
-# -------------------------
-def load_form_image(form_name):
-    fname = FORM_SPRITES.get(form_name, DEFAULT_SPRITE)
-    path = os.path.join(ASSET_DIR, fname)
-    if not os.path.exists(path):
-        # fallback: try default
-        fallback = os.path.join(ASSET_DIR, DEFAULT_SPRITE)
-        if os.path.exists(fallback):
-            return Image.open(fallback).convert("RGBA")
-        return None
-    return Image.open(path).convert("RGBA")
-
-
-# -------------------------
-# Helper: draw rounded stat box
-# -------------------------
-def draw_stat_box(draw, bbox, label, value, fonts=None, fill_bg=(246, 193, 59), outline_color=(36, 28, 60)):
-    """
-    bbox: (x0,y0,x1,y1)
-    label: small text above
-    value: big value below
-    fonts: (label_font, value_font)
-    """
-    x0, y0, x1, y1 = bbox
-    draw.rounded_rectangle(bbox, radius=10, fill=fill_bg, outline=outline_color, width=4)
-    label_font = fonts[0] if fonts and len(fonts)>0 else LABEL_FONT
-    value_font = fonts[1] if fonts and len(fonts)>1 else BIG_NUM_FONT
-
-    # label (top-left padding)
-    lx = x0 + 12
-    ly = y0 + 8
-    outline_text(draw, (lx, ly), label.upper(), label_font, fill=(35,35,35), outline=(255,255,255), stroke=2)
-
-    # value centered under label
-    # measure using textbbox when available
-    try:
-        tb = draw.textbbox((0,0), value, font=value_font)
-        w = tb[2] - tb[0]
-        h = tb[3] - tb[1]
-    except Exception:
-        w, h = value_font.getsize(value)
-    vx = x0 + (x1 - x0)/2 - w/2
-    vy = y0 + (y1 - y0)/2 - h/2 + 8
-    outline_text(draw, (vx, vy), value, value_font, fill=(20,20,20), outline=(255,255,255), stroke=3)
-
-
-# -------------------------
-# Main: generate_profile_image
-# -------------------------
-def generate_profile_image(user: dict):
-    """
-    Generates a 1080x1080 trading-card style profile image.
-
-    Input `user` should be a dict that includes:
-      - user_id or username (displayed top)
-      - username (optional) or display_name
-      - level (int)
-      - form (string) -> one of Tadpole/Hopper/Ascended
-      - xp_total (int)
-      - wins (int)
-      - rituals (int)
-      - mobs_defeated (int) optional
-
-    Fallbacks used where keys are missing.
-    Returns path to saved image.
-    """
-    # --- safe reads from user dict ---
-    username = user.get("username") or user.get("display_name") or f"@{user.get('user_id', 'player')}"
-    level = int(user.get("level", user.get("lvl", 1)))
-    form = user.get("form", user.get("evolution", "Tadpole"))
-    xp_total = int(user.get("xp_total", user.get("xp", user.get("xp_current", 0))))
-    wins = int(user.get("wins", 0))
-    rituals = int(user.get("rituals", 0))
-    mobs = int(user.get("mobs_defeated", user.get("mobs", 0)))
-
-    # Canvas
-    WIDTH, HEIGHT = 1080, 1080
-    canvas = Image.new("RGBA", (WIDTH, HEIGHT), (246, 231, 199, 255))  # warm paper
-    draw = ImageDraw.Draw(canvas)
-
-    # Borders: heavy black outer, purple inner, yellow title bar like the reference
-    border_inset = 16
-    draw.rectangle([border_inset, border_inset, WIDTH-border_inset, HEIGHT-border_inset], outline=(10,10,10), width=10)
-    inner_inset = 36
-    inner_box = [inner_inset, inner_inset, WIDTH-inner_inset, HEIGHT-inner_inset]
-    # purple frame
-    draw.rectangle([inner_box[0], inner_box[1], inner_box[2], inner_box[3]], outline=(90,46,140), width=8)
-
-    # Title yellow bar at top
-    title_bar_h = 120
-    title_bar = [inner_box[0], inner_box[1], inner_box[2], inner_box[1] + title_bar_h]
-    draw.rectangle(title_bar, fill=(236,170,53), outline=(10,10,10), width=3)
-
-    # "MEGAGROK" centered large
-    outline_text(draw, ((WIDTH)/2, inner_box[1] + 18), "MEGAGROK", TITLE_FONT, fill=(30,30,30), outline=(5,5,5), stroke=5, anchor="ma")
-    # username inside the yellow title bar UNDER the main title, centered
-    outline_text(draw, ((WIDTH)/2, inner_box[1] + 64), username, SUBTITLE_FONT, fill=(30,30,30), outline=(255,255,255), stroke=3, anchor="ma")
-
-    # Main portrait box area
-    portrait_top = inner_box[1] + title_bar_h + 12
-    portrait_bottom = inner_box[3] - 220  # reserve bottom area for stat boxes and footer
-    portrait_bbox = (inner_box[0] + 18, portrait_top, inner_box[2] - 18, portrait_bottom)
-    # draw a thin framed box
-    draw.rectangle(portrait_bbox, outline=(10,10,10), width=6)
-
-    # Background inside portrait area: subtle cosmic gradient (blue -> purple)
-    try:
-        bg = Image.new("RGBA", (portrait_bbox[2]-portrait_bbox[0], portrait_bbox[3]-portrait_bbox[1]), (20,20,40,255))
-        bdraw = ImageDraw.Draw(bg)
-        for i in range(bg.size[1]):
-            # gradient
-            mix = i / float(bg.size[1])
-            r = int(8 + mix*20)
-            g = int(18 + mix*22)
-            b = int(40 + mix*50)
-            bdraw.line([(0, i), (bg.size[0], i)], fill=(r,g,b,255))
-        # apply slight noise/halftone by overlaying a semi-transparent dots pattern (simple approach)
-        bg = bg.filter(ImageFilter.GaussianBlur(1.2))
-        canvas.paste(bg, (portrait_bbox[0], portrait_bbox[1]), bg)
+        # fallback to Roboto if available
+        roboto = os.path.join(ASSET_DIR, "Roboto-Bold.ttf")
+        if os.path.exists(roboto):
+            return ImageFont.truetype(roboto, size)
     except Exception:
         pass
+    return ImageFont.load_default()
 
-    # Load sprite for the user's form
-    sprite = load_form_image(form)
+TITLE_FONT = _load_font(56)
+SUBTITLE_FONT = _load_font(36)
+LABEL_FONT = _load_font(22)
+BIG_NUM_FONT = _load_font(64)
+BODY_FONT = _load_font(26)
+SMALL_FONT = _load_font(18)
+
+# -------------------------
+# Text outline helper (works across pillow versions)
+# -------------------------
+def outline_text(draw: ImageDraw.ImageDraw, pos, text, font, fill=(255,255,255), outline=(0,0,0), stroke=3, anchor=None):
+    """
+    Draw text with outline. Uses stroke parameters if available,
+    otherwise draws a manual 8-direction outline.
+    """
+    try:
+        draw.text(pos, text, font=font, fill=fill, stroke_width=stroke, stroke_fill=outline, anchor=anchor)
+    except TypeError:
+        # fallback manual outline
+        x, y = pos
+        offsets = [(-1,-1),(-1,0),(-1,1),(0,-1),(0,1),(1,-1),(1,0),(1,1)]
+        for ox, oy in offsets:
+            draw.text((x+ox, y+oy), text, font=font, fill=outline, anchor=anchor)
+        draw.text(pos, text, font=font, fill=fill, anchor=anchor)
+
+# -------------------------
+# Sprite loader
+# -------------------------
+def load_sprite_for_form(form_name: str):
+    path = FORM_SPRITES.get(form_name, DEFAULT_SPRITE)
+    if os.path.exists(path):
+        try:
+            return Image.open(path).convert("RGBA")
+        except Exception:
+            return None
+    # fallback
+    if os.path.exists(DEFAULT_SPRITE):
+        try:
+            return Image.open(DEFAULT_SPRITE).convert("RGBA")
+        except Exception:
+            return None
+    return None
+
+# -------------------------
+# Profile card renderer
+# -------------------------
+def generate_profile_image(user: dict) -> str:
+    """
+    Render a profile card image by overlaying data on top of profile_base.png.
+
+    Expected user dict keys:
+      - user_id (int/str) (used for filename)
+      - username (str) => displayed at top center (without '@' is fine)
+      - level (int)
+      - form (str) => Tadpole / Hopper / Ascended (decides sprite)
+      - xp_total (int) optional
+      - wins (int)
+      - rituals (int)
+      - tg (str) optional override for TG line (defaults to PROJECT_TG)
+      - ca (str) optional override for CA line (defaults to PROJECT_CA)
+
+    Returns: path to generated file (e.g. /tmp/profile_<user>.png)
+    """
+    if not os.path.exists(PROFILE_TEMPLATE):
+        raise FileNotFoundError(f"profile template not found: {PROFILE_TEMPLATE}")
+
+    # safe reads
+    username = user.get("username") or user.get("display_name") or f"user{user.get('user_id','')}"
+    level = int(user.get("level", 1))
+    form = user.get("form", "Tadpole")
+    xp_total = int(user.get("xp_total", 0))
+    wins = int(user.get("wins", 0))
+    rituals = int(user.get("rituals", 0))
+    tg_line = user.get("tg", PROJECT_TG)
+    ca_line = user.get("ca", PROJECT_CA)
+
+    # load template
+    base = Image.open(PROFILE_TEMPLATE).convert("RGBA")
+    W, H = base.size
+    canvas = base.copy()
+    draw = ImageDraw.Draw(canvas)
+
+    # --- compute relative positions using template proportions ---
+    # Title area: center username in top yellow bar (we assume left/right padding)
+    title_bar_y = int(H * 0.065)  # approximate y center for the username band
+    # We'll measure text width and center horizontally
+    outline_text(draw, (W//2, int(H * 0.08)), username, SUBTITLE_FONT,
+                 fill=(20,20,20), outline=(255,255,255), stroke=3, anchor="ma")
+
+    # Portrait area (center): place sprite centered in the big portrait box.
+    # We estimate portrait box as a centered square occupying about 60% of height between 15% and 72% of H.
+    portrait_top = int(H * 0.12)
+    portrait_bottom = int(H * 0.72)
+    portrait_h = portrait_bottom - portrait_top
+    portrait_w = int(W * 0.86)  # leave small horizontal margins
+    portrait_left = int((W - portrait_w) / 2)
+
+    sprite = load_sprite_for_form(form)
     if sprite:
-        # square-crop and resize to fit nicely (about 60% of portrait height)
-        pw = portrait_bbox[2] - portrait_bbox[0]
-        ph = portrait_bbox[3] - portrait_bbox[1]
-        # scale sprite to max ~65% of portrait height
-        target_h = int(ph * 0.65)
-        # preserve aspect and resize
-        w, h = sprite.size
-        side = min(w, h)
-        # If sprite is rectangular, maintain aspect ratio centered
-        sp = sprite.copy()
-        # Resize keeping aspect
-        ar = w / float(h)
-        if h > w:
-            new_w = int(target_h * (w / float(h)))
-            new_h = target_h
-        else:
-            new_h = int(target_h / (w / float(h)))
-            new_w = int(target_h * ar) if new_h > target_h else new_h
-            new_h = target_h
-        sp = sp.resize((int(target_h*ar), target_h)).convert("RGBA")
-        sx = portrait_bbox[0] + (pw - sp.width)//2
-        sy = portrait_bbox[1] + (ph - sp.height)//2
-        # slight halo behind sprite
-        halo = sp.copy().filter(ImageFilter.GaussianBlur(24))
-        halo_tint = Image.new("RGBA", halo.size, (40,200,180,60))
+        # Resize sprite to fit portrait area (keep aspect, target ~65% of portrait height)
+        target_h = int(portrait_h * 0.65)
+        sw, sh = sprite.size
+        ar = sw / float(sh)
+        new_h = target_h
+        new_w = int(ar * new_h)
+        # if new_w > portrait_w, clamp by width
+        if new_w > portrait_w:
+            new_w = portrait_w
+            new_h = int(new_w / ar)
+        sprite_resized = sprite.resize((new_w, new_h), Image.LANCZOS)
+        sx = portrait_left + (portrait_w - new_w)//2
+        sy = portrait_top + (portrait_h - new_h)//2
+        # optional small halo
+        halo = sprite_resized.copy().filter(ImageFilter.GaussianBlur(radius=18))
+        halo_tint = Image.new("RGBA", halo.size, (40,200,160,60))
         halo = Image.alpha_composite(halo, halo_tint)
-        canvas.paste(halo, (sx - 10, sy - 6), halo)
-        canvas.paste(sp, (sx, sy), sp)
-    else:
-        # fallback silhouette
-        cx = (portrait_bbox[0] + portrait_bbox[2])//2
-        cy = (portrait_bbox[1] + portrait_bbox[3])//2
-        r = min(portrait_bbox[2]-portrait_bbox[0], portrait_bbox[3]-portrait_bbox[1])//4
-        draw.ellipse([cx-r, cy-r, cx+r, cy+r], fill=(80,80,80))
-        outline_text(draw, (cx-16, cy-12), "??", BIG_NUM_FONT, fill=(255,255,255), outline=(0,0,0), stroke=3)
+        canvas.paste(halo, (sx-6, sy-6), halo)
+        canvas.paste(sprite_resized, (sx, sy), sprite_resized)
 
-    # Bottom stat area (three boxes in a row): LEVEL (with evolution name), WINS, RITUALS
-    bottom_top = portrait_bottom + 12
-    bottom_left = inner_box[0] + 16
-    bottom_right = inner_box[2] - 16
-    total_w = bottom_right - bottom_left
-    box_w = int((total_w - 24)/3)  # spacing 12
-    box_h = 150
-    spacing = 12
+    # --- Stat boxes area at the bottom ---
+    # We'll divide the reserved bottom area (from portrait_bottom to footer_top) in 3 boxes.
+    bottom_top = int(H * 0.73)
+    bottom_margin_lr = int(W * 0.06)
+    total_w = W - 2*bottom_margin_lr
+    spacing = int(W * 0.02)
+    box_w = int((total_w - spacing*2) / 3)
+    box_h = int(H * 0.13)
+    bx0 = bottom_margin_lr
+    by0 = bottom_top
 
     # LEVEL box (left)
-    level_box = (bottom_left, bottom_top, bottom_left + box_w, bottom_top + box_h)
-    # evolution_name under the level number
-    draw_stat_box(draw, level_box, "LEVEL", str(level), fonts=(LABEL_FONT, BIG_NUM_FONT))
-    # evolution text below level number (small)
-    evo_txt = str(form)
+    lvl_box = (bx0, by0, bx0 + box_w, by0 + box_h)
+    # Wins box (center)
+    wins_box = (bx0 + box_w + spacing, by0, bx0 + 2*box_w + spacing, by0 + box_h)
+    # Rituals box (right)
+    rituals_box = (bx0 + 2*(box_w + spacing), by0, bx0 + 3*box_w + 2*spacing, by0 + box_h)
+
+    # Draw content (we assume base template contains frames; we only place text)
+    # LEVEL label + big number + evolution name below
+    outline_text(draw, (lvl_box[0] + 16, lvl_box[1] + 10), "LEVEL", LABEL_FONT,
+                 fill=(20,20,20), outline=(255,255,255), stroke=2, anchor="lm")
+    # big number centered in box
     try:
-        tb = draw.textbbox((0,0), evo_txt, font=LABEL_FONT)
-        w = tb[2] - tb[0]
+        tb = draw.textbbox((0,0), str(level), font=BIG_NUM_FONT)
+        wnum = tb[2]-tb[0]
+        hnum = tb[3]-tb[1]
     except Exception:
-        w, _ = LABEL_FONT.getsize(evo_txt)
-    ex = level_box[0] + (box_w - w)/2
-    ey = level_box[1] + box_h - 36
-    outline_text(draw, (ex, ey), evo_txt, LABEL_FONT, fill=(30,30,30), outline=(255,255,255), stroke=2)
+        wnum, hnum = BIG_NUM_FONT.getsize(str(level))
+    nx = lvl_box[0] + (box_w - wnum)/2
+    ny = lvl_box[1] + (box_h - hnum)/2 - 8
+    outline_text(draw, (nx, ny), str(level), BIG_NUM_FONT, fill=(20,20,20), outline=(255,255,255), stroke=3)
 
-    # WINS box (center)
-    wins_box = (bottom_left + box_w + spacing, bottom_top, bottom_left + box_w*2 + spacing, bottom_top + box_h)
-    draw_stat_box(draw, wins_box, "WINS", str(wins), fonts=(LABEL_FONT, BIG_NUM_FONT))
+    # evolution name under number
+    ev_txt = str(form)
+    outline_text(draw, (lvl_box[0] + box_w/2, lvl_box[1] + box_h - 28), ev_txt, LABEL_FONT,
+                 fill=(20,20,20), outline=(255,255,255), stroke=2, anchor="ma")
 
-    # RITUALS box (right)
-    rituals_box = (bottom_left + (box_w+spacing)*2, bottom_top, bottom_right, bottom_top + box_h)
-    draw_stat_box(draw, rituals_box, "RITUALS", str(rituals), fonts=(LABEL_FONT, BIG_NUM_FONT))
-
-    # Footer strip for TG + CA (two lines centered)
-    footer_h = 84
-    footer_box = (inner_box[0]+6, inner_box[3]-footer_h-6, inner_box[2]-6, inner_box[3]-6)
-    draw.rectangle(footer_box, fill=(246, 231, 199), outline=(10,10,10), width=2)
-    # left aligned tg, right aligned ca
-    padding = 22
-    # TG text
-    tg_text = f"TG: {PROJECT_TG}"
-    ca_text = f"CA: {PROJECT_CA}"
-    # TG left
-    outline_text(draw, (footer_box[0] + padding, footer_box[1] + 20), tg_text, SMALL_FONT, fill=(30,30,30), outline=(255,255,255), stroke=1)
-    # CA right
-    # compute width
+    # WINS box
+    outline_text(draw, (wins_box[0] + 16, wins_box[1] + 10), "WINS", LABEL_FONT,
+                 fill=(20,20,20), outline=(255,255,255), stroke=2, anchor="lm")
     try:
-        tb = draw.textbbox((0,0), ca_text, font=SMALL_FONT)
-        w = tb[2] - tb[0]
+        tb = draw.textbbox((0,0), str(wins), font=BIG_NUM_FONT)
+        wnum = tb[2]-tb[0]
+        hnum = tb[3]-tb[1]
     except Exception:
-        w, _ = SMALL_FONT.getsize(ca_text)
-    outline_text(draw, (footer_box[2] - padding - w, footer_box[1] + 20), ca_text, SMALL_FONT, fill=(30,30,30), outline=(255,255,255), stroke=1)
+        wnum, hnum = BIG_NUM_FONT.getsize(str(wins))
+    nx = wins_box[0] + (box_w - wnum)/2
+    ny = wins_box[1] + (box_h - hnum)/2 - 8
+    outline_text(draw, (nx, ny), str(wins), BIG_NUM_FONT, fill=(20,20,20), outline=(255,255,255), stroke=3)
 
-    # Save
-    out_path = f"/tmp/profile_{username.replace('@','').replace(' ','_')}.png"
+    # RITUALS box
+    outline_text(draw, (rituals_box[0] + 16, rituals_box[1] + 10), "RITUALS", LABEL_FONT,
+                 fill=(20,20,20), outline=(255,255,255), stroke=2, anchor="lm")
+    try:
+        tb = draw.textbbox((0,0), str(rituals), font=BIG_NUM_FONT)
+        wnum = tb[2]-tb[0]
+        hnum = tb[3]-tb[1]
+    except Exception:
+        wnum, hnum = BIG_NUM_FONT.getsize(str(rituals))
+    nx = rituals_box[0] + (box_w - wnum)/2
+    ny = rituals_box[1] + (box_h - hnum)/2 - 8
+    outline_text(draw, (nx, ny), str(rituals), BIG_NUM_FONT, fill=(20,20,20), outline=(255,255,255), stroke=3)
+
+    # Footer strip: TG left, CA right (we keep them optional/empty if not provided)
+    footer_h = int(H * 0.08)
+    footer_y = int(H - footer_h - 16)
+    # left padding
+    padding = int(W * 0.06)
+    outline_text(draw, (padding, footer_y + 12), f"TG: {tg_line}", SMALL_FONT,
+                 fill=(20,20,20), outline=(255,255,255), stroke=1, anchor="lm")
+    # CA right-aligned
+    ca_txt = f"CA: {ca_line}"
+    try:
+        cb = draw.textbbox((0,0), ca_txt, font=SMALL_FONT)
+        cw = cb[2] - cb[0]
+    except Exception:
+        cw, _ = SMALL_FONT.getsize(ca_txt)
+    outline_text(draw, (W - padding - cw, footer_y + 12), ca_txt, SMALL_FONT,
+                 fill=(20,20,20), outline=(255,255,255), stroke=1, anchor="lm")
+
+    # Save result
+    safe_name = str(username).replace("@", "").replace(" ", "_")
+    out_path = f"/tmp/profile_{safe_name}.png"
     canvas.convert("RGBA").save(out_path)
     return out_path
 
-
 # -------------------------
-# Leaderboard: top 5 renderer
+# Leaderboard renderer (top 5)
 # -------------------------
-def generate_leaderboard_image(rows=None):
+def generate_leaderboard_image(rows: list = None, tg: str = None, ca: str = None) -> str:
     """
-    Generates a vertical Top-5 leaderboard in the same trading-card style.
+    Render leaderboard by overlaying rows onto leaderboard_base.png.
 
-    rows: optional list of dicts:
-      each dict may include:
-        - rank (1..5)
-        - username
-        - xp (int)
-        - fights (int)
-        - wins (int)
-        - form (optional)
-    If rows is None, the caller should call get_top_users() and pass the data in.
+    rows: list of dicts (length >= 5 recommended). Each dict:
+      - rank (1..5)
+      - username (str)
+      - xp (int)
+      - fights (int)
+      - wins (int)
+      - form (optional)
+    If rows is None, a sample placeholder list will be used.
+
+    Returns path to generated leaderboard (/tmp/leaderboard.png)
     """
-    # placeholder rows if none provided
+    if not os.path.exists(LEADERBOARD_TEMPLATE):
+        raise FileNotFoundError(f"leaderboard template not found: {LEADERBOARD_TEMPLATE}")
+
     if rows is None:
-        # example placeholders
         rows = [
-            {"rank":1, "username":"FrogKing", "xp":3450, "fights":70, "wins":50, "form":"Ascended"},
-            {"rank":2, "username":"HopMaster", "xp":3020, "fights":65, "wins":45, "form":"Hyper"},
+            {"rank":1, "username":"FrogKing",   "xp":3450, "fights":70, "wins":50, "form":"Ascended"},
+            {"rank":2, "username":"HopMaster",  "xp":3020, "fights":65, "wins":45, "form":"Hopper"},
             {"rank":3, "username":"TadpolePro", "xp":2800, "fights":60, "wins":40, "form":"Hopper"},
             {"rank":4, "username":"MemeRibbit", "xp":2550, "fights":55, "wins":35, "form":"Hopper"},
-            {"rank":5, "username":"SwampLord", "xp":2100, "fights":50, "wins":30, "form":"Tadpole"},
+            {"rank":5, "username":"SwampLord",  "xp":2100, "fights":50, "wins":30, "form":"Tadpole"},
         ]
 
-    # Canvas size (vertical poster / leaderboard)
-    WIDTH = 1080
-    # height proportional to rows; for top5 keep a fixed poster look
-    HEIGHT = 1400
-    canvas = Image.new("RGBA", (WIDTH, HEIGHT), (246, 231, 199, 255))
+    tg_line = tg or PROJECT_TG
+    ca_line = ca or PROJECT_CA
+
+    base = Image.open(LEADERBOARD_TEMPLATE).convert("RGBA")
+    W, H = base.size
+    canvas = base.copy()
     draw = ImageDraw.Draw(canvas)
 
-    # Outer frames like profile style
-    inset = 16
-    draw.rectangle([inset, inset, WIDTH-inset, HEIGHT-inset], outline=(10,10,10), width=10)
-    inner_inset = 36
-    inner_box = [inner_inset, inner_inset, WIDTH-inner_inset, HEIGHT-inner_inset]
-    draw.rectangle([inner_box[0], inner_box[1], inner_box[2], inner_box[3]], outline=(90,46,140), width=8)
+    # Title area: replace header text if needed.
+    # We'll center the header "TOP 5 LEADERBOARD" in the top bar.
+    # Calculate an approximate title Y based on template height
+    try:
+        outline_text(draw, (W//2, int(H * 0.06)), "TOP 5 LEADERBOARD", TITLE_FONT,
+                     fill=(236,170,53), outline=(5,5,5), stroke=5, anchor="ma")
+    except Exception:
+        pass
 
-    # Title bar
-    title_bar_h = 160
-    title_bar = (inner_box[0], inner_box[1], inner_box[2], inner_box[1] + title_bar_h)
-    draw.rectangle(title_bar, fill=(36,56,112))
-    outline_text(draw, ((WIDTH)/2, inner_box[1] + 24), "TOP 5 MEGAGROK", TITLE_FONT, fill=(236,170,53), outline=(5,5,5), stroke=5, anchor="ma")
-    outline_text(draw, ((WIDTH)/2, inner_box[1] + 80), "LEADERBOARD", SUBTITLE_FONT, fill=(236,170,53), outline=(5,5,5), stroke=4, anchor="ma")
+    # Row area: find a starting Y by scanning for the top-most rows area.
+    # We'll assume rows are vertically stacked with uniform row height.
+    # Choose conservative layout positions (proportional)
+    title_bar_h = int(H * 0.16)
+    row_top = title_bar_h + int(H * 0.04)
+    row_h = int((H - row_top - int(H * 0.18)) / 5)  # reserve footer area bottom
+    left_margin = int(W * 0.05)
 
-    # Row area
-    row_top = title_bar[3] + 12
-    row_h = 220
-    row_padding = 14
-    avatar_size = 128
+    avatar_size = int(row_h * 0.6)
     for i, r in enumerate(rows[:5]):
         rank = int(r.get("rank", i+1))
-        uname = r.get("username", f"Player{rank}")
+        username = r.get("username", f"Player{rank}")
         xp = int(r.get("xp", 0))
         fights = int(r.get("fights", 0))
         wins = int(r.get("wins", 0))
-        form = r.get("form", "Tadpole")
 
-        y0 = row_top + i * (row_h + row_padding)
+        y0 = row_top + i * (row_h + int(H * 0.01))
         y1 = y0 + row_h
+        # name position (approx)
+        name_x = left_margin + int(W * 0.20) + avatar_size + 20
+        name_y = y0 + int(row_h * 0.12)
+        outline_text(draw, (name_x, name_y), username, SUBTITLE_FONT,
+                     fill=(20,20,20), outline=(255,255,255), stroke=3, anchor="lm")
 
-        # row background (orange panel)
-        left = inner_box[0] + 12
-        right = inner_box[2] - 12
-        draw.rectangle([left, y0, right, y1], fill=(236,170,53), outline=(10,10,10), width=4)
-
-        # Rank circle left
-        circle_r = 56
-        cx = left + 40
-        cy = y0 + row_h//2
-        draw.ellipse([cx-circle_r, cy-circle_r, cx+circle_r, cy+circle_r], fill=(20,20,50), outline=(10,10,10), width=4)
-        outline_text(draw, (cx, cy-14), str(rank), BIG_NUM_FONT, fill=(236,170,53), outline=(5,5,5), stroke=3, anchor="ma")
-
-        # Avatar / sprite next to rank
-        sprite = load_form_image(form)
-        if sprite:
-            av = sprite.copy().resize((avatar_size, avatar_size)).convert("RGBA")
-            ax = cx + circle_r + 18
-            ay = y0 + (row_h - avatar_size)//2
-            # small halo
-            halo = av.copy().filter(ImageFilter.GaussianBlur(12))
-            halo_tint = Image.new("RGBA", halo.size, (40,200,180,60))
-            halo = Image.alpha_composite(halo, halo_tint)
-            canvas.paste(halo, (ax-8, ay-6), halo)
-            canvas.paste(av, (ax, ay), av)
-
-        # Username (large) to the right
-        name_x = cx + circle_r + 18 + avatar_size + 12
-        name_y = y0 + 18
-        outline_text(draw, (name_x, name_y), uname, SUBTITLE_FONT, fill=(20,20,20), outline=(255,255,255), stroke=3)
-
-        # Stats line below username: "XP: #### • FIGHTS / WINS: FF / WW"
+        # Stats line directly below (use the exact format: "XP: ####  ·  FIGHTS / WINS: FF / WW")
         stats_text = f"XP: {xp}  ·  FIGHTS / WINS: {fights} / {wins}"
-        outline_text(draw, (name_x, name_y + 64), stats_text, BODY_FONT, fill=(20,20,20), outline=(255,255,255), stroke=2)
+        outline_text(draw, (name_x, name_y + 56), stats_text, BODY_FONT,
+                     fill=(20,20,20), outline=(255,255,255), stroke=2, anchor="lm")
 
-        # small badge for top-1
-        if rank == 1:
-            # draw crown/flare at right edge of row
-            cx_badge = right - 60
-            cy_badge = y0 + 30
-            # simple star burst
-            draw.polygon([
-                (cx_badge, cy_badge - 18),
-                (cx_badge + 12, cy_badge - 6),
-                (cx_badge + 30, cy_badge - 6),
-                (cx_badge + 16, cy_badge + 4),
-                (cx_badge + 20, cy_badge + 20),
-                (cx_badge, cy_badge + 10),
-                (cx_badge - 20, cy_badge + 20),
-                (cx_badge - 16, cy_badge + 4),
-                (cx_badge - 30, cy_badge - 6),
-                (cx_badge - 12, cy_badge - 6),
-            ], fill=(255,140,0), outline=(10,10,10))
+        # Rank number area: we assume the template kept the circular rank at left; keep it, do not overwrite rank.
+        # If you want to draw the rank number (in case the template left area empty), uncomment below:
+        # rank_x = left_margin + int(W * 0.05)
+        # rank_y = y0 + row_h//2
+        # outline_text(draw, (rank_x, rank_y), str(rank), BIG_NUM_FONT, fill=(236,170,53), outline=(5,5,5), stroke=3, anchor="mm")
 
-    # Footer strip (TG + CA)
-    footer_h = 70
-    footer_box = (inner_box[0]+6, inner_box[3]-footer_h-6, inner_box[2]-6, inner_box[3]-6)
-    draw.rectangle(footer_box, fill=(246, 231, 199), outline=(10,10,10), width=2)
-    padding = 24
-    tg_text = f"TG: {PROJECT_TG}"
-    ca_text = f"CA: {PROJECT_CA}"
-    outline_text(draw, (footer_box[0] + padding, footer_box[1] + 18), tg_text, SMALL_FONT, fill=(30,30,30), outline=(255,255,255), stroke=1)
+        # Optionally paste a sprite if desired (we removed frogs from template; uncomment to add)
+        # sprite = load_sprite_for_form(r.get("form","Tadpole"))
+        # if sprite:
+        #     av = sprite.resize((avatar_size, avatar_size), Image.LANCZOS).convert("RGBA")
+        #     ax = left_margin + int(W * 0.20)
+        #     ay = y0 + (row_h - avatar_size)//2
+        #     canvas.paste(av, (ax, ay), av)
+
+    # Footer: TG + CA (left + right)
+    footer_y = int(H * 0.92)
+    padding = int(W * 0.05)
+    outline_text(draw, (padding, footer_y), f"TG: {tg_line}", SMALL_FONT,
+                 fill=(20,20,20), outline=(255,255,255), stroke=1, anchor="lm")
+    ca_txt = f"CA: {ca_line}"
     try:
-        tb = draw.textbbox((0,0), ca_text, font=SMALL_FONT)
-        w = tb[2] - tb[0]
+        tb = draw.textbbox((0,0), ca_txt, font=SMALL_FONT)
+        cw = tb[2] - tb[0]
     except Exception:
-        w, _ = SMALL_FONT.getsize(ca_text)
-    outline_text(draw, (footer_box[2] - padding - w, footer_box[1] + 18), ca_text, SMALL_FONT, fill=(30,30,30), outline=(255,255,255), stroke=1)
+        cw, _ = SMALL_FONT.getsize(ca_txt)
+    outline_text(draw, (W - padding - cw, footer_y), ca_txt, SMALL_FONT,
+                 fill=(20,20,20), outline=(255,255,255), stroke=1, anchor="lm")
 
+    # Save
     out = "/tmp/leaderboard.png"
     canvas.convert("RGBA").save(out)
     return out
