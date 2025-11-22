@@ -171,12 +171,12 @@ def generate_profile_image(user: Dict[str, Any]) -> str:
         x1, y1, x2, y2 = box
 
         # Move label up a bit
-        lab_y = y1 + 2
+        lab_y = y1 - 6
         lab_x = center_x(draw, label, LABEL_FONT, x1, x2)
         draw.text((lab_x, lab_y), label, font=LABEL_FONT, fill=(20, 20, 20))
 
         # Move value UP so it sits fully inside the box
-        val_y = y1 + 28       # ← this is the key fix
+        val_y = y1 + 20       # ← this is the key fix
         val_x = center_x(draw, value, VALUE_FONT, x1, x2)
         draw.text((val_x, val_y), value, font=VALUE_FONT, fill=(20, 20, 20))
     
