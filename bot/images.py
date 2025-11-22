@@ -169,15 +169,17 @@ def generate_profile_image(user: Dict[str, Any]) -> str:
     # helper to center label and value within a box
     def draw_box_text(box: Tuple[int, int, int, int], label: str, value: str):
         x1, y1, x2, y2 = box
-        # label - slightly above center
-        lab_y = y1 + 6
+
+        # Move label up a bit
+        lab_y = y1 + 2
         lab_x = center_x(draw, label, LABEL_FONT, x1, x2)
         draw.text((lab_x, lab_y), label, font=LABEL_FONT, fill=(20, 20, 20))
-        # value - larger and below label
-        val_y = y1 + 46
+
+        # Move value UP so it sits fully inside the box
+        val_y = y1 + 28       # ← this is the key fix
         val_x = center_x(draw, value, VALUE_FONT, x1, x2)
         draw.text((val_x, val_y), value, font=VALUE_FONT, fill=(20, 20, 20))
-
+    
     # draw the three boxes text
     draw_box_text(left_box, "LEVEL", str(level))
     draw_box_text(mid_box, "FIGHTS / WINS", f"{fights} / {wins}")
