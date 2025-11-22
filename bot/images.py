@@ -1,139 +1,159 @@
-# bot/images.py
 import os
 from PIL import Image, ImageDraw, ImageFont
 
-ASSETS = "assets"
-
-# Base templates
+ASSET_DIR = "assets"
 PROFILE_BASE = "profile_base.png"
 LEADERBOARD_BASE = "leaderboard_base.png"
 
-# Sprites
-TADPOLE = "tadpole.png"
-HOPPER = "hopper.png"
-ASCENDED = "ascended.png"
+# Load fonts
+def load_font(name, size):
+    path1 = os.path.join(ASSET_DIR, name)
+    path2 = os.path.join("/mnt/data", name)
 
-# Fonts
-FONTS = {
-    "bold": "Roboto-Bold.ttf",
-    "regular": "Roboto-Regular.ttf",
-    "light": "Roboto-Light.ttf"
-}
-
-# -----------------------------
-# FONT LOADING
-# -----------------------------
-def _font(name, size):
-    paths = [
-        os.path.join(ASSETS, name),
-        os.path.join("/mnt/data", name),
-        name
-    ]
-    for p in paths:
-        if os.path.exists(p):
-            return ImageFont.truetype(p, size)
+    if os.path.exists(path1):
+        return ImageFont.truetype(path1, size)
+    if os.path.exists(path2):
+        return ImageFont.truetype(path2, size)
     return ImageFont.load_default()
 
-FONT_TITLE = _font(FONTS["bold"], 72)
-FONT_USERNAME = _font(FONTS["bold"], 48)
-FONT_LABEL = _font(FONTS["regular"], 40)
-FONT_VALUE = _font(FONTS["bold"], 56)
-FONT_FOOTER = _font(FONTS["light"], 32)
-FONT_ROW_NAME = _font(FONTS["bold"], 40)
-FONT_ROW_STATS = _font(FONTS["regular"], 34)
+TITLE_FONT     = load_font("Roboto-Bold.ttf", 76)
+USERNAME_FONT  = load_font("Roboto-Bold.ttf", 52)
+LABEL_FONT     = load_font("Roboto-Regular.ttf", 36)
+NUMBER_FONT    = load_font("Roboto-Bold.ttf", 64)
+SMALL_FONT     = load_font("Roboto-Regular.ttf", 32)
+FOOTER_FONT    = load_font("Roboto-Light.ttf", 26)
 
-# -----------------------------
-# IMAGE LOADING
-# -----------------------------
-def _load_img(name):
-    for p in (
-        os.path.join(ASSETS, name),
-        os.path.join("/mnt/data", name),
-        name
-    ):
-        if os.path.exists(p):
-            return Image.open(p).convert("RGBA")
-    return None
+# ---------------------------------------
+# LOAD SPRITE BY FORM
+# ---------------------------------------
+def load_sprite(form):
+    fname_map = {
+        "Tadpole": "tadpole.png",
+        "Hopper": "hopper.png",
+        "Ascended": "ascended.png"
+    }
+    fname = fname_map.get(form, "tadpole.png")
+    path = os.path.join(ASSET_DIR, fname)
+    if not os.path.exists(path):
+        return None
+    return Image.open(path).convert("RGBA")
 
-FORM_SPRITES = {
-    "Tadpole": TADPOLE,
-    "Hopper": HOPPER,
-    "Ascended": ASCENDED
-}
+# ---------------------------------------
+# DRAW CENTERED TEXT
+# ---------------------------------------
+def centered(draw, box, text, font, fill=(0,0,0)):
+    x1, y1, x2, y2 = box
+    w = x2 - x1
+    try:
+        tw, th = draw.textbbox((0,0), text, font=font)[2:]
+    except:
+        tw, th = draw.textsize(text, font=font)
+    return (x1 + (w - tw)//2, y1, text, font, fill)
 
-# ================================================================
-#                     PROFILE GENERATOR
-# ================================================================
+# ---------------------------------------
+# PROFILE GENERATOR
+# ---------------------------------------
 def generate_profile_image(user):
-    username = user.get("username", "Unknown")
-    level = int(user.get("level", 1))
-    fights = int(user.get("fights", user.get("mobs_defeated", 0)))
-    wins = int(user.get("wins", 0))
-    rituals = int(user.get("rituals", 0))
+
+    uid = user.get("user_id")
+    username = user.get("username", f"User{uid}")
     form = user.get("form", "Tadpole")
+    level = user.get("level", 1)
+    wins = user.get("wins", 0)
+    rituals = user.get("rituals", 0)
+    fights = user.get("fights", user.get("mobs_defeated", 0))
+
     tg = user.get("tg", "")
     ca = user.get("ca", "")
 
-    base = _load_img(PROFILE_BASE)
-    if base is None:
-        return None
+    # Load template
+    base_path = os.path.join(ASSET_DIR, PROFILE_BASE)
+    card = Image.open(base_path).convert("RGBA")
+    draw = ImageDraw.Draw(card)
 
-    W, H = base.size
-    draw = ImageDraw.Draw(base)
+    W, H = card.size
 
-    # --------------------
-    # HEADER
-    # --------------------
-    title = "MEGAGROK"
-    tw = draw.textlength(title, font=FONT_TITLE)
-    draw.text(((W - tw) / 2, 35), title, font=FONT_TITLE, fill=(0, 0, 0))
+    # ---------------------------------------
+    # A) MEGAGROK centered in yellow bar
+    # ---------------------------------------
+    title_box = (0, 40, W, 140)
+    tx, ty, text, font, fill = centered(draw, title_box, "MEGAGROK", TITLE_FONT)
+    draw.text((tx, ty), text, font=font, fill=(0,0,0))
 
-    uw = draw.textlength(username, font=FONT_USERNAME)
-    draw.text(((W - uw) / 2, 120), username, font=FONT_USERNAME, fill=(0, 0, 0))
+    # ---------------------------------------
+    # B) Username centered under MEGAGROK
+    # ---------------------------------------
+    username_box = (0, 150, W, 220)
+    ux, uy, text, font, fill = centered(draw, username_box, username, USERNAME_FONT)
+    draw.text((ux, uy), text, font=font, fill=(20,20,20))
 
-    # --------------------
-    # STATS (LEFT COLUMN)
-    # --------------------
-    X = 70
-    Y = 240
+    # ---------------------------------------
+    # C) Sprite placed in the center frame
+    # (Auto-detect box from template coordinates)
+    # ---------------------------------------
+    center_box = (140, 240, 760, 820)  # ← fixed from your template
+    sprite = load_sprite(form)
 
-    draw.text((X, Y), "LEVEL", font=FONT_LABEL, fill=(0, 0, 0))
-    draw.text((X, Y + 45), str(level), font=FONT_VALUE, fill=(0, 0, 0))
-
-    draw.text((X, Y + 140), "FIGHTS / WINS", font=FONT_LABEL, fill=(0, 0, 0))
-    draw.text((X, Y + 185), f"{fights} / {wins}", font=FONT_VALUE, fill=(0, 0, 0))
-
-    draw.text((X, Y + 280), "RITUALS", font=FONT_LABEL, fill=(0, 0, 0))
-    draw.text((X, Y + 325), str(rituals), font=FONT_VALUE, fill=(0, 0, 0))
-
-    # --------------------
-    # SPRITE
-    # --------------------
-    sprite = _load_img(FORM_SPRITES.get(form, TADPOLE))
     if sprite:
-        sp_w = 420
+        max_w = center_box[2] - center_box[0]
+        max_h = center_box[3] - center_box[1]
+
+        # Scale sprite to 75% of center box
+        scale_w = int(max_w * 0.75)
         aspect = sprite.height / sprite.width
-        sp_h = int(sp_w * aspect)
-        sprite = sprite.resize((sp_w, sp_h), Image.LANCZOS)
+        scale_h = int(scale_w * aspect)
+        sprite = sprite.resize((scale_w, scale_h), Image.LANCZOS)
 
-        sx = 1024 - sp_w - 80
-        sy = 350
-        base.paste(sprite, (sx, sy), sprite)
+        sx = center_box[0] + (max_w - scale_w)//2
+        sy = center_box[1] + (max_h - scale_h)//2
 
-    # --------------------
-    # FOOTER
-    # --------------------
-    footer_y = 1240
+        card.paste(sprite, (sx, sy), sprite)
+
+    # ---------------------------------------
+    # D) Fights/Wins block inside left big center box
+    # ---------------------------------------
+    stats_x = center_box[0] + 10
+    stats_y = center_box[1] + 20
+
+    draw.text((stats_x, stats_y), "FIGHTS / WINS", font=SMALL_FONT, fill=(20,20,20))
+    draw.text((stats_x, stats_y + 40), f"{fights} / {wins}", font=LABEL_FONT, fill=(20,20,20))
+
+    # ---------------------------------------
+    # E) Bottom boxes — level / wins / rituals
+    # bottom boxes taken from template coordinates
+    # ---------------------------------------
+    # Level box
+    lvl_box = (140, 860, 300, 990)
+    draw.text((lvl_box[0]+20, lvl_box[1]+10), "LEVEL", font=LABEL_FONT, fill=(0,0,0))
+    draw.text((lvl_box[0]+20, lvl_box[1]+60), str(level), font=NUMBER_FONT, fill=(0,0,0))
+
+    # Wins box
+    wins_box = (320, 860, 580, 990)
+    draw.text((wins_box[0]+20, wins_box[1]+10), "WINS", font=LABEL_FONT, fill=(0,0,0))
+    draw.text((wins_box[0]+20, wins_box[1]+60), str(wins), font=NUMBER_FONT, fill=(0,0,0))
+
+    # Rituals box
+    rit_box = (600, 860, 760, 990)
+    draw.text((rit_box[0]+20, rit_box[1]+10), "RITUALS", font=LABEL_FONT, fill=(0,0,0))
+    draw.text((rit_box[0]+20, rit_box[1]+60), str(rituals), font=NUMBER_FONT, fill=(0,0,0))
+
+    # ---------------------------------------
+    # F) Footer TG + CA centered
+    # ---------------------------------------
+    footer_box = (0, 1020, W, 1150)
 
     if tg:
-        draw.text((70, footer_y), f"TG: {tg}", font=FONT_FOOTER, fill=(0, 0, 0))
-    if ca:
-        draw.text((70, footer_y + 40), f"CA: {ca}", font=FONT_FOOTER, fill=(0, 0, 0))
+        fx, fy, text, font, fill = centered(draw, footer_box, f"TG: {tg}", FOOTER_FONT)
+        draw.text((fx, fy), text, font=font, fill=(10,10,10))
 
-    # Output
-    out = f"/tmp/profile_{user.get('user_id', 'x')}.png"
-    base.save(out)
+    if ca:
+        fx2, fy2, text2, font2, fill2 = centered(draw, footer_box, f"CA: {ca}", FOOTER_FONT)
+        draw.text((fx2, fy2+34), text2, font=font2, fill=(10,10,10))
+
+    out = f"/tmp/profile_{uid}.png"
+    card.save(out)
     return out
+
 
 
 # ================================================================
