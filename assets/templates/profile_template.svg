@@ -1,0 +1,12 @@
+
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1280" viewBox="0 0 900 1280">
+  <rect width="900" height="1280" fill="#FFF0D6"/>
+  <image href="file:///mnt/data/profile_base.png" x="0" y="0" width="900" height="1280" preserveAspectRatio="xMidYMid slice"/>
+  <text id="USERNAME" x="450" y="160" font-family="Impact, sans-serif" font-size="40" text-anchor="middle" fill="#000000">{{USERNAME}}</text>
+  <image id="SPRITE_HERE_PLACEHOLDER" x="240" y="220" width="420" height="420" preserveAspectRatio="xMidYMid meet"/>
+  <text id="LEVEL_NUM" x="180" y="1040" font-family="Impact, sans-serif" font-size="72" text-anchor="middle">{{LEVEL}}</text>
+  <text id="WINS_NUM" x="450" y="1040" font-family="Impact, sans-serif" font-size="72" text-anchor="middle">{{WINS}}</text>
+  <text id="RITUALS_NUM" x="720" y="1040" font-family="Impact, sans-serif" font-size="72" text-anchor="middle">{{RITUALS}}</text>
+  <text id="TG" x="450" y="1210" font-family="DejaVu Sans, sans-serif" font-size="18" text-anchor="middle">{{TG}}</text>
+  <text id="CA" x="450" y="1240" font-family="DejaVu Sans, sans-serif" font-size="16" text-anchor="middle">{{CA}}</text>
+</svg>

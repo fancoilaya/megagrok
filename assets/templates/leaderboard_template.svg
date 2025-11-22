@@ -1,1 +1,33 @@
 
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="1600" viewBox="0 0 1000 1600">
+  <rect width="1000" height="1600" fill="#E5BB43"/>
+  <image href="file:///mnt/data/leaderboard_base.png" x="0" y="0" width="1000" height="1600" preserveAspectRatio="xMidYMid slice"/>
+  <text x="500" y="110" font-family="Impact, sans-serif" font-size="96" text-anchor="middle" fill="#ECAA35" stroke="#000" stroke-width="4">TOP 5 LEADERBOARD</text>
+  <g id="row1" transform="translate(40,220)">
+    <text x="90" y="110" font-family="Impact" font-size="96" text-anchor="middle">1</text>
+    <text x="320" y="80" font-family="Impact" font-size="48" text-anchor="start">{{R1_NAME}}</text>
+    <text x="320" y="140" font-family="Impact" font-size="34" text-anchor="start">{{R1_STATS}}</text>
+  </g>
+  <g id="row2" transform="translate(40,380)">
+    <text x="90" y="110" font-family="Impact" font-size="96" text-anchor="middle">2</text>
+    <text x="320" y="80" font-family="Impact" font-size="48" text-anchor="start">{{R2_NAME}}</text>
+    <text x="320" y="140" font-family="Impact" font-size="34" text-anchor="start">{{R2_STATS}}</text>
+  </g>
+  <g id="row3" transform="translate(40,540)">
+    <text x="90" y="110" font-family="Impact" font-size="96" text-anchor="middle">3</text>
+    <text x="320" y="80" font-family="Impact" font-size="48" text-anchor="start">{{R3_NAME}}</text>
+    <text x="320" y="140" font-family="Impact" font-size="34" text-anchor="start">{{R3_STATS}}</text>
+  </g>
+  <g id="row4" transform="translate(40,700)">
+    <text x="90" y="110" font-family="Impact" font-size="96" text-anchor="middle">4</text>
+    <text x="320" y="80" font-family="Impact" font-size="48" text-anchor="start">{{R4_NAME}}</text>
+    <text x="320" y="140" font-family="Impact" font-size="34" text-anchor="start">{{R4_STATS}}</text>
+  </g>
+  <g id="row5" transform="translate(40,860)">
+    <text x="90" y="110" font-family="Impact" font-size="96" text-anchor="middle">5</text>
+    <text x="320" y="80" font-family="Impact" font-size="48" text-anchor="start">{{R5_NAME}}</text>
+    <text x="320" y="140" font-family="Impact" font-size="34" text-anchor="start">{{R5_STATS}}</text>
+  </g>
+  <text x="500" y="1520" font-family="DejaVu Sans, sans-serif" font-size="20" text-anchor="middle">TG: t.me/megagrok</text>
+  <text x="500" y="1550" font-family="DejaVu Sans, sans-serif" font-size="18" text-anchor="middle">CA: FZL2K9TBybDh32KfJWQBhMtQ71PExyNXiry8Y5e2pump</text>
+</svg>
