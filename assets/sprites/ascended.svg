@@ -5,6 +5,6 @@
       <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
     </filter>
   </defs>
-  <image href="file:///mnt/data/tadpole.png" x="0" y="0" width="1024" height="1024" preserveAspectRatio="xMidYMid meet"/>
+  <image href="file:///mnt/data/ascended.png" x="0" y="0" width="1024" height="1024" preserveAspectRatio="xMidYMid meet"/>
   <path d="M 512 512 Z" fill="none" stroke="#000000" stroke-width="8" filter="url(#glow)" opacity="0.85"/>
 </svg>
