@@ -12,7 +12,7 @@ from telebot import TeleBot
 # ============================
 API_KEY = os.getenv("Telegram_token")
 if not API_KEY:
-    raise ValueError("Missing API_KEY environment variable")
+    raise ValueError("Missing Telegram_token environment variable")
 
 # Ensure repo root is on sys.path (should be, but be explicit)
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
