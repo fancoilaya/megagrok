@@ -1,14 +1,11 @@
 import os
 
-def safe_send_gif(bot, chat_id, gif_filename):
+def safe_send_gif(bot, chat_id, gif_path):
     """
-    Sends a GIF if it exists in /assets/gifs, otherwise sends fallback text.
+    Sends a GIF using an absolute path (correct behavior for all commands).
     """
 
-    # Adjust this path to match your repo structure
-    gif_path = os.path.join("assets", "gifs", gif_filename)
-
-    # If file doesn't exist → fallback
+    # If file doesn't exist → fallback message
     if not os.path.exists(gif_path):
         bot.send_message(chat_id, "⚔️ (GIF missing) The battle begins!")
         return
@@ -17,6 +14,7 @@ def safe_send_gif(bot, chat_id, gif_filename):
         with open(gif_path, "rb") as f:
             bot.send_animation(chat_id, f)
     except Exception as e:
-        # Render sometimes fails with SSL/connection reset errors
-        bot.send_message(chat_id, f"⚠️ Could not load GIF, but the fight continues!\nError: {e}")
-
+        bot.send_message(
+            chat_id,
+            f"⚠️ Could not load GIF, but the fight continues!\nError: {e}"
+        )
