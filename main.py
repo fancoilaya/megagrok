@@ -1,9 +1,7 @@
-# bot/main.py
+# bot/main.py — Updated for modular command loading (Telegram / TeleBot)
 import os
+import importlib
 from telebot import TeleBot
-
-# Import your command registration (this sets up ALL commands, images, xp logic, evolution, etc.)
-from bot.commands import register_handlers
 
 # ============================
 # Load Bot Token
@@ -14,10 +12,60 @@ if not API_KEY:
 
 bot = TeleBot(API_KEY)
 
-# Register all handlers
-register_handlers(bot)
+print("🔧 Loading MegaGrok command modules…")
 
-print("🚀 MegaGrok Bot is running using polling…")
 
-# Start bot
+# ============================
+# Load legacy commands.py (if exists)
+# ============================
+try:
+    from bot import commands as legacy_commands
+
+    if hasattr(legacy_commands, "register_handlers"):
+        legacy_commands.register_handlers(bot)
+        print("✔ Loaded legacy commands.py")
+    else:
+        print("⚠ commands.py found but no register_handlers(bot) function")
+except Exception as e:
+    print(f"⚠ Unable to load legacy commands.py: {e}")
+
+
+# ============================
+# Dynamic loader for modular commands/
+# ============================
+def load_command_modules(bot):
+    commands_dir = os.path.join(os.path.dirname(__file__), "commands")
+
+    if not os.path.isdir(commands_dir):
+        print("⚠ No commands/ directory found. Skipping modular loading.")
+        return
+
+    for filename in os.listdir(commands_dir):
+        if not filename.endswith(".py") or filename.startswith("_"):
+            continue
+
+        module_name = f"bot.commands.{filename[:-3]}"
+
+        try:
+            module = importlib.import_module(module_name)
+
+            if hasattr(module, "setup"):
+                module.setup(bot)
+                print(f"✔ Loaded module: {module_name}")
+            else:
+                print(f"⚠ Skipped module (no setup(bot)): {module_name}")
+
+        except Exception as e:
+            print(f"❌ Error loading {module_name}: {e}")
+
+
+# Load modular commands
+load_command_modules(bot)
+
+print("🚀 MegaGrok Bot is running via polling…")
+
+
+# ============================
+# Start Bot Polling
+# ============================
 bot.polling(none_stop=True)
