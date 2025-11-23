@@ -323,7 +323,7 @@ def register_handlers(bot: TeleBot):
     def leaderboard(message):
         try:
             rows = get_top_users(5)
-            path = generate_leaderboard_image(rows)
+            path = generate_leaderboard_image()
             with open(path, "rb") as f:
                 bot.send_photo(message.chat.id, f)
         except Exception as e:
