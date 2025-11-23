@@ -19,9 +19,6 @@ from bot.mobs import MOBS
 from bot.utils import safe_send_gif
 from bot.grokdex import GROKDEX
 
-# NEW: evolutions integration
-import evolutions
-
 # --------------------------
 # HELP TEXT
 # --------------------------
@@ -54,7 +51,7 @@ start_text = (
 )
 
 # ---------------------------------------
-# GROW COOLDOWN STORAGE
+# GROW COOLDOWN STORAGE (kept for compatibility if needed)
 # ---------------------------------------
 COOLDOWN_FILE = "/tmp/grow_cooldowns.json"
 GROW_COOLDOWN_SECONDS = 30 * 60  # 30 minutes
@@ -105,147 +102,9 @@ def register_handlers(bot: TeleBot):
     def help_cmd(message):
         bot.reply_to(message, HELP_TEXT)
 
-    # ---------------- GROW ----------------
-    @bot.message_handler(commands=['growmygrok'])
-    def grow(message):
-
-        user_id = str(message.from_user.id)
-
-        cooldowns = _load_cooldowns()
-        now = time.time()
-        last = cooldowns.get(user_id, 0)
-        if last and now - last < GROW_COOLDOWN_SECONDS:
-            left = GROW_COOLDOWN_SECONDS - (now - last)
-            bot.reply_to(message, f"⏳ Wait {_format_seconds_left(left)} before using /growmygrok again.")
-            return
-
-        # --- preserved: random XP change (can be negative) ---
-        xp_change = random.randint(-10, 25)
-
-        # Read user before applying change
-        user = get_user(int(user_id))
-
-        xp_total = user["xp_total"]
-        xp_current = user["xp_current"]
-        xp_to_next = user["xp_to_next_level"]
-        level = user["level"]
-        curve = user["level_curve_factor"]
-
-        # --- NEW: apply evolution multiplier from DB (if present) ---
-        # If evolution_multiplier is not yet in DB, fallback to 1.0
-        try:
-            evo_mult = float(user.get("evolution_multiplier", 1.0))
-        except Exception:
-            evo_mult = 1.0
-
-        # Multiply the raw xp_change by the evolution multiplier
-        # (keeps sign for negative changes)
-        effective_change = int(xp_change * evo_mult)
-
-        new_total = max(0, xp_total + effective_change)
-        cur = xp_current + effective_change
-
-        leveled_up = False
-        leveled_down = False
-
-        # level-up loop
-        while cur >= xp_to_next:
-            cur -= xp_to_next
-            level += 1
-            xp_to_next = int(xp_to_next * curve)
-            leveled_up = True
-
-        # level-down
-        while cur < 0 and level > 1:
-            level -= 1
-            xp_to_next = int(xp_to_next / curve)
-            cur += xp_to_next
-            leveled_down = True
-
-        cur = max(0, cur)
-        new_total = max(0, new_total)
-
-        # Save previous evolution stage (for detecting evolution event later)
-        try:
-            old_stage = int(user.get("evolution_stage", 0))
-        except Exception:
-            old_stage = 0
-
-        update_user_xp(
-            int(user_id),
-            {
-                "xp_total": new_total,
-                "xp_current": cur,
-                "xp_to_next_level": xp_to_next,
-                "level": level
-            }
-        )
-
-        cooldowns[user_id] = now
-        _save_cooldowns(cooldowns)
-
-        bar = _render_progress_bar(cur / xp_to_next if xp_to_next > 0 else 0)
-
-        msg = [
-            f"✨ MegaGrok {'grew' if xp_change>=0 else 'changed'} {effective_change:+d} XP (base {xp_change:+d} × evo {evo_mult}x)",
-            f"**Level {level}**",
-            f"XP: {cur}/{xp_to_next}",
-            bar
-        ]
-        if leveled_up:
-            msg.append("🎉 **Level up!**")
-        if leveled_down:
-            msg.append("💀 **Lost a level!**")
-
-        bot.reply_to(message, "\n".join(msg), parse_mode="Markdown")
-
-        # --- NEW: check for evolution event and announce ---
-        updated = get_user(int(user_id))
-        new_stage = int(updated.get("evolution_stage", 0))
-        new_level = int(updated.get("level", level))
-
-        # Use evolutions helper if available; fallback to comparing form
-        try:
-            evolved, new_stage_data = evolutions.determine_evolution_event(old_stage, new_level)
-        except Exception:
-            # fallback: evolved if form changed
-            old_form = user.get("form")
-            new_form = updated.get("form")
-            evolved = old_form != new_form
-            new_stage_data = {"name": new_form, "xp_multiplier": updated.get("evolution_multiplier", 1.0), "fight_bonus": None}
-
-        if evolved:
-            # Build asset paths (adjust to your repo if different)
-            name_slug = new_stage_data.get("name", "tadpole").lower().replace(" ", "_")
-            gif_path = f"assets/evolutions/{name_slug}/levelup.gif"
-            fallback_gif = f"assets/evolutions/{name_slug}/idle.gif"
-
-            # 1) Private DM to user (Telegram chat = user id)
-            try:
-                # prefer levelup.gif, fallback to idle.gif, else text-only
-                if os.path.exists(gif_path):
-                    safe_send_gif(bot, int(user_id), gif_path)
-                    bot.send_message(int(user_id), f"🎉 You evolved into *{new_stage_data.get('name')}*! New perks: XP ×{new_stage_data.get('xp_multiplier')}", parse_mode="Markdown")
-                elif os.path.exists(fallback_gif):
-                    safe_send_gif(bot, int(user_id), fallback_gif)
-                    bot.send_message(int(user_id), f"🎉 You evolved into *{new_stage_data.get('name')}*! New perks: XP ×{new_stage_data.get('xp_multiplier')}", parse_mode="Markdown")
-                else:
-                    bot.send_message(int(user_id), f"🎉 You evolved into *{new_stage_data.get('name')}*! New perks: XP ×{new_stage_data.get('xp_multiplier')}", parse_mode="Markdown")
-            except Exception:
-                # user may have blocked DMs or other issue — continue
-                pass
-
-            # 2) Public hype message in the same chat where command was invoked
-            hype_text = f"🔥 **{message.from_user.first_name or message.from_user.username}** has evolved into **{new_stage_data.get('name')}**! Congrats!"
-            try:
-                if os.path.exists(gif_path):
-                    safe_send_gif(bot, message.chat.id, gif_path)
-                    bot.send_message(message.chat.id, hype_text, parse_mode="Markdown")
-                else:
-                    bot.send_message(message.chat.id, hype_text, parse_mode="Markdown")
-            except Exception:
-                # best-effort — continue if send fails
-                pass
+    # ======================================================
+    #   GROW COMMAND *REMOVED* — MOVED TO commands/growmygrok.py
+    # ======================================================
 
     # ---------------- HOP ----------------
     @bot.message_handler(commands=['hop'])
@@ -326,3 +185,111 @@ def register_handlers(bot: TeleBot):
         xp_total = user["xp_total"] + xp
         cur = user["xp_current"] + xp
         xp_to_next = user["xp_to_next_level"]
+        level = user["level"]
+        curve = user["level_curve_factor"]
+
+        if cur >= xp_to_next:
+            cur -= xp_to_next
+            level += 1
+            xp_to_next = int(xp_to_next * curve)
+
+        update_user_xp(
+            user_id,
+            {
+                "xp_total": xp_total,
+                "xp_current": cur,
+                "xp_to_next_level": xp_to_next,
+                "level": level
+            }
+        )
+
+        record_quest(user_id, "fight")
+
+        bot.send_message(message.chat.id, f"{outcome}\n\n✨ **XP Gained:** {xp}")
+
+    # ---------------- PROFILE ----------------
+    @bot.message_handler(commands=['profile'])
+    def profile(message):
+
+        user_id = message.from_user.id
+        user = get_user(user_id)
+
+        user_payload = {
+            "user_id": user_id,
+            "username": message.from_user.username or f"User{user_id}",
+            "form": user["form"],
+            "level": user["level"],
+            "wins": user["wins"],
+            "fights": user["mobs_defeated"],
+            "rituals": user["rituals"],
+            "xp_total": user["xp_total"]
+        }
+
+        try:
+            png_path = generate_profile_image(user_payload)
+
+            jpeg_path = f"/tmp/profile_{user_id}_{int(time.time())}.jpg"
+
+            img = Image.open(png_path).convert("RGBA")
+            bg = Image.new("RGB", img.size, (255, 249, 230))
+            bg.paste(img, mask=img.split()[3])
+            bg.save(jpeg_path, quality=95)
+
+            with open(jpeg_path, "rb") as f:
+                bot.send_photo(message.chat.id, f)
+
+            os.remove(jpeg_path)
+
+        except Exception as e:
+            bot.reply_to(message, f"Error generating profile: {e}")
+
+    # ---------------- LEADERBOARD ----------------
+    @bot.message_handler(commands=['leaderboard'])
+    def leaderboard(message):
+        try:
+            path = generate_leaderboard_image()
+            with open(path, "rb") as f:
+                bot.send_photo(message.chat.id, f)
+        except Exception as e:
+            bot.reply_to(message, f"Error generating leaderboard: {e}")
+
+    # ---------------- GROKDEX ----------------
+    @bot.message_handler(commands=['grokdex'])
+    def grokdex(message):
+        text = "📘 *MEGAGROK DEX — Known Creatures*\n\n"
+        for key, mob in GROKDEX.items():
+            text += f"• *{mob['name']}* — {mob['rarity']}\n"
+        text += "\nUse `/mob <name>` for details."
+        bot.reply_to(message, text, parse_mode="Markdown")
+
+    # ---------------- MOB INFO ----------------
+    @bot.message_handler(commands=['mob'])
+    def mob_info(message):
+        try:
+            name = message.text.split(" ", 1)[1].strip()
+        except:
+            bot.reply_to(message, "Usage: `/mob FUDling`", parse_mode="Markdown")
+            return
+
+        if name not in GROKDEX:
+            bot.reply_to(message, "❌ Creature not found.")
+            return
+
+        mob = GROKDEX[name]
+
+        txt = (
+            f"📘 *{mob['name']}*\n"
+            f"⭐ Rarity: *{mob['rarity']}*\n"
+            f"🎭 Type: {mob['type']}\n"
+            f"💥 Power: {mob['combat_power']}\n\n"
+            f"📜 {mob['description']}\n\n"
+            f"⚔️ Strength: {mob['strength']}\n"
+            f"🛡 Weakness: {mob['weakness']}\n"
+            f"🎁 Drops: {', '.join(mob['drops'])}"
+        )
+
+        try:
+            with open(mob["portrait"], "rb") as f:
+                bot.send_photo(message.chat.id, f, caption=txt, parse_mode="Markdown")
+        except:
+            bot.reply_to(message, txt, parse_mode="Markdown")
