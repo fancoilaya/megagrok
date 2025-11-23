@@ -10,7 +10,7 @@ from telebot import TeleBot
 # ============================
 # Load Bot Token
 # ============================
-API_KEY = os.getenv("API_KEY")
+API_KEY = os.getenv("API_KEY2")
 if not API_KEY:
     raise ValueError("Missing API_KEY environment variable")
 
