@@ -69,7 +69,7 @@ if not legacy_module_loaded:
 # Dynamic loader for modular /bot/commands/*.py
 # ============================
 def load_command_modules(bot):
-    commands_dir = os.path.join(ROOT_DIR, "bot", "commands")
+    commands_dir = os.path.join(ROOT_DIR, "bot", "handlers")
 
     if not os.path.isdir(commands_dir):
         print(f"⚠ No commands/ directory found at {commands_dir}. Skipping modular loading.")
@@ -83,7 +83,7 @@ def load_command_modules(bot):
         if filename == "commands.py":
             continue
 
-        module_name = f"bot.commands.{filename[:-3]}"
+        module_name = f"bot.handlers.{filename[:-3]}"
         try:
             module = importlib.import_module(module_name)
             if hasattr(module, "setup"):
