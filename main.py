@@ -10,7 +10,7 @@ from telebot import TeleBot
 # ============================
 # Load Bot Token
 # ============================
-API_KEY = os.getenv("API_KEY2")
+API_KEY = os.getenv("Telegram_token")
 if not API_KEY:
     raise ValueError("Missing API_KEY environment variable")
 
