@@ -177,12 +177,21 @@ def register_handlers(bot: TeleBot):
 
         win = random.choice([True, False])
         if win:
-            xp = random.randint(mob.get("min_xp", 10), mob.get("max_xp", 25))
+            base_xp = random.randint(mob.get("min_xp", 10), mob.get("max_xp", 25))
             outcome = mob.get("win_text", "You won!")
             increment_win(user_id)
         else:
-            xp = random.randint(10, 25)
+            base_xp = random.randint(10, 25)
             outcome = mob.get("lose_text", "You lost!")
+
+        # Evolution multiplier: tier multiplier * optional user multiplier
+        user = get_user(user_id)
+        level = int(user.get("level", 1))
+        tier_mult = float(evolutions.get_xp_multiplier_for_level(level))
+        user_mult = float(user.get("evolution_multiplier", 1.0))
+        evo_mult = tier_mult * user_mult
+
+        effective_xp = int(round(base_xp * evo_mult))
 
         try:
             gif_path = mob.get("gif")
@@ -191,9 +200,8 @@ def register_handlers(bot: TeleBot):
         except Exception:
             pass
 
-        user = get_user(user_id)
-        xp_total = user["xp_total"] + xp
-        cur = user["xp_current"] + xp
+        xp_total = user["xp_total"] + effective_xp
+        cur = user["xp_current"] + effective_xp
         xp_to_next = user["xp_to_next_level"]
         level = user["level"]
         curve = user["level_curve_factor"]
@@ -215,11 +223,17 @@ def register_handlers(bot: TeleBot):
 
         record_quest(user_id, "fight")
 
+        # Report base vs effective XP in message so players see multiplier
         try:
-            bot.send_message(message.chat.id, f"{outcome}\n\n✨ **XP Gained:** {xp}", parse_mode="Markdown")
+            bot.send_message(
+                message.chat.id,
+                f"{outcome}\n\n"
+                f"Base XP: {base_xp}  →  Effective XP: {effective_xp} (×{evo_mult:.2f})\n\n"
+                f"✨ **XP Gained:** {effective_xp}",
+                parse_mode="Markdown"
+            )
         except Exception:
-            # Fallback plain text if Markdown fails
-            bot.send_message(message.chat.id, f"{outcome}\n\nXP Gained: {xp}")
+            bot.send_message(message.chat.id, f"{outcome}\n\nXP Gained: {effective_xp}")
 
     # ---------------- PROFILE ----------------
     @bot.message_handler(commands=['profile'])
