@@ -80,12 +80,8 @@ def shutdown_handler(signum, frame):
 signal.signal(signal.SIGTERM, shutdown_handler)
 signal.signal(signal.SIGINT, shutdown_handler)
 
-# ==============================================
-# Basic Sanity Command
-# ==============================================
-@bot.message_handler(commands=['start'])
-def start(message):
-    bot.reply_to(message, "Bot is alive and kicking! ⚡️")
+# NOTE: The /start handler was intentionally REMOVED from main.py so that the
+# more detailed welcome message defined in bot/commands.py will be used.
 
 # ==============================================
 # Load Legacy Commands
