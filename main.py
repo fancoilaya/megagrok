@@ -1,116 +1,107 @@
-# main.py — production-ready polling with graceful shutdown and robust retries
+# main.py — Production polling bot for Render Web Service
+# Clean, stable, with graceful shutdown and duplicate-polling protection
 
 import os
 import signal
 import sys
 import time
-import requests
 import threading
+import requests
 from telebot import TeleBot, apihelper
 
-# ---------- Configuration ----------
+# ==========================================
+# Load Bot Token
+# ==========================================
 TOKEN = os.getenv("Telegram_token")
 if not TOKEN:
-    raise RuntimeError("Telegram_token environment variable is missing!")
+    raise RuntimeError("❌ Missing environment variable: Telegram_token")
 
-PRINT_HEARTBEAT = True
+print(f"BOOT: PID={os.getpid()} TOKEN_PREFIX={TOKEN[:8]}...")
 
-# ---------- TeleBot setup ----------
 bot = TeleBot(TOKEN)
 
-# simple heartbeat for Render logs (optional)
+# ==========================================
+# Heartbeat (helps debug duplicate processes)
+# ==========================================
 def heartbeat():
     while True:
-        try:
-            print(f"HEARTBEAT PID={os.getpid()} TIME={time.time()}")
-        except Exception:
-            pass
+        print(f"💓 HEARTBEAT PID={os.getpid()} TIME={time.time()}")
         time.sleep(60)
 
-if PRINT_HEARTBEAT:
-    t_hb = threading.Thread(target=heartbeat, daemon=True)
-    t_hb.start()
+threading.Thread(target=heartbeat, daemon=True).start()
 
-print(f"BOOT PID={os.getpid()} - starting (token prefix: {TOKEN[:8]}...)")
-
-# ---------- Safe webhook cleanup ----------
+# ==========================================
+# Delete webhook at startup (idempotent)
+# ==========================================
 def safe_delete_webhook():
     try:
         r = requests.get(f"https://api.telegram.org/bot{TOKEN}/deleteWebhook", timeout=10)
         print("deleteWebhook ->", r.status_code, r.text)
     except Exception as e:
-        print("deleteWebhook failed:", e)
+        print("⚠ Could not delete webhook:", e)
 
 safe_delete_webhook()
 
-# ---------- Graceful shutdown ----------
-_shutdown_requested = False
+# ==========================================
+# Graceful shutdown on SIGTERM/SIGINT
+# ==========================================
+_shutdown = False
 
 def shutdown_handler(signum, frame):
-    global _shutdown_requested
-    print(f"Received signal {signum}; requesting shutdown (PID={os.getpid()})")
-    _shutdown_requested = True
+    global _shutdown
+    print(f"🔻 Received shutdown signal ({signum}), stopping bot...")
+    _shutdown = True
     try:
-        # stop TeleBot polling cleanly
         bot.stop_polling()
-        print("Called bot.stop_polling()")
     except Exception as e:
-        print("Error calling stop_polling:", e)
-    # ensure webhook is deleted to avoid conflicts for next boot
+        print("⚠ stop_polling error:", e)
     safe_delete_webhook()
-    # allow main thread to exit gracefully
-    # do not call sys.exit inside signal handler (let main return)
-    
+    print("Shutdown complete.")
+    sys.exit(0)
+
 signal.signal(signal.SIGTERM, shutdown_handler)
 signal.signal(signal.SIGINT, shutdown_handler)
 
-# ---------- Minimal command handlers for testing / extend as needed ----------
+# ==========================================
+# Basic test command
+# ==========================================
 @bot.message_handler(commands=['start'])
 def start(message):
-    bot.reply_to(message, "Bot is alive! ✅")
+    bot.reply_to(message, "Bot is alive! ⚡️")
 
-# ---------- Polling loop with backoff and fatal 409 handling ----------
+# TODO: Re-enable your full command loading later:
+# - bot/commands.py (legacy)
+# - bot/handlers/ (modular)
+
+# ==========================================
+# Polling Loop (with 409 protection)
+# ==========================================
 def run_polling():
-    backoff = 1.0
-    max_backoff = 60.0
-    while not _shutdown_requested:
+    backoff = 2  # retry delay on non-fatal errors
+
+    while not _shutdown:
         try:
-            print("Polling started (blocking call)...")
-            # blocking call - returns when stop_polling() is called or exception occurs
+            print("▶ Starting polling…")
             bot.polling(none_stop=True, timeout=20)
-            # If polling returns normally (e.g. stop_polling called), break out
-            print("Polling stopped cleanly.")
-            break
+            print("⏹ Polling stopped cleanly.")
+            break  # Stop loop if stop_polling() triggered
         except apihelper.ApiTelegramException as ate:
-            # TeleBot API exceptions with HTTP info available
-            err_text = str(ate)
-            print("ApiTelegramException:", err_text)
-            # If 409 (duplicate poller) -> this is fatal; do not retry
-            if "409" in err_text or "Conflict: terminated by other getUpdates request" in err_text:
-                print("ERROR 409 detected (duplicate poller). Exiting to allow manual remediation.")
-                # do not retry; exit process so you can rotate token or stop other instance
-                # ensure webhook cleared before exit
+            err = str(ate)
+            print("🔥 TELEGRAM API ERROR:", err)
+
+            # 409 means another poller exists — DO NOT try to continue
+            if "409" in err or "Conflict: terminated by other getUpdates request" in err:
+                print("❌ FATAL: Duplicate polling detected (409). Exiting.")
                 safe_delete_webhook()
                 sys.exit(1)
-            # otherwise, backoff and retry
-            print(f"Non-fatal API error; sleeping {backoff}s and retrying...")
-        except Exception as e:
-            print("Polling error (exception):", repr(e))
-            # fallback backoff on generic errors
-            print(f"Sleeping {backoff}s before retry...")
-        # If we get here, sleep/backoff before retry
-        time.sleep(backoff)
-        backoff = min(max_backoff, backoff * 2)
 
-    print("Exiting polling loop; shutting down.")
+            print(f"⚠ Non-fatal API error, retrying in {backoff}s…")
+        except Exception as e:
+            print("⚠ Polling error:", repr(e))
+            print(f"Retrying in {backoff}s…")
+
+        time.sleep(backoff)
+        backoff = min(60, backoff * 2)
 
 if __name__ == "__main__":
-    try:
-        run_polling()
-    except Exception as e:
-        print("Fatal error in run_polling:", repr(e))
-    finally:
-        print("Final cleanup before exit.")
-        safe_delete_webhook()
-        # small delay to flush logs
-        time.sleep(0.5)
+    run_polling()
