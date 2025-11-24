@@ -67,7 +67,7 @@ signal.signal(signal.SIGINT, shutdown_handler)
 # ==========================================
 @bot.message_handler(commands=['start'])
 def start(message):
-    bot.reply_to(message, "Bot is alive and kicking! ⚡️")
+    bot.reply_to(message, "Bot is alive and kicking and funnyt! ⚡️")
 
 # TODO: Re-enable your full command loading later:
 # - bot/commands.py (legacy)
