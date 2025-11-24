@@ -1,16 +1,21 @@
-# evolutions.py  (Phase 2 upgrade)
+# bot/evolutions.py — Phase 2 Evolution System Rewrite
+#
+# This version is cleaner, more flexible, and built for future phases:
+# - Full 7-tier evolution ladder
+# - XP multipliers, bonuses, frames, auras
+# - Guaranteed correct fallback logic
+# - Supports future “mutation events”
+# - All functions safe & predictable
+#
+# Import path stays:  import bot.evolutions as evolutions
+
 from typing import Dict, Optional, Tuple
 
-# Stage indices:
-# 0 = Tadpole
-# 1 = Hopper
-# 2 = Battle Hopper
-# 3 = Void Hopper
-# 4 = Titan
-# 5 = Celestial
-# 6 = OmniGrok
+# ============================================================
+# EVOLUTION TIERS — FINAL 7-TIER SYSTEM
+# ============================================================
 
-EVOLUTION_DATA = {
+EVOLUTION_TIERS: Dict[int, Dict] = {
     0: {
         "stage": 0,
         "name": "Tadpole",
@@ -44,8 +49,8 @@ EVOLUTION_DATA = {
     3: {
         "stage": 3,
         "name": "Void Hopper",
-        "min_level": 20,
-        "xp_multiplier": 1.3,
+        "min_level": 18,
+        "xp_multiplier": 1.35,
         "fight_bonus": 3,
         "ritual_bonus": 3,
         "frame": "void_frame.png",
@@ -54,8 +59,8 @@ EVOLUTION_DATA = {
     4: {
         "stage": 4,
         "name": "Titan",
-        "min_level": 30,
-        "xp_multiplier": 1.45,
+        "min_level": 28,
+        "xp_multiplier": 1.55,
         "fight_bonus": 5,
         "ritual_bonus": 5,
         "frame": "titan_frame.png",
@@ -65,7 +70,7 @@ EVOLUTION_DATA = {
         "stage": 5,
         "name": "Celestial",
         "min_level": 40,
-        "xp_multiplier": 1.6,
+        "xp_multiplier": 1.8,
         "fight_bonus": 7,
         "ritual_bonus": 7,
         "frame": "celestial_frame.png",
@@ -74,9 +79,9 @@ EVOLUTION_DATA = {
     6: {
         "stage": 6,
         "name": "OmniGrok",
-        "min_level": 50,
-        "xp_multiplier": 2.0,
-        "fight_bonus": 10,
+        "min_level": 55,
+        "xp_multiplier": 2.2,
+        "fight_bonus": 12,
         "ritual_bonus": 10,
         "frame": "omni_frame.png",
         "aura": "omni_aura.png",
@@ -84,46 +89,82 @@ EVOLUTION_DATA = {
 }
 
 
+# ============================================================
+# CORE LOOKUP FUNCTIONS
+# ============================================================
+
 def get_stage_for_level(level: int) -> int:
     """
-    Return highest evolution stage whose min_level <= level.
+    Return the highest evolution stage whose min_level <= level.
+    Guaranteed to return a valid stage index (0–6).
     """
-    best_stage = 0
-    for stage, data in EVOLUTION_DATA.items():
-        if level >= data["min_level"] and data["min_level"] >= EVOLUTION_DATA[best_stage]["min_level"]:
-            best_stage = stage
-    return best_stage
+    best = 0
+    for stage, data in EVOLUTION_TIERS.items():
+        if level >= data["min_level"] and data["min_level"] >= EVOLUTION_TIERS[best]["min_level"]:
+            best = stage
+    return best
+
+
+def get_stage_data(stage: int) -> Dict:
+    """Safe accessor — always returns a copy."""
+    return EVOLUTION_TIERS.get(stage, EVOLUTION_TIERS[0]).copy()
 
 
 def get_evolution_for_level(level: int) -> Dict:
-    """
-    Return the full evolution data dict for the given level.
-    """
+    """Return full evolution data for the given level."""
     stage = get_stage_for_level(level)
-    return EVOLUTION_DATA[stage].copy()
+    return get_stage_data(stage)
 
 
-def get_stage_data(stage: int) -> Optional[Dict]:
-    """
-    Return the data for a specific stage index or None if invalid.
-    """
-    return EVOLUTION_DATA.get(stage)
-
+# ============================================================
+# EVOLUTION EVENT LOGIC
+# ============================================================
 
 def determine_evolution_event(old_stage: int, new_level: int) -> Tuple[bool, Dict]:
     """
-    Given user's old_stage and new_level, determine whether an evolution event triggers.
     Returns (evolved: bool, new_stage_data: dict).
+    Trigger condition: user reached a stage higher than their previous one.
     """
     new_stage = get_stage_for_level(new_level)
     evolved = new_stage > old_stage
-    return evolved, EVOLUTION_DATA[new_stage].copy()
+    return evolved, get_stage_data(new_stage)
 
 
-# convenience accessors
+# ============================================================
+# CONVENIENCE ACCESSORS FOR BOT HANDLERS
+# ============================================================
+
 def get_xp_multiplier_for_level(level: int) -> float:
     return get_evolution_for_level(level)["xp_multiplier"]
 
 
 def get_name_for_level(level: int) -> str:
     return get_evolution_for_level(level)["name"]
+
+
+def get_frame_for_level(level: int) -> Optional[str]:
+    return get_evolution_for_level(level)["frame"]
+
+
+def get_aura_for_level(level: int) -> Optional[str]:
+    return get_evolution_for_level(level)["aura"]
+
+
+def get_fight_bonus(level: int) -> int:
+    return get_evolution_for_level(level)["fight_bonus"]
+
+
+def get_ritual_bonus(level: int) -> int:
+    return get_evolution_for_level(level)["ritual_bonus"]
+
+
+# ============================================================
+# PHASE 3 READY: MUTATION HOOKS (currently dormant)
+# ============================================================
+
+def roll_mutation_event(level: int) -> Tuple[bool, Optional[str]]:
+    """
+    Placeholder for Phase 3 mutations (Lucky, Variant Colors, Power Surge, etc.)
+    Always returns no mutation for now.
+    """
+    return False, None
