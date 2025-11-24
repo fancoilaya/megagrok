@@ -1,5 +1,3 @@
-# bot/commands.py — corrected imports & stable legacy commands
-
 import os
 import time
 import json
@@ -20,7 +18,8 @@ from bot.images import generate_profile_image, generate_leaderboard_image
 from bot.mobs import MOBS
 from bot.utils import safe_send_gif
 from bot.grokdex import GROKDEX
-import bot.evolutions as evolutions  # included for future use / compatibility
+import bot.evolutions as evolutions
+
 
 # --------------------------
 # HELP TEXT
@@ -53,42 +52,6 @@ start_text = (
     "🚀 Train him. Evolve him. Conquer the Hop-Verse."
 )
 
-# ---------------------------------------
-# GROW COOLDOWN STORAGE (kept for compatibility if needed)
-# ---------------------------------------
-COOLDOWN_FILE = "/tmp/grow_cooldowns.json"
-GROW_COOLDOWN_SECONDS = 30 * 60  # 30 minutes
-
-
-def _load_cooldowns():
-    try:
-        if os.path.exists(COOLDOWN_FILE):
-            return json.load(open(COOLDOWN_FILE, "r"))
-    except Exception:
-        pass
-    return {}
-
-
-def _save_cooldowns(data):
-    try:
-        json.dump(data, open(COOLDOWN_FILE, "w"))
-    except Exception:
-        pass
-
-
-def _format_seconds_left(secs):
-    secs = max(int(secs), 0)
-    m = secs // 60
-    s = secs % 60
-    return f"{m}m {s}s" if m else f"{s}s"
-
-
-def _render_progress_bar(pct, length=20):
-    pct = max(0, min(1, pct))
-    fill = int(pct * length)
-    bar = "█" * fill + "░" * (length - fill)
-    return f"`{bar}` {int(pct*100)}%"
-
 
 # ---------------------------------------
 # REGISTER HANDLERS
@@ -106,7 +69,7 @@ def register_handlers(bot: TeleBot):
         bot.reply_to(message, HELP_TEXT, parse_mode="Markdown")
 
     # ======================================================
-    #   GROW COMMAND *REMOVED* — MOVED TO bot/handlers/growmygrok.py
+    #   GROW COMMAND MOVED TO /bot/handlers/growmygrok.py
     # ======================================================
 
     # ---------------- HOP ----------------
@@ -156,7 +119,7 @@ def register_handlers(bot: TeleBot):
         q = get_quests(user_id)
 
         if q.get("fight", 0) == 1:
-            bot.reply_to(message, "⚔️ You already fought today!")
+            bot.reply_to(message, "⚔️ You already fought today.")
             return
 
         mob = random.choice(MOBS)
@@ -168,11 +131,10 @@ def register_handlers(bot: TeleBot):
         )
 
         try:
-            portrait = mob.get("portrait")
-            if portrait and os.path.exists(portrait):
-                with open(portrait, "rb") as f:
+            if mob.get("portrait") and os.path.exists(mob["portrait"]):
+                with open(mob["portrait"], "rb") as f:
                     bot.send_photo(message.chat.id, f)
-        except Exception:
+        except:
             pass
 
         win = random.choice([True, False])
@@ -184,32 +146,28 @@ def register_handlers(bot: TeleBot):
             base_xp = random.randint(10, 25)
             outcome = mob.get("lose_text", "You lost!")
 
-        # Evolution multiplier: tier multiplier * optional user multiplier
         user = get_user(user_id)
-        level = int(user.get("level", 1))
-        tier_mult = float(evolutions.get_xp_multiplier_for_level(level))
+        level = user["level"]
+
+        tier_mult = evolutions.get_xp_multiplier_for_level(level)
         user_mult = float(user.get("evolution_multiplier", 1.0))
         evo_mult = tier_mult * user_mult
 
         effective_xp = int(round(base_xp * evo_mult))
 
-        try:
-            gif_path = mob.get("gif")
-            if gif_path:
-                safe_send_gif(bot, message.chat.id, gif_path)
-        except Exception:
-            pass
-
+        # XP update
         xp_total = user["xp_total"] + effective_xp
         cur = user["xp_current"] + effective_xp
         xp_to_next = user["xp_to_next_level"]
         level = user["level"]
         curve = user["level_curve_factor"]
 
-        if cur >= xp_to_next:
+        leveled_up = False
+        while cur >= xp_to_next:
             cur -= xp_to_next
             level += 1
             xp_to_next = int(xp_to_next * curve)
+            leveled_up = True
 
         update_user_xp(
             user_id,
@@ -223,17 +181,28 @@ def register_handlers(bot: TeleBot):
 
         record_quest(user_id, "fight")
 
-        # Report base vs effective XP in message so players see multiplier
-        try:
-            bot.send_message(
-                message.chat.id,
-                f"{outcome}\n\n"
-                f"Base XP: {base_xp}  →  Effective XP: {effective_xp} (×{evo_mult:.2f})\n\n"
-                f"✨ **XP Gained:** {effective_xp}",
-                parse_mode="Markdown"
-            )
-        except Exception:
-            bot.send_message(message.chat.id, f"{outcome}\n\nXP Gained: {effective_xp}")
+        # Progress bar
+        pct = cur / xp_to_next
+        fill = int(20 * pct)
+        bar = "▓" * fill + "░" * (20 - fill)
+        pct_int = int(pct * 100)
+
+        # OPTION B — CLEAN RPG STYLE
+        msg = (
+            f"⚔️ **Battle Outcome: {'VICTORY' if win else 'DEFEAT'}!**\n"
+            f"Enemy: *{mob['name']}*\n\n"
+            f"📈 **Base XP:** +{base_xp}\n"
+            f"🔮 **Evo Boost:** ×{evo_mult:.2f}\n"
+            f"⚡ **Effective XP:** +{effective_xp}\n\n"
+            f"🧬 **Level:** {level}\n"
+            f"🔸 **XP:** {cur} / {xp_to_next}\n"
+            f"🟩 **Progress:** `{bar}` {pct_int}%\n"
+        )
+
+        if leveled_up:
+            msg += "\n🎉 **LEVEL UP!** Your MegaGrok grows stronger!"
+
+        bot.send_message(message.chat.id, msg, parse_mode="Markdown")
 
     # ---------------- PROFILE ----------------
     @bot.message_handler(commands=['profile'])
@@ -260,7 +229,8 @@ def register_handlers(bot: TeleBot):
 
             img = Image.open(png_path).convert("RGBA")
             bg = Image.new("RGB", img.size, (255, 249, 230))
-            bg.paste(img, mask=img.split()[3])
+            bg_paste = img.split()[3]
+            bg.paste(img, mask=bg_paste)
             bg.save(jpeg_path, quality=95)
 
             with open(jpeg_path, "rb") as f:
@@ -268,7 +238,7 @@ def register_handlers(bot: TeleBot):
 
             try:
                 os.remove(jpeg_path)
-            except Exception:
+            except:
                 pass
 
         except Exception as e:
