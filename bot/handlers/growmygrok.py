@@ -1,33 +1,31 @@
 # bot/handlers/growmygrok.py
+
 import os
 import time
 import random
+import json
 
 from telebot import TeleBot
 from bot.db import get_user, update_user_xp
 from bot.utils import safe_send_gif
-
-import bot.evolutions as evolutions  # <-- FIXED IMPORT
-
+import bot.evolutions as evolutions   # ensure package import
 
 GROW_COOLDOWN_SECONDS = 30 * 60  # 30 minutes
 COOLDOWN_FILE = "/tmp/grow_cooldowns.json"
 
 
 def _load_cooldowns():
-    try:
-        if os.path.exists(COOLDOWN_FILE):
-            import json
-            return json.load(open(COOLDOWN_FILE, "r"))
-    except:
-        pass
+    if os.path.exists(COOLDOWN_FILE):
+        try:
+            return json.load(open(COOLDOWN_FILE))
+        except:
+            return {}
     return {}
 
 
 def _save_cooldowns(data):
     try:
-        import json
-        return json.dump(data, open(COOLDOWN_FILE, "w"))
+        json.dump(data, open(COOLDOWN_FILE, "w"))
     except:
         pass
 
@@ -42,8 +40,8 @@ def _format_seconds_left(secs):
 def _render_progress_bar(pct, length=20):
     pct = max(0, min(1, pct))
     fill = int(pct * length)
-    bar = "█" * fill + "░" * (length - length)
-    return f"`{bar}` {int(pct*100)}%"
+    bar = "█" * fill + "░" * (length - fill)
+    return f"`{bar}` {int(pct * 100)}%"
 
 
 def setup(bot: TeleBot):
@@ -52,7 +50,6 @@ def setup(bot: TeleBot):
     def grow(message):
 
         user_id = str(message.from_user.id)
-
         cooldowns = _load_cooldowns()
         now = time.time()
         last = cooldowns.get(user_id, 0)
@@ -62,17 +59,27 @@ def setup(bot: TeleBot):
             bot.reply_to(message, f"⏳ Wait {_format_seconds_left(left)} before using /growmygrok again.")
             return
 
+        # Base random XP change
         xp_change = random.randint(-10, 25)
 
         user = get_user(int(user_id))
-        xp_total = user["xp_total"]
-        xp_current = user["xp_current"]
-        xp_to_next = user["xp_to_next_level"]
-        level = user["level"]
-        curve = user["level_curve_factor"]
+        if not user:
+            bot.reply_to(message, "❌ Could not find your Grok in the database.")
+            return
 
-        evo_mult = float(user.get("evolution_multiplier", 1.0))
-        effective_change = int(xp_change * evo_mult)
+        xp_total = user.get("xp_total", 0)
+        xp_current = user.get("xp_current", 0)
+        xp_to_next = user.get("xp_to_next_level", 100)
+        level = int(user.get("level", 1))
+        curve = float(user.get("level_curve_factor", 1.15))
+
+        # Evolution multiplier from tier + optional stored user multiplier (stack multiplicatively)
+        tier_mult = float(evolutions.get_xp_multiplier_for_level(level))
+        user_mult = float(user.get("evolution_multiplier", 1.0))
+        evo_mult = tier_mult * user_mult
+
+        # effective XP change after multiplier
+        effective_change = int(round(xp_change * evo_mult))
 
         new_total = max(0, xp_total + effective_change)
         cur = xp_current + effective_change
@@ -80,6 +87,7 @@ def setup(bot: TeleBot):
         leveled_up = False
         leveled_down = False
 
+        # Level up/down logic
         while cur >= xp_to_next:
             cur -= xp_to_next
             level += 1
@@ -112,20 +120,24 @@ def setup(bot: TeleBot):
 
         bar = _render_progress_bar(cur / xp_to_next if xp_to_next else 0)
 
-        msg = [
-            f"✨ MegaGrok {'grew' if xp_change>=0 else 'changed'} {effective_change:+d} XP (base {xp_change:+d} × evo {evo_mult}x)",
+        # Message now shows base change and effective change
+        msg_lines = [
+            f"✨ MegaGrok {'gained' if xp_change>=0 else 'lost'} base {xp_change:+d} XP",
+            f"🔮 Evolution multiplier: {evo_mult:.2f} (tier {tier_mult:.2f} × user {user_mult:.2f})",
+            f"💫 Effective XP change: {effective_change:+d}",
             f"**Level {level}**",
             f"XP: {cur}/{xp_to_next}",
             bar
         ]
 
         if leveled_up:
-            msg.append("🎉 **Level up!**")
+            msg_lines.append("🎉 **Level up!**")
         if leveled_down:
-            msg.append("💀 **Lost a level!**")
+            msg_lines.append("💀 **Lost a level!**")
 
-        bot.reply_to(message, "\n".join(msg), parse_mode="Markdown")
+        bot.reply_to(message, "\n".join(msg_lines), parse_mode="Markdown")
 
+        # Evolution check and announcements (unchanged)
         updated = get_user(int(user_id))
         new_stage = int(updated.get("evolution_stage", 0))
         new_level = int(updated.get("level", level))
@@ -152,6 +164,9 @@ def setup(bot: TeleBot):
                 pass
 
             hype = f"🔥 **{message.from_user.first_name}** evolved into **{new_stage_data['name']}**!"
-            if os.path.exists(gif_path):
-                safe_send_gif(bot, message.chat.id, gif_path)
+            try:
+                if os.path.exists(gif_path):
+                    safe_send_gif(bot, message.chat.id, gif_path)
+            except:
+                pass
             bot.send_message(message.chat.id, hype, parse_mode="Markdown")
