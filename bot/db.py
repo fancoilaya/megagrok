@@ -4,7 +4,7 @@ import datetime
 import os
 from typing import Dict, Any, List
 
-import evolutions  # <-- NEW
+import bot.evolutions as evolutions  # <-- NEW
 
 # Path to DB (relative to repo root)
 DB_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "grok.db"))
