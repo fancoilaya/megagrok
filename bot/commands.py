@@ -1,3 +1,5 @@
+# bot/commands.py — corrected imports & stable legacy commands
+
 import os
 import time
 import json
@@ -18,6 +20,7 @@ from bot.images import generate_profile_image, generate_leaderboard_image
 from bot.mobs import MOBS
 from bot.utils import safe_send_gif
 from bot.grokdex import GROKDEX
+import bot.evolutions as evolutions  # included for future use / compatibility
 
 # --------------------------
 # HELP TEXT
@@ -61,7 +64,7 @@ def _load_cooldowns():
     try:
         if os.path.exists(COOLDOWN_FILE):
             return json.load(open(COOLDOWN_FILE, "r"))
-    except:
+    except Exception:
         pass
     return {}
 
@@ -69,7 +72,7 @@ def _load_cooldowns():
 def _save_cooldowns(data):
     try:
         json.dump(data, open(COOLDOWN_FILE, "w"))
-    except:
+    except Exception:
         pass
 
 
@@ -100,10 +103,10 @@ def register_handlers(bot: TeleBot):
     # ---------------- HELP ----------------
     @bot.message_handler(commands=['help'])
     def help_cmd(message):
-        bot.reply_to(message, HELP_TEXT)
+        bot.reply_to(message, HELP_TEXT, parse_mode="Markdown")
 
     # ======================================================
-    #   GROW COMMAND *REMOVED* — MOVED TO commands/growmygrok.py
+    #   GROW COMMAND *REMOVED* — MOVED TO bot/handlers/growmygrok.py
     # ======================================================
 
     # ---------------- HOP ----------------
@@ -113,7 +116,7 @@ def register_handlers(bot: TeleBot):
         user_id = message.from_user.id
         q = get_quests(user_id)
 
-        if q["hop"] == 1:
+        if q.get("hop", 0) == 1:
             bot.reply_to(message, "🐸 You already performed today’s Hop Ritual!")
             return
 
@@ -152,7 +155,7 @@ def register_handlers(bot: TeleBot):
         user_id = message.from_user.id
         q = get_quests(user_id)
 
-        if q["fight"] == 1:
+        if q.get("fight", 0) == 1:
             bot.reply_to(message, "⚔️ You already fought today!")
             return
 
@@ -160,26 +163,33 @@ def register_handlers(bot: TeleBot):
 
         bot.reply_to(
             message,
-            f"⚔️ **{mob['name']} Encounter!**\n\n{mob['intro']}",
+            f"⚔️ **{mob['name']} Encounter!**\n\n{mob.get('intro','')}",
             parse_mode="Markdown"
         )
 
         try:
-            with open(mob["portrait"], "rb") as f:
-                bot.send_photo(message.chat.id, f)
-        except:
+            portrait = mob.get("portrait")
+            if portrait and os.path.exists(portrait):
+                with open(portrait, "rb") as f:
+                    bot.send_photo(message.chat.id, f)
+        except Exception:
             pass
 
         win = random.choice([True, False])
         if win:
-            xp = random.randint(mob["min_xp"], mob["max_xp"])
-            outcome = mob["win_text"]
+            xp = random.randint(mob.get("min_xp", 10), mob.get("max_xp", 25))
+            outcome = mob.get("win_text", "You won!")
             increment_win(user_id)
         else:
             xp = random.randint(10, 25)
-            outcome = mob["lose_text"]
+            outcome = mob.get("lose_text", "You lost!")
 
-        safe_send_gif(bot, message.chat.id, mob.get("gif"))
+        try:
+            gif_path = mob.get("gif")
+            if gif_path:
+                safe_send_gif(bot, message.chat.id, gif_path)
+        except Exception:
+            pass
 
         user = get_user(user_id)
         xp_total = user["xp_total"] + xp
@@ -205,7 +215,11 @@ def register_handlers(bot: TeleBot):
 
         record_quest(user_id, "fight")
 
-        bot.send_message(message.chat.id, f"{outcome}\n\n✨ **XP Gained:** {xp}")
+        try:
+            bot.send_message(message.chat.id, f"{outcome}\n\n✨ **XP Gained:** {xp}", parse_mode="Markdown")
+        except Exception:
+            # Fallback plain text if Markdown fails
+            bot.send_message(message.chat.id, f"{outcome}\n\nXP Gained: {xp}")
 
     # ---------------- PROFILE ----------------
     @bot.message_handler(commands=['profile'])
@@ -217,12 +231,12 @@ def register_handlers(bot: TeleBot):
         user_payload = {
             "user_id": user_id,
             "username": message.from_user.username or f"User{user_id}",
-            "form": user["form"],
-            "level": user["level"],
-            "wins": user["wins"],
-            "fights": user["mobs_defeated"],
-            "rituals": user["rituals"],
-            "xp_total": user["xp_total"]
+            "form": user.get("form"),
+            "level": user.get("level"),
+            "wins": user.get("wins"),
+            "fights": user.get("mobs_defeated"),
+            "rituals": user.get("rituals"),
+            "xp_total": user.get("xp_total")
         }
 
         try:
@@ -238,7 +252,10 @@ def register_handlers(bot: TeleBot):
             with open(jpeg_path, "rb") as f:
                 bot.send_photo(message.chat.id, f)
 
-            os.remove(jpeg_path)
+            try:
+                os.remove(jpeg_path)
+            except Exception:
+                pass
 
         except Exception as e:
             bot.reply_to(message, f"Error generating profile: {e}")
@@ -248,14 +265,17 @@ def register_handlers(bot: TeleBot):
     def leaderboard(message):
         try:
             path = generate_leaderboard_image()
-            with open(path, "rb") as f:
-                bot.send_photo(message.chat.id, f)
+            if path and os.path.exists(path):
+                with open(path, "rb") as f:
+                    bot.send_photo(message.chat.id, f)
+            else:
+                bot.reply_to(message, "Leaderboard not available.")
         except Exception as e:
             bot.reply_to(message, f"Error generating leaderboard: {e}")
 
     # ---------------- GROKDEX ----------------
     @bot.message_handler(commands=['grokdex'])
-    def grokdex(message):
+    def grokdex_cmd(message):
         text = "📘 *MEGAGROK DEX — Known Creatures*\n\n"
         for key, mob in GROKDEX.items():
             text += f"• *{mob['name']}* — {mob['rarity']}\n"
@@ -267,7 +287,7 @@ def register_handlers(bot: TeleBot):
     def mob_info(message):
         try:
             name = message.text.split(" ", 1)[1].strip()
-        except:
+        except Exception:
             bot.reply_to(message, "Usage: `/mob FUDling`", parse_mode="Markdown")
             return
 
@@ -280,16 +300,20 @@ def register_handlers(bot: TeleBot):
         txt = (
             f"📘 *{mob['name']}*\n"
             f"⭐ Rarity: *{mob['rarity']}*\n"
-            f"🎭 Type: {mob['type']}\n"
-            f"💥 Power: {mob['combat_power']}\n\n"
-            f"📜 {mob['description']}\n\n"
-            f"⚔️ Strength: {mob['strength']}\n"
-            f"🛡 Weakness: {mob['weakness']}\n"
-            f"🎁 Drops: {', '.join(mob['drops'])}"
+            f"🎭 Type: {mob.get('type','?')}\n"
+            f"💥 Power: {mob.get('combat_power','?')}\n\n"
+            f"📜 {mob.get('description','No description.')}\n\n"
+            f"⚔️ Strength: {mob.get('strength','?')}\n"
+            f"🛡 Weakness: {mob.get('weakness','?')}\n"
+            f"🎁 Drops: {', '.join(mob.get('drops',[]))}"
         )
 
         try:
-            with open(mob["portrait"], "rb") as f:
-                bot.send_photo(message.chat.id, f, caption=txt, parse_mode="Markdown")
-        except:
+            portrait = mob.get("portrait")
+            if portrait and os.path.exists(portrait):
+                with open(portrait, "rb") as f:
+                    bot.send_photo(message.chat.id, f, caption=txt, parse_mode="Markdown")
+            else:
+                bot.reply_to(message, txt, parse_mode="Markdown")
+        except Exception:
             bot.reply_to(message, txt, parse_mode="Markdown")
