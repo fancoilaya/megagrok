@@ -1,4 +1,4 @@
-# bot/commands/growmygrok.py
+# bot/handlers/growmygrok.py
 import os
 import time
 import random
@@ -7,7 +7,7 @@ from telebot import TeleBot
 from bot.db import get_user, update_user_xp
 from bot.utils import safe_send_gif
 
-import evolutions
+import bot.evolutions as evolutions  # <-- FIXED IMPORT
 
 
 GROW_COOLDOWN_SECONDS = 30 * 60  # 30 minutes
@@ -42,7 +42,7 @@ def _format_seconds_left(secs):
 def _render_progress_bar(pct, length=20):
     pct = max(0, min(1, pct))
     fill = int(pct * length)
-    bar = "█" * fill + "░" * (length - fill)
+    bar = "█" * fill + "░" * (length - length)
     return f"`{bar}` {int(pct*100)}%"
 
 
@@ -62,7 +62,6 @@ def setup(bot: TeleBot):
             bot.reply_to(message, f"⏳ Wait {_format_seconds_left(left)} before using /growmygrok again.")
             return
 
-        # --- ORIGINAL RANDOM XP LOGIC ---
         xp_change = random.randint(-10, 25)
 
         user = get_user(int(user_id))
@@ -72,7 +71,6 @@ def setup(bot: TeleBot):
         level = user["level"]
         curve = user["level_curve_factor"]
 
-        # --- EVOLUTION MULTIPLIER ---
         evo_mult = float(user.get("evolution_multiplier", 1.0))
         effective_change = int(xp_change * evo_mult)
 
@@ -128,7 +126,6 @@ def setup(bot: TeleBot):
 
         bot.reply_to(message, "\n".join(msg), parse_mode="Markdown")
 
-        # --- EVOLUTION CHECK ---
         updated = get_user(int(user_id))
         new_stage = int(updated.get("evolution_stage", 0))
         new_level = int(updated.get("level", level))
@@ -140,7 +137,6 @@ def setup(bot: TeleBot):
             gif_path = f"assets/evolutions/{name_slug}/levelup.gif"
             fallback = f"assets/evolutions/{name_slug}/idle.gif"
 
-            # DM user
             try:
                 if os.path.exists(gif_path):
                     safe_send_gif(bot, int(user_id), gif_path)
