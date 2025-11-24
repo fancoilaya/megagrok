@@ -1,4 +1,5 @@
 # --- MINIMAL main.py FOR DEBUGGING ---
+# test comment
 import os
 from telebot import TeleBot
 
