@@ -72,11 +72,9 @@ def _build_caption(session: fight_session.FightSession) -> str:
 
 # Helper: read cooldowns JSON for a user (returns dict)
 def _get_user_cooldowns(user_id: int) -> dict:
-    # ensure column exists (safe migration helper exists in db.py)
     try:
         db._add_column_if_missing("cooldowns", "TEXT")
     except Exception:
-        # if helper missing or fails, proceed silently (best-effort)
         pass
 
     try:
@@ -98,7 +96,21 @@ def _set_user_cooldowns(user_id: int, cooldowns: dict) -> None:
         db.cursor.execute("UPDATE users SET cooldowns = ? WHERE user_id = ?", (payload, user_id))
         db.conn.commit()
     except Exception:
-        # best-effort — do not crash bot on DB write errors
+        pass
+
+# Deletes an existing UI message if present (best-effort)
+def _delete_previous_ui(bot: TeleBot, sess: fight_session.FightSession):
+    try:
+        last_meta = sess.to_dict().get("_last_sent_message", {})
+        chat_id = last_meta.get("chat_id")
+        msg_id = last_meta.get("message_id")
+        if chat_id and msg_id:
+            try:
+                bot.delete_message(chat_id, msg_id)
+            except Exception:
+                # message might already be deleted or not editable
+                pass
+    except Exception:
         pass
 
 # Handler registration entrypoint (main.py loads handlers via setup(bot))
@@ -107,7 +119,6 @@ def setup(bot: TeleBot):
     def battle_cmd(message):
         user_id = message.from_user.id
 
-        # Quick block if user used quick /fight today (keeps daily quest logic intact)
         q = get_quests(user_id)
         if q.get("fight", 0) == 1:
             bot.reply_to(message, "⚔️ You already fought today (quick mode). Use /battle for cinematic fights.")
@@ -132,7 +143,6 @@ def setup(bot: TeleBot):
         try:
             safe_send_gif(bot, message.chat.id, GIF_INTRO)
         except Exception:
-            # ignore GIF errors; continue to UI
             pass
 
         # Create session
@@ -140,12 +150,12 @@ def setup(bot: TeleBot):
         mob_stats = fight_session.build_mob_stats_from_mob(mob)
         sess = fight_session.manager.create_session(user_id, player_stats, mob_stats)
 
-        # Send an editable UI message (text + buttons) — we store and edit this one
+        # Send the editable UI message (we will delete & re-send this message on each turn)
         kb = _build_action_keyboard(sess)
         caption = _build_caption(sess)
         sent = bot.send_message(message.chat.id, caption, parse_mode="Markdown", reply_markup=kb)
 
-        # store message pointer in session for future edits
+        # store message pointer in session
         sess_meta = sess.to_dict()
         sess_meta["_last_sent_message"] = {"chat_id": message.chat.id, "message_id": getattr(sent, "message_id", None)}
         fight_session.manager._sessions[str(sess.user_id)] = sess_meta
@@ -190,12 +200,28 @@ def setup(bot: TeleBot):
             if sess.auto_mode:
                 res = sess.resolve_auto_turn()
                 fight_session.manager.save_session(sess)
-                _edit_session_message(bot, sess)
+                # replace UI by deleting old and sending the updated one
+                _delete_previous_ui(bot, sess)
+                kb = _build_action_keyboard(sess)
+                caption = _build_caption(sess)
+                new_msg = bot.send_message(call.message.chat.id, caption, parse_mode="Markdown", reply_markup=kb)
+                sess_meta = sess.to_dict()
+                sess_meta["_last_sent_message"] = {"chat_id": call.message.chat.id, "message_id": getattr(new_msg, "message_id", None)}
+                fight_session.manager._sessions[str(sess.user_id)] = sess_meta
+                fight_session.manager.save_session(sess)
                 if getattr(sess, "ended", False):
                     _finalize_session_rewards(bot, sess)
                     fight_session.manager.end_session(owner_id)
             else:
-                _edit_session_message(bot, sess)
+                # just update UI
+                _delete_previous_ui(bot, sess)
+                kb = _build_action_keyboard(sess)
+                caption = _build_caption(sess)
+                new_msg = bot.send_message(call.message.chat.id, caption, parse_mode="Markdown", reply_markup=kb)
+                sess_meta = sess.to_dict()
+                sess_meta["_last_sent_message"] = {"chat_id": call.message.chat.id, "message_id": getattr(new_msg, "message_id", None)}
+                fight_session.manager._sessions[str(sess.user_id)] = sess_meta
+                fight_session.manager.save_session(sess)
             return
 
         action_map = {
@@ -213,32 +239,37 @@ def setup(bot: TeleBot):
         step_result = sess.resolve_player_action(chosen_action)
         fight_session.manager.save_session(sess)
 
-        # Update editable UI message (we always edit the text message we created earlier)
+        # Replace the previous UI message by deleting and sending a fresh one (keeps chat clean)
         try:
-            last_meta = sess.to_dict().get("_last_sent_message", {})
-            chat_id = last_meta.get("chat_id")
-            msg_id = last_meta.get("message_id")
+            _delete_previous_ui(bot, sess)
             kb = _build_action_keyboard(sess)
             caption = _build_caption(sess)
-            if chat_id and msg_id:
-                try:
-                    bot.edit_message_text(chat_id=chat_id, message_id=msg_id, text=caption, parse_mode="Markdown", reply_markup=kb)
-                except Exception:
-                    # fallback to sending a new message if edit fails
-                    new_msg = bot.send_message(chat_id, caption, parse_mode="Markdown", reply_markup=kb)
-                    sess_meta = sess.to_dict()
-                    sess_meta["_last_sent_message"] = {"chat_id": chat_id, "message_id": getattr(new_msg, "message_id", None)}
-                    fight_session.manager._sessions[str(sess.user_id)] = sess_meta
-                    fight_session.manager.save_session(sess)
-            else:
-                bot.send_message(call.message.chat.id, caption, parse_mode="Markdown", reply_markup=kb)
+            new_msg = bot.send_message(call.message.chat.id, caption, parse_mode="Markdown", reply_markup=kb)
+            sess_meta = sess.to_dict()
+            sess_meta["_last_sent_message"] = {"chat_id": call.message.chat.id, "message_id": getattr(new_msg, "message_id", None)}
+            fight_session.manager._sessions[str(sess.user_id)] = sess_meta
+            fight_session.manager.save_session(sess)
         except Exception:
-            pass
+            # as a last resort, try editing existing (best-effort)
+            try:
+                last_meta = sess.to_dict().get("_last_sent_message", {})
+                chat_id = last_meta.get("chat_id")
+                msg_id = last_meta.get("message_id")
+                kb = _build_action_keyboard(sess)
+                caption = _build_caption(sess)
+                if chat_id and msg_id:
+                    bot.edit_message_text(chat_id=chat_id, message_id=msg_id, text=caption, parse_mode="Markdown", reply_markup=kb)
+            except Exception:
+                pass
 
         bot.answer_callback_query(call.id, "Action performed.")
 
         if getattr(sess, "ended", False):
-            _edit_session_message(bot, sess)
+            # delete the UI and send a final summary + final GIF
+            try:
+                _delete_previous_ui(bot, sess)
+            except Exception:
+                pass
             _finalize_session_rewards(bot, sess)
             fight_session.manager.end_session(owner_id)
             return
@@ -291,17 +322,33 @@ def _finalize_session_rewards(bot: TeleBot, sess: fight_session.FightSession):
     cooldowns["battle"] = int(time.time())
     _set_user_cooldowns(user_id, cooldowns)
 
-    # Play final cinematic GIF (best-effort) and send final summary
+    # Final UX: play final GIF (if available) then send a single final summary message
     try:
         last_meta = sess.to_dict().get("_last_sent_message", {})
         chat_id = last_meta.get("chat_id")
-        if sess.winner == "player" and os.path.exists(GIF_VICTORY):
-            safe_send_gif(bot, chat_id, GIF_VICTORY)
-        elif sess.winner == "mob" and os.path.exists(GIF_DEFEAT):
-            safe_send_gif(bot, chat_id, GIF_DEFEAT)
-        # send final text summary
+        # play victory/defeat GIF (best-effort)
         if chat_id:
-            final_caption = _build_caption(sess) + f"\n\n🎁 You gained +{effective_xp} XP!"
+            if sess.winner == "player" and os.path.exists(GIF_VICTORY):
+                safe_send_gif(bot, chat_id, GIF_VICTORY)
+            elif sess.winner == "mob" and os.path.exists(GIF_DEFEAT):
+                safe_send_gif(bot, chat_id, GIF_DEFEAT)
+            # final summary message
+            final_lines = []
+            if sess.winner == "player":
+                final_lines.append("🎉 *VICTORY!*")
+            elif sess.winner == "mob":
+                final_lines.append("☠️ *DEFEAT!*")
+            else:
+                final_lines.append("*DRAW*")
+
+            final_lines.append(f"Enemy: *{mob.get('name')}*")
+            final_lines.append(f"🎁 XP gained: +{effective_xp}")
+            if leveled_up:
+                final_lines.append("🎉 *LEVEL UP*! Your MegaGrok grows stronger!")
+            # time until next battle
+            next_unlock = int(time.time()) + BATTLE_COOLDOWN_SECONDS
+            final_lines.append(f"⏳ Next /battle available in 12 hours.")
+            final_caption = "\n".join(final_lines)
             bot.send_message(chat_id, final_caption, parse_mode="Markdown")
     except Exception:
         pass
