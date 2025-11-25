@@ -1,6 +1,8 @@
 # bot/handlers/battle.py
 import os
 import random
+import time
+import json
 from telebot import types
 from telebot import TeleBot
 
@@ -13,6 +15,7 @@ from bot.db import (
     record_quest,
     increment_win
 )
+import bot.db as db  # access to cursor/conn and migration helper
 from bot.utils import safe_send_gif
 import bot.evolutions as evolutions
 
@@ -21,6 +24,9 @@ ASSETS_BASE = "assets/gifs"
 GIF_INTRO = os.path.join(ASSETS_BASE, "battle_intro.gif")
 GIF_VICTORY = os.path.join(ASSETS_BASE, "victory.gif")
 GIF_DEFEAT = os.path.join(ASSETS_BASE, "defeat.gif")
+
+# Cooldown config
+BATTLE_COOLDOWN_SECONDS = 12 * 3600  # 12 hours
 
 # Inline keyboard builder (for the editable UI message)
 def _build_action_keyboard(session: fight_session.FightSession) -> types.InlineKeyboardMarkup:
@@ -64,14 +70,58 @@ def _build_caption(session: fight_session.FightSession) -> str:
                 caption += f"- {actor} {action} — {dmg} dmg\n"
     return caption
 
+# Helper: read cooldowns JSON for a user (returns dict)
+def _get_user_cooldowns(user_id: int) -> dict:
+    # ensure column exists (safe migration helper exists in db.py)
+    try:
+        db._add_column_if_missing("cooldowns", "TEXT")
+    except Exception:
+        # if helper missing or fails, proceed silently (best-effort)
+        pass
+
+    try:
+        db.cursor.execute("SELECT cooldowns FROM users WHERE user_id = ?", (user_id,))
+        row = db.cursor.fetchone()
+        if row and row[0]:
+            try:
+                return json.loads(row[0])
+            except Exception:
+                return {}
+    except Exception:
+        pass
+    return {}
+
+# Helper: write cooldowns JSON for a user
+def _set_user_cooldowns(user_id: int, cooldowns: dict) -> None:
+    try:
+        payload = json.dumps(cooldowns)
+        db.cursor.execute("UPDATE users SET cooldowns = ? WHERE user_id = ?", (payload, user_id))
+        db.conn.commit()
+    except Exception:
+        # best-effort — do not crash bot on DB write errors
+        pass
+
 # Handler registration entrypoint (main.py loads handlers via setup(bot))
 def setup(bot: TeleBot):
     @bot.message_handler(commands=['battle'])
     def battle_cmd(message):
         user_id = message.from_user.id
+
+        # Quick block if user used quick /fight today (keeps daily quest logic intact)
         q = get_quests(user_id)
         if q.get("fight", 0) == 1:
             bot.reply_to(message, "⚔️ You already fought today (quick mode). Use /battle for cinematic fights.")
+            return
+
+        # Check 12-hour cooldown using cooldowns JSON column
+        cooldowns = _get_user_cooldowns(user_id)
+        last_battle_ts = int(cooldowns.get("battle", 0))
+        now = int(time.time())
+        if last_battle_ts and now - last_battle_ts < BATTLE_COOLDOWN_SECONDS:
+            remain = BATTLE_COOLDOWN_SECONDS - (now - last_battle_ts)
+            hours = remain // 3600
+            minutes = (remain % 3600) // 60
+            bot.reply_to(message, f"⏳ You must wait {hours}h {minutes}m before starting another /battle.")
             return
 
         # Choose mob & load user
@@ -235,6 +285,11 @@ def _finalize_session_rewards(bot: TeleBot, sess: fight_session.FightSession):
     if sess.winner == "player":
         increment_win(user_id)
     record_quest(user_id, "fight")
+
+    # Set cooldown timestamp (12-hour cooldown)
+    cooldowns = _get_user_cooldowns(user_id)
+    cooldowns["battle"] = int(time.time())
+    _set_user_cooldowns(user_id, cooldowns)
 
     # Play final cinematic GIF (best-effort) and send final summary
     try:
