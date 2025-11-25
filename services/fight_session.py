@@ -85,7 +85,6 @@ class FightSession:
         self.mob = dict(mob)
         # compute starting HP
         self.player_hp = int(self.player.get("current_hp", self.player.get("hp", BASE_PLAYER_HP)))
-        # mob may have "hp" field
         self.mob_hp = int(self.mob.get("hp", self.mob.get("max_hp", BASE_MOB_HP)))
         self.turn = 1
         self.events: List[Dict[str, Any]] = []
@@ -166,22 +165,25 @@ class FightSession:
                 ev = FightEvent(self.turn, player_name, ACTION_ATTACK, mob_name, damage=0, dodged=True, crit=False, actor_hp=self.player_hp, target_hp=self.mob_hp)
                 self._append_event(ev)
             else:
-                self.mob_hp = max(0, self.mob_hp - dmg)
-                ev = FightEvent(self.turn, player_name, ACTION_ATTACK, mob_name, damage=dmg, dodged=False, crit=crit, actor_hp=self.player_hp, target_hp=self.mob_hp)
+                # include charge bonus if present
+                charge_bonus = int(self.player.get("_charge_bonus", 0))
+                total_dmg = max(1, dmg + charge_bonus)
+                self.mob_hp = max(0, self.mob_hp - total_dmg)
+                ev = FightEvent(self.turn, player_name, ACTION_ATTACK, mob_name, damage=total_dmg, dodged=False, crit=crit, actor_hp=self.player_hp, target_hp=self.mob_hp)
                 self._append_event(ev)
+                # consume charge bonus
+                if "_charge_bonus" in self.player:
+                    self.player["_charge_bonus"] = 0
 
         elif action == ACTION_BLOCK:
-            # Block reduces incoming mob damage this turn (implemented as a flag applied during mob attack)
             ev = FightEvent(self.turn, player_name, ACTION_BLOCK, mob_name, damage=0, dodged=False, crit=False, actor_hp=self.player_hp, target_hp=self.mob_hp)
             self._append_event(ev)
 
         elif action == ACTION_DODGE:
-            # Dodge is chance to avoid next mob attack
             ev = FightEvent(self.turn, player_name, ACTION_DODGE, mob_name, damage=0, dodged=False, crit=False, actor_hp=self.player_hp, target_hp=self.mob_hp)
             self._append_event(ev)
 
         elif action == ACTION_CHARGE:
-            # Charge increases next attack damage (stored as bonus on player dict)
             charge_bonus = int(self.player.get("attack", 10) * 0.5)
             self.player["_charge_bonus"] = self.player.get("_charge_bonus", 0) + charge_bonus
             ev = FightEvent(self.turn, player_name, ACTION_CHARGE, mob_name, damage=0, dodged=False, crit=False, actor_hp=self.player_hp, target_hp=self.mob_hp)
@@ -198,13 +200,10 @@ class FightSession:
             return {"winner": "player", "events": self.events, "player_hp": self.player_hp, "mob_hp": self.mob_hp}
 
         # Mob retaliates (unless ended)
-        # Compute mob attack, but consider player action effects:
         mob_attack = float(self.mob.get("attack", 6))
         mob_def = float(self.player.get("defense", 5))
 
-        # Default incoming damage
         base_mob_damage = max(1, int(round(mob_attack - (mob_def * 0.5))))
-        # Mob crit
         mob_crit = False
         if self._random_check(self.mob.get("crit_chance", 0.02)):
             base_mob_damage = int(base_mob_damage * 2)
@@ -215,21 +214,15 @@ class FightSession:
             base_mob_damage = int(base_mob_damage * 0.4)  # block reduces to 40%
         elif action == ACTION_DODGE:
             if self._random_check(self.player.get("dodge_chance", 0.25)):
-                # successful dodge -> zero damage
-                ev = FightEvent(self.turn, self.mob.get("name"), "attack", self.player.get("username", "You"), damage=0, dodged=True, crit=False, actor_hp=self.player_hp, target_hp=self.mob_hp)
+                ev = FightEvent(self.turn, self.mob.get("name"), "attack", self.player.get("username", "You"), damage=0, dodged=True, crit=False, actor_hp=self.mob_hp, target_hp=self.player_hp)
                 self._append_event(ev)
-                # increment turn and return
                 self.turn += 1
                 return {"events": self.events, "player_hp": self.player_hp, "mob_hp": self.mob_hp}
-        # Charge does not reduce mob damage but boosts next player attack; add bonus if mob attacks while charge present?
-        charge_bonus = int(self.player.get("_charge_bonus", 0))
+
         # apply mob damage
         self.player_hp = max(0, int(self.player_hp - base_mob_damage))
         ev = FightEvent(self.turn, self.mob.get("name"), "attack", self.player.get("username", "You"), damage=base_mob_damage, dodged=False, crit=mob_crit, actor_hp=self.mob_hp, target_hp=self.player_hp)
         self._append_event(ev)
-
-        # If player had charge bonus and then attacks next turn, it'll be applied via _calc_base_damage using that stored field.
-        # Clear temporary charge bonus after mob attacks? We'll let it persist until next player attack consumes it.
 
         # Check end
         if self.player_hp <= 0:
@@ -268,6 +261,7 @@ class FightSession:
             else:
                 action = ACTION_BLOCK
         return self.resolve_player_action(action)
+
 
 # -------------------------
 # Session manager (global)
