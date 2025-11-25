@@ -131,6 +131,9 @@ class FightSession:
         return random.random() < float(prob)
 
     def _calc_base_damage(self, attacker: Dict[str, Any], defender: Dict[str, Any]) -> Tuple[int, bool]:
+        """
+        Calculate base damage and crit flag. THEN we randomize the final damage within +/-30%.
+        """
         attack = float(attacker.get("attack", 10))
         defense = float(defender.get("defense", 5))
         base = attack - (defense * 0.5)
@@ -139,7 +142,12 @@ class FightSession:
         if self._random_check(attacker.get("crit_chance", 0.05)):
             base = int(base * 2)
             crit = True
-        return base, crit
+
+        # Randomize final damage around base ±30%
+        low = max(1, int(max(1, base) * 0.7))
+        high = max(low, int(base * 1.3))
+        final = random.randint(low, high)
+        return final, crit
 
     def resolve_player_action(self, action: str) -> Dict[str, Any]:
         """
@@ -194,11 +202,17 @@ class FightSession:
         mob_attack = float(self.mob.get("attack", 6))
         mob_def = float(self.player.get("defense", 5))
 
-        base_mob_damage = max(1, int(round(mob_attack - (mob_def * 0.5))))
+        base = mob_attack - (mob_def * 0.5)
+        base = max(1, int(round(base)))
+        # mob crit possible
         mob_crit = False
         if self._random_check(self.mob.get("crit_chance", 0.02)):
-            base_mob_damage = int(base_mob_damage * 2)
+            base = int(base * 2)
             mob_crit = True
+        # mob randomized final (±30%)
+        low_m = max(1, int(base * 0.7))
+        high_m = max(low_m, int(base * 1.3))
+        base_mob_damage = random.randint(low_m, high_m)
 
         if action == ACTION_BLOCK:
             base_mob_damage = int(base_mob_damage * 0.4)
