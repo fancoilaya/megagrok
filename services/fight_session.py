@@ -6,19 +6,18 @@ import json
 import os
 from typing import Dict, Any, List, Optional, Tuple
 
-# Balance constants
+# Balance / limits
 BASE_PLAYER_HP = 100
 BASE_MOB_HP = 100
 MAX_TURNS = 60
 
-# Action keys
+# Action keys (exported for handler convenience)
 ACTION_ATTACK = "attack"
 ACTION_BLOCK = "block"
 ACTION_DODGE = "dodge"
 ACTION_CHARGE = "charge"
-ACTION_AUTO = "auto"  # client-side request to toggle auto-mode
 
-# Persistence file for sessions (optional)
+# Sessions persistence (best-effort)
 _SESSIONS_FILE = "data/battle_sessions.json"
 
 
@@ -38,7 +37,7 @@ def _safe_save_sessions(sessions: Dict[str, Any]) -> None:
         with open(_SESSIONS_FILE, "w") as f:
             json.dump(sessions, f, indent=2)
     except Exception:
-        # best effort only — ignore file errors
+        # best-effort only
         pass
 
 
@@ -74,16 +73,15 @@ class FightEvent:
 
 class FightSession:
     """
-    Fight session state. Each active interactive fight gets one of these.
-    Keyed by initiating user_id (int).
+    Stateful interactive fight session for a single initiating user.
     """
 
     def __init__(self, user_id: int, player: Dict[str, Any], mob: Dict[str, Any], session_id: Optional[str] = None):
         self.session_id = session_id or f"{user_id}-{int(time.time())}"
         self.user_id = user_id
-        self.player = dict(player)  # shallow copy of raw stats dict
+        self.player = dict(player)
         self.mob = dict(mob)
-        # compute starting HP
+
         self.player_hp = int(self.player.get("current_hp", self.player.get("hp", BASE_PLAYER_HP)))
         self.mob_hp = int(self.mob.get("hp", self.mob.get("max_hp", BASE_MOB_HP)))
         self.turn = 1
@@ -91,8 +89,8 @@ class FightSession:
         self.auto_mode: bool = False
         self.started_at = int(time.time())
         self.ended: bool = False
-        self.winner: Optional[str] = None  # "player", "mob", or None
-        self.last_action_by_user: Optional[str] = None  # last action (attack/block/dodge/charge)
+        self.winner: Optional[str] = None
+        self.last_action_by_user: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -125,16 +123,14 @@ class FightSession:
         sess.last_action_by_user = data.get("last_action_by_user", sess.last_action_by_user)
         return sess
 
-    # ----- event helpers -----
+    # internal helpers
     def _append_event(self, ev: FightEvent):
         self.events.append(ev.to_dict())
 
-    # ----- combat helpers -----
     def _random_check(self, prob: float) -> bool:
         return random.random() < float(prob)
 
     def _calc_base_damage(self, attacker: Dict[str, Any], defender: Dict[str, Any]) -> Tuple[int, bool]:
-        """Return (base_damage, maybe_crit_bool)"""
         attack = float(attacker.get("attack", 10))
         defense = float(defender.get("defense", 5))
         base = attack - (defense * 0.5)
@@ -147,8 +143,7 @@ class FightSession:
 
     def resolve_player_action(self, action: str) -> Dict[str, Any]:
         """
-        Resolve one player action + an immediate counter-attack from mob (if alive).
-        Returns a small summary dict.
+        Execute one player action, then the mob retaliates (if alive).
         """
         if self.ended:
             return {"error": "fight_already_ended"}
@@ -157,23 +152,19 @@ class FightSession:
         mob_name = self.mob.get("name", "Mob")
         self.last_action_by_user = action
 
-        # Player action resolution
+        # Player action
         if action == ACTION_ATTACK:
             dmg, crit = self._calc_base_damage(self.player, self.mob)
-            # mob dodge
             if self._random_check(self.mob.get("dodge_chance", 0.01)):
                 ev = FightEvent(self.turn, player_name, ACTION_ATTACK, mob_name, damage=0, dodged=True, crit=False, actor_hp=self.player_hp, target_hp=self.mob_hp)
                 self._append_event(ev)
             else:
-                # include charge bonus if present
                 charge_bonus = int(self.player.get("_charge_bonus", 0))
                 total_dmg = max(1, dmg + charge_bonus)
                 self.mob_hp = max(0, self.mob_hp - total_dmg)
                 ev = FightEvent(self.turn, player_name, ACTION_ATTACK, mob_name, damage=total_dmg, dodged=False, crit=crit, actor_hp=self.player_hp, target_hp=self.mob_hp)
                 self._append_event(ev)
-                # consume charge bonus
-                if "_charge_bonus" in self.player:
-                    self.player["_charge_bonus"] = 0
+                self.player["_charge_bonus"] = 0
 
         elif action == ACTION_BLOCK:
             ev = FightEvent(self.turn, player_name, ACTION_BLOCK, mob_name, damage=0, dodged=False, crit=False, actor_hp=self.player_hp, target_hp=self.mob_hp)
@@ -193,13 +184,13 @@ class FightSession:
             ev = FightEvent(self.turn, player_name, "unknown", mob_name, damage=0, dodged=False, crit=False, actor_hp=self.player_hp, target_hp=self.mob_hp)
             self._append_event(ev)
 
-        # Check if mob dead after player's action
+        # If mob died from player's action
         if self.mob_hp <= 0:
             self.ended = True
             self.winner = "player"
             return {"winner": "player", "events": self.events, "player_hp": self.player_hp, "mob_hp": self.mob_hp}
 
-        # Mob retaliates (unless ended)
+        # Mob retaliates
         mob_attack = float(self.mob.get("attack", 6))
         mob_def = float(self.player.get("defense", 5))
 
@@ -209,9 +200,8 @@ class FightSession:
             base_mob_damage = int(base_mob_damage * 2)
             mob_crit = True
 
-        # Adjustments based on player's action
         if action == ACTION_BLOCK:
-            base_mob_damage = int(base_mob_damage * 0.4)  # block reduces to 40%
+            base_mob_damage = int(base_mob_damage * 0.4)
         elif action == ACTION_DODGE:
             if self._random_check(self.player.get("dodge_chance", 0.25)):
                 ev = FightEvent(self.turn, self.mob.get("name"), "attack", self.player.get("username", "You"), damage=0, dodged=True, crit=False, actor_hp=self.mob_hp, target_hp=self.player_hp)
@@ -219,18 +209,15 @@ class FightSession:
                 self.turn += 1
                 return {"events": self.events, "player_hp": self.player_hp, "mob_hp": self.mob_hp}
 
-        # apply mob damage
         self.player_hp = max(0, int(self.player_hp - base_mob_damage))
         ev = FightEvent(self.turn, self.mob.get("name"), "attack", self.player.get("username", "You"), damage=base_mob_damage, dodged=False, crit=mob_crit, actor_hp=self.mob_hp, target_hp=self.player_hp)
         self._append_event(ev)
 
-        # Check end
         if self.player_hp <= 0:
             self.ended = True
             self.winner = "mob"
 
         self.turn += 1
-        # Safety cap
         if self.turn > MAX_TURNS:
             self.ended = True
             if self.player_hp > self.mob_hp:
@@ -243,13 +230,9 @@ class FightSession:
         return {"events": self.events, "player_hp": self.player_hp, "mob_hp": self.mob_hp, "ended": self.ended, "winner": self.winner}
 
     def resolve_auto_turn(self) -> Dict[str, Any]:
-        """
-        If auto_mode is on, decide a simple policy and take a step.
-        Policy: Attack if mob_hp is low, else use a chance to dodge/block occasionally.
-        """
         if self.ended:
             return {"ended": True, "winner": self.winner}
-        # Simple heuristic
+
         if self.mob_hp <= max(6, int(self.player.get("attack", 10) * 1.2)):
             action = ACTION_ATTACK
         else:
@@ -263,14 +246,8 @@ class FightSession:
         return self.resolve_player_action(action)
 
 
-# -------------------------
 # Session manager (global)
-# -------------------------
 class SessionManager:
-    """
-    Simple in-process session manager. Keeps active sessions in memory and persists to disk occasionally.
-    Use get_session(user_id) to retrieve or create.
-    """
     def __init__(self):
         self._sessions: Dict[str, Dict[str, Any]] = _safe_load_sessions()
 
@@ -305,10 +282,10 @@ class SessionManager:
         return list(self._sessions.keys())
 
 
-# single global manager instance (import this)
 manager = SessionManager()
 
-# Optional tiny helper to create player/mob stat dicts from your user/mob shapes:
+
+# small helpers to build stat dicts from your existing user/mob dicts
 def build_player_stats_from_user(user: Dict[str, Any], username_fallback: str = "You") -> Dict[str, Any]:
     return {
         "username": user.get("username", username_fallback),
