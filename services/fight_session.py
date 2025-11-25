@@ -164,74 +164,87 @@ class FightSession:
         if action == ACTION_ATTACK:
             dmg, crit = self._calc_base_damage(self.player, self.mob)
             if self._random_check(self.mob.get("dodge_chance", 0.01)):
-                ev = FightEvent(self.turn, player_name, ACTION_ATTACK, mob_name, damage=0, dodged=True, crit=False, actor_hp=self.player_hp, target_hp=self.mob_hp)
-                self._append_event(ev)
+                self._append_event(FightEvent(self.turn, player_name, ACTION_ATTACK, mob_name,
+                                              damage=0, dodged=True, crit=False,
+                                              actor_hp=self.player_hp, target_hp=self.mob_hp))
             else:
                 charge_bonus = int(self.player.get("_charge_bonus", 0))
                 total_dmg = max(1, dmg + charge_bonus)
                 self.mob_hp = max(0, self.mob_hp - total_dmg)
-                ev = FightEvent(self.turn, player_name, ACTION_ATTACK, mob_name, damage=total_dmg, dodged=False, crit=crit, actor_hp=self.player_hp, target_hp=self.mob_hp)
-                self._append_event(ev)
+                self._append_event(FightEvent(self.turn, player_name, ACTION_ATTACK, mob_name,
+                                              damage=total_dmg, dodged=False, crit=crit,
+                                              actor_hp=self.player_hp, target_hp=self.mob_hp))
                 self.player["_charge_bonus"] = 0
 
         elif action == ACTION_BLOCK:
-            ev = FightEvent(self.turn, player_name, ACTION_BLOCK, mob_name, damage=0, dodged=False, crit=False, actor_hp=self.player_hp, target_hp=self.mob_hp)
-            self._append_event(ev)
+            self._append_event(FightEvent(self.turn, player_name, ACTION_BLOCK, mob_name,
+                                          damage=0, dodged=False, crit=False,
+                                          actor_hp=self.player_hp, target_hp=self.mob_hp))
 
         elif action == ACTION_DODGE:
-            ev = FightEvent(self.turn, player_name, ACTION_DODGE, mob_name, damage=0, dodged=False, crit=False, actor_hp=self.player_hp, target_hp=self.mob_hp)
-            self._append_event(ev)
+            self._append_event(FightEvent(self.turn, player_name, ACTION_DODGE, mob_name,
+                                          damage=0, dodged=False, crit=False,
+                                          actor_hp=self.player_hp, target_hp=self.mob_hp))
 
         elif action == ACTION_CHARGE:
             charge_bonus = int(self.player.get("attack", 10) * 0.5)
             self.player["_charge_bonus"] = self.player.get("_charge_bonus", 0) + charge_bonus
-            ev = FightEvent(self.turn, player_name, ACTION_CHARGE, mob_name, damage=0, dodged=False, crit=False, actor_hp=self.player_hp, target_hp=self.mob_hp)
-            self._append_event(ev)
+            self._append_event(FightEvent(self.turn, player_name, ACTION_CHARGE, mob_name,
+                                          damage=0, dodged=False, crit=False,
+                                          actor_hp=self.player_hp, target_hp=self.mob_hp))
 
         else:
-            ev = FightEvent(self.turn, player_name, "unknown", mob_name, damage=0, dodged=False, crit=False, actor_hp=self.player_hp, target_hp=self.mob_hp)
-            self._append_event(ev)
+            self._append_event(FightEvent(self.turn, player_name, "unknown", mob_name,
+                                          damage=0, dodged=False, crit=False,
+                                          actor_hp=self.player_hp, target_hp=self.mob_hp))
 
         # If mob died from player's action
         if self.mob_hp <= 0:
             self.ended = True
             self.winner = "player"
-            return {"winner": "player", "events": self.events, "player_hp": self.player_hp, "mob_hp": self.mob_hp}
+            return {"winner": "player"}
 
-        # Mob retaliates
+        # MOB TURN
         mob_attack = float(self.mob.get("attack", 6))
         mob_def = float(self.player.get("defense", 5))
 
         base = mob_attack - (mob_def * 0.5)
         base = max(1, int(round(base)))
-        # mob crit possible
+
         mob_crit = False
         if self._random_check(self.mob.get("crit_chance", 0.02)):
             base = int(base * 2)
             mob_crit = True
-        # mob randomized final (±30%)
+
+        # Mob damage randomization
         low_m = max(1, int(base * 0.7))
         high_m = max(low_m, int(base * 1.3))
         base_mob_damage = random.randint(low_m, high_m)
 
+        # Defensive actions
         if action == ACTION_BLOCK:
             base_mob_damage = int(base_mob_damage * 0.4)
+
         elif action == ACTION_DODGE:
             if self._random_check(self.player.get("dodge_chance", 0.25)):
-                ev = FightEvent(self.turn, self.mob.get("name"), "attack", self.player.get("username", "You"), damage=0, dodged=True, crit=False, actor_hp=self.mob_hp, target_hp=self.player_hp)
-                self._append_event(ev)
+                self._append_event(FightEvent(self.turn, mob_name, "attack", player_name,
+                                              damage=0, dodged=True, crit=False,
+                                              actor_hp=self.mob_hp, target_hp=self.player_hp))
                 self.turn += 1
-                return {"events": self.events, "player_hp": self.player_hp, "mob_hp": self.mob_hp}
+                return {"events": self.events}
 
+        # Apply mob damage
         self.player_hp = max(0, int(self.player_hp - base_mob_damage))
-        ev = FightEvent(self.turn, self.mob.get("name"), "attack", self.player.get("username", "You"), damage=base_mob_damage, dodged=False, crit=mob_crit, actor_hp=self.mob_hp, target_hp=self.player_hp)
-        self._append_event(ev)
+        self._append_event(FightEvent(self.turn, mob_name, "attack", player_name,
+                                      damage=base_mob_damage, dodged=False, crit=mob_crit,
+                                      actor_hp=self.mob_hp, target_hp=self.player_hp))
 
         if self.player_hp <= 0:
             self.ended = True
             self.winner = "mob"
 
         self.turn += 1
+
         if self.turn > MAX_TURNS:
             self.ended = True
             if self.player_hp > self.mob_hp:
@@ -241,22 +254,63 @@ class FightSession:
             else:
                 self.winner = None
 
-        return {"events": self.events, "player_hp": self.player_hp, "mob_hp": self.mob_hp, "ended": self.ended, "winner": self.winner}
+        return {
+            "events": self.events,
+            "player_hp": self.player_hp,
+            "mob_hp": self.mob_hp,
+            "ended": self.ended,
+            "winner": self.winner
+        }
 
+    # ADVANCED AUTO AI
     def resolve_auto_turn(self) -> Dict[str, Any]:
+        """
+        Advanced AI logic for Auto Mode:
+        - Smart finishing moves
+        - HP-based defensive decisions
+        - Tactical charging
+        - Balanced risk-taking
+        """
+
         if self.ended:
             return {"ended": True, "winner": self.winner}
 
-        if self.mob_hp <= max(6, int(self.player.get("attack", 10) * 1.2)):
+        player_hp = self.player_hp
+        mob_hp = self.mob_hp
+        player_max = int(self.player.get("current_hp", self.player.get("hp", 100)))
+
+        # 1) Mob nearly dead → finish them
+        if mob_hp <= int(self.player.get("attack", 10) * 1.4):
             action = ACTION_ATTACK
+
+        # 2) Very low HP → Dodge or Block
+        elif player_hp <= int(player_max * 0.20):
+            action = ACTION_DODGE if random.random() < 0.6 else ACTION_BLOCK
+
+        # 3) Moderately low HP → mix defenses
+        elif player_hp <= int(player_max * 0.35):
+            r = random.random()
+            if r < 0.45:
+                action = ACTION_DODGE
+            elif r < 0.70:
+                action = ACTION_BLOCK
+            else:
+                action = ACTION_ATTACK
+
+        # 4) Mob very healthy → consider charge strategy
+        elif mob_hp >= int(player_max * 0.70):
+            action = ACTION_CHARGE if random.random() < 0.50 else ACTION_ATTACK
+
+        # 5) Normal mid-fight logic
         else:
             r = random.random()
-            if r < 0.65:
+            if r < 0.70:
                 action = ACTION_ATTACK
-            elif r < 0.8:
+            elif r < 0.85:
                 action = ACTION_DODGE
             else:
                 action = ACTION_BLOCK
+
         return self.resolve_player_action(action)
 
 
@@ -299,7 +353,6 @@ class SessionManager:
 manager = SessionManager()
 
 
-# small helpers to build stat dicts from your existing user/mob dicts
 def build_player_stats_from_user(user: Dict[str, Any], username_fallback: str = "You") -> Dict[str, Any]:
     return {
         "username": user.get("username", username_fallback),
