@@ -1,5 +1,5 @@
 # main.py — Full production Telegram bot for Render Background Worker
-# Features:
+# Includes:
 # - graceful shutdown
 # - heartbeat
 # - webhook cleanup
@@ -8,6 +8,7 @@
 # - modular handlers loader
 # - safe fallback loaders
 # - stable polling loop for worker mode
+# - automatic cleanup of battle_sessions.json
 
 import os
 import sys
@@ -17,15 +18,23 @@ import signal
 import importlib
 import importlib.util
 import requests
+import json
+from pathlib import Path
 
 from telebot import TeleBot, apihelper
 
 # ==============================================
-# Load API Token
+# Load API Token (NOW SUPPORTS MULTIPLE ENV NAMES)
 # ==============================================
-TOKEN = os.getenv("Telegram_token")
+TOKEN = (
+    os.getenv("Telegram_token") or
+    os.getenv("TELEGRAM_TOKEN") or
+    os.getenv("BOT_TOKEN") or
+    os.getenv("TOKEN")
+)
+
 if not TOKEN:
-    raise RuntimeError("Missing environment variable: Telegram_token")
+    raise RuntimeError("Missing environment variable: Telegram_token / BOT_TOKEN / TELEGRAM_TOKEN")
 
 print(f"BOOT: PID={os.getpid()} TOKEN_PREFIX={TOKEN[:8]}…")
 
@@ -45,6 +54,53 @@ ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
+
+# ======================================================
+# Automatic Cleanup of Corrupted Battle Sessions
+# ======================================================
+SESS_FILE = os.path.join(ROOT_DIR, "data", "battle_sessions.json")
+
+def cleanup_battle_sessions():
+    try:
+        sess_path = Path(SESS_FILE)
+        if not sess_path.exists():
+            print("[INIT] No battle_sessions.json found — OK.")
+            return
+
+        with open(sess_path, "r") as f:
+            data = json.load(f)
+
+        cleaned = {}
+        removed = 0
+
+        for uid, sess in data.items():
+            if not isinstance(sess, dict):
+                removed += 1
+                continue
+
+            # Required keys for a valid session
+            if (
+                "player" not in sess or
+                "mob" not in sess or
+                "player_hp" not in sess or
+                "mob_hp" not in sess
+            ):
+                removed += 1
+                continue
+
+            cleaned[uid] = sess
+
+        with open(sess_path, "w") as f:
+            json.dump(cleaned, f, indent=2)
+
+        print(f"[INIT] battle_sessions.json cleaned → {len(cleaned)} kept, {removed} removed.")
+
+    except Exception as e:
+        print(f"[INIT] Error cleaning battle_sessions.json: {e}")
+
+cleanup_battle_sessions()
+
+
 # ==============================================
 # Webhook cleanup
 # ==============================================
@@ -56,6 +112,7 @@ def safe_delete_webhook():
         print("⚠ Could not delete webhook:", e)
 
 safe_delete_webhook()
+
 
 # ==============================================
 # Graceful Shutdown
@@ -80,8 +137,6 @@ def shutdown_handler(signum, frame):
 signal.signal(signal.SIGTERM, shutdown_handler)
 signal.signal(signal.SIGINT, shutdown_handler)
 
-# NOTE: The /start handler was intentionally REMOVED from main.py so that the
-# more detailed welcome message defined in bot/commands.py will be used.
 
 # ==============================================
 # Load Legacy Commands
@@ -119,6 +174,7 @@ def load_legacy_commands():
             print("⚠ No commands.py found")
 
 load_legacy_commands()
+
 
 # ==============================================
 # Load Modular Handlers
@@ -163,6 +219,7 @@ def load_modular_handlers():
 
 load_modular_handlers()
 
+
 # ==============================================
 # Polling Loop with Duplicate Poller Protection
 # ==============================================
@@ -192,6 +249,7 @@ def run_polling():
 
         time.sleep(backoff)
         backoff = min(max_backoff, backoff * 2)
+
 
 if __name__ == "__main__":
     run_polling()
