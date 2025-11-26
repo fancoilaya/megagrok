@@ -1,147 +1,197 @@
+# main.py — Full production Telegram bot for Render Background Worker
+# Features:
+# - graceful shutdown
+# - heartbeat
+# - webhook cleanup
+# - 409 duplicate poller protection
+# - legacy commands loader
+# - modular handlers loader
+# - safe fallback loaders
+# - stable polling loop for worker mode
+
 import os
 import sys
 import time
-import json
+import threading
+import signal
 import importlib
-from pathlib import Path
+import importlib.util
+import requests
 
-from telebot import TeleBot
-from telebot.types import Update
+from telebot import TeleBot, apihelper
 
-# ----------------------------------------
-# Load environment settings
-# ----------------------------------------
-TOKEN = os.getenv("BOT_TOKEN")
+# ==============================================
+# Load API Token
+# ==============================================
+TOKEN = os.getenv("Telegram_token")
 if not TOKEN:
-    print("[ERROR] BOT_TOKEN not set in environment variables.")
-    sys.exit(1)
+    raise RuntimeError("Missing environment variable: Telegram_token")
 
-bot = TeleBot(TOKEN, parse_mode="HTML")
+print(f"BOOT: PID={os.getpid()} TOKEN_PREFIX={TOKEN[:8]}…")
 
-# ======================================================
-# AUTO CLEANUP FOR CORRUPTED BATTLE SESSIONS
-# ======================================================
+bot = TeleBot(TOKEN)
 
-SESS_FILE = "data/battle_sessions.json"
+# ==============================================
+# Heartbeat (helpful for Render logs)
+# ==============================================
+def heartbeat():
+    while True:
+        print(f"💓 HEARTBEAT PID={os.getpid()} TIME={time.time()}")
+        time.sleep(60)
 
-def cleanup_battle_sessions():
-    """
-    Removes corrupted or incomplete battle sessions leftover
-    from previous crashes or restarts.
-    This guarantees clean battle behavior every startup.
-    """
+threading.Thread(target=heartbeat, daemon=True).start()
+
+ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
+
+# ==============================================
+# Webhook cleanup
+# ==============================================
+def safe_delete_webhook():
     try:
-        if not os.path.exists(SESS_FILE):
-            print("[INIT] No old battle sessions found.")
-            return
-
-        with open(SESS_FILE, "r") as f:
-            data = json.load(f)
-
-        cleaned = {}
-        removed = 0
-
-        for uid, sess in data.items():
-            # Must be a dict
-            if not isinstance(sess, dict):
-                removed += 1
-                continue
-
-            # Must have basic session properties
-            if "player" not in sess or "mob" not in sess:
-                removed += 1
-                continue
-
-            if "player_hp" not in sess or "mob_hp" not in sess:
-                removed += 1
-                continue
-
-            # If it contains last message pointer, keep
-            cleaned[uid] = sess
-
-        # Rewrite file with cleaned data
-        with open(SESS_FILE, "w") as f:
-            json.dump(cleaned, f, indent=2)
-
-        print(f"[INIT] Battle sessions cleaned. {len(cleaned)} valid sessions kept, {removed} removed.")
-
+        r = requests.get(f"https://api.telegram.org/bot{TOKEN}/deleteWebhook", timeout=10)
+        print("deleteWebhook ->", r.status_code, r.text)
     except Exception as e:
-        print(f"[INIT] Error during session cleanup: {e}")
+        print("⚠ Could not delete webhook:", e)
 
+safe_delete_webhook()
 
-# Run cleanup before loading bot handlers
-cleanup_battle_sessions()
+# ==============================================
+# Graceful Shutdown
+# ==============================================
+_shutdown = False
 
+def shutdown_handler(signum, frame):
+    global _shutdown
+    print(f"🔻 Received shutdown signal ({signum}), stopping bot…")
+    _shutdown = True
 
-# ======================================================
-# LEGACY COMMAND LOADER (commands.py)
-# ======================================================
+    try:
+        bot.stop_polling()
+        print("stop_polling() called")
+    except Exception as e:
+        print("⚠ stop_polling error:", e)
 
-try:
-    import bot.commands as legacy
-    if hasattr(legacy, "register_handlers"):
-        legacy.register_handlers(bot)
-        print("[INIT] Loaded legacy commands handler.")
-    else:
-        print("[INIT] No register_handlers() found in bot.commands")
-except Exception as e:
-    print(f"[INIT] Failed loading bot.commands: {e}")
+    safe_delete_webhook()
+    print("Shutdown complete.")
+    sys.exit(0)
 
+signal.signal(signal.SIGTERM, shutdown_handler)
+signal.signal(signal.SIGINT, shutdown_handler)
 
-# ======================================================
-# DYNAMIC HANDLER LOADER (bot/handlers/*.py)
-# ======================================================
+# NOTE: The /start handler was intentionally REMOVED from main.py so that the
+# more detailed welcome message defined in bot/commands.py will be used.
 
-HANDLERS_PATH = Path("bot/handlers")
+# ==============================================
+# Load Legacy Commands
+# ==============================================
+def load_legacy_commands():
+    loaded = False
 
-if HANDLERS_PATH.exists():
-    for file in HANDLERS_PATH.iterdir():
-        if file.suffix == ".py" and file.stem not in ["__init__", "commands"]:
-            module_name = f"bot.handlers.{file.stem}"
+    try:
+        import bot.commands as legacy
+        if hasattr(legacy, "register_handlers"):
+            legacy.register_handlers(bot)
+            loaded = True
+            print("✔ Loaded bot/commands.py")
+        else:
+            print("⚠ bot/commands.py exists but has no register_handlers(bot)")
+    except Exception as e:
+        print("⚠ Import bot.commands failed:", e)
+
+    if not loaded:
+        legacy_path = os.path.join(ROOT_DIR, "bot", "commands.py")
+        if os.path.exists(legacy_path):
             try:
-                module = importlib.import_module(module_name)
-                if hasattr(module, "setup"):
-                    module.setup(bot)
-                    print(f"[INIT] Loaded handler: {module_name}")
+                spec = importlib.util.spec_from_file_location("legacy_commands", legacy_path)
+                legacy = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(legacy)
+
+                if hasattr(legacy, "register_handlers"):
+                    legacy.register_handlers(bot)
+                    print("✔ Loaded legacy commands via file load")
                 else:
-                    print(f"[INIT] Handler {module_name} has no setup() function.")
+                    print("⚠ No register_handlers(bot) in commands.py")
             except Exception as e:
-                print(f"[INIT] Error loading handler {module_name}: {e}")
-else:
-    print("[INIT] WARNING: bot/handlers directory not found.")
+                print("❌ Failed executing commands.py:", e)
+        else:
+            print("⚠ No commands.py found")
 
+load_legacy_commands()
 
-# ======================================================
-# WEBHOOK / POLLING (Use one method only)
-# ======================================================
+# ==============================================
+# Load Modular Handlers
+# ==============================================
+def load_modular_handlers():
+    handlers_dir = os.path.join(ROOT_DIR, "bot", "handlers")
 
-USE_WEBHOOK = os.getenv("USE_WEBHOOK", "false").lower() == "true"
+    if not os.path.isdir(handlers_dir):
+        print(f"⚠ No handlers directory found at {handlers_dir}")
+        return
 
-if USE_WEBHOOK:
-    print("[INIT] Starting bot with webhook mode.")
+    for filename in os.listdir(handlers_dir):
+        if not filename.endswith(".py") or filename.startswith("_"):
+            continue
 
-    WEBHOOK_URL = os.getenv("WEBHOOK_URL")
-    if not WEBHOOK_URL:
-        print("[ERROR] USE_WEBHOOK=true but WEBHOOK_URL is missing.")
-        sys.exit(1)
+        module_name = f"bot.handlers.{filename[:-3]}"
+        file_path = os.path.join(handlers_dir, filename)
 
-    bot.remove_webhook()
-    time.sleep(1)
-    bot.set_webhook(url=WEBHOOK_URL)
+        try:
+            module = importlib.import_module(module_name)
+            if hasattr(module, "setup"):
+                module.setup(bot)
+                print(f"✔ Loaded handler: {module_name}")
+            else:
+                print(f"⚠ No setup(bot) in {module_name}")
+        except Exception as e:
+            print(f"⚠ Import failed for {module_name}: {e}")
+            print("Trying file-based load…")
 
-    from flask import Flask, request
-    app = Flask(__name__)
+            try:
+                spec = importlib.util.spec_from_file_location(module_name, file_path)
+                mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)
 
-    @app.route("/webhook", methods=["POST"])
-    def webhook():
-        json_str = request.data.decode("UTF-8")
-        update = Update.de_json(json.loads(json_str))
-        bot.process_new_updates([update])
-        return "OK", 200
+                if hasattr(mod, "setup"):
+                    mod.setup(bot)
+                    print(f"✔ Loaded handler file: {file_path}")
+                else:
+                    print(f"⚠ No setup(bot) in handler file {filename}")
+            except Exception as e2:
+                print(f"❌ Failed loading handler: {file_path}: {e2}")
 
-    if __name__ == "__main__":
-        app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
+load_modular_handlers()
 
-else:
-    print("[INIT] Starting bot with polling mode.")
-    bot.infinity_polling(timeout=60, long_polling_timeout=60)
+# ==============================================
+# Polling Loop with Duplicate Poller Protection
+# ==============================================
+def run_polling():
+    backoff = 2
+    max_backoff = 60
+
+    while not _shutdown:
+        try:
+            print("▶ Starting polling…")
+            bot.polling(none_stop=True, timeout=20)
+            print("⏹ Polling stopped cleanly.")
+            break
+        except apihelper.ApiTelegramException as ate:
+            err = str(ate)
+            print("🔥 TELEGRAM API ERROR:", err)
+
+            if "409" in err or "Conflict: terminated by other getUpdates request" in err:
+                print("❌ DUPLICATE POLLER DETECTED (409)")
+                safe_delete_webhook()
+                sys.exit(1)
+
+            print(f"⚠ API error → retrying in {backoff}s")
+        except Exception as e:
+            print("⚠ Polling exception:", repr(e))
+            print(f"Retrying in {backoff}s")
+
+        time.sleep(backoff)
+        backoff = min(max_backoff, backoff * 2)
+
+if __name__ == "__main__":
+    run_polling()
