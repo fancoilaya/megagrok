@@ -24,22 +24,23 @@ GIF_INTRO = os.path.join(ASSETS_BASE, "battle_intro.gif")
 GIF_VICTORY = os.path.join(ASSETS_BASE, "victory.gif")
 GIF_DEFEAT = os.path.join(ASSETS_BASE, "defeat.gif")
 
-# Cooldown
-BATTLE_COOLDOWN_SECONDS = 12 * 3600  # 12 hours
+# Cooldown (12 hours)
+BATTLE_COOLDOWN_SECONDS = 12 * 3600
 
 
 # =====================================================
-# INTERNAL HELPERS
+# UI + TEXT HELPERS
 # =====================================================
 
-def _build_action_keyboard(session: fight_session.FightSession) -> types.InlineKeyboardMarkup:
+def _build_action_keyboard(session: fight_session.FightSession):
     kb = types.InlineKeyboardMarkup(row_width=3)
     uid = session.user_id
+
     kb.add(
         types.InlineKeyboardButton("🗡 Attack", callback_data=f"battle:act:attack:{uid}"),
         types.InlineKeyboardButton("🛡 Block",  callback_data=f"battle:act:block:{uid}"),
         types.InlineKeyboardButton("💨 Dodge",  callback_data=f"battle:act:dodge:{uid}"),
-        types.InlineKeyboardButton("⚡ Charge", callback_data=f"battle:act:charge:{uid}"),
+        types.InlineKeyboardButton("⚡ Charge", callback_data=f"battle:act:charge:{uid}")
     )
     kb.add(
         types.InlineKeyboardButton("▶ Auto" if not session.auto_mode else "⏸ Auto",
@@ -50,10 +51,10 @@ def _build_action_keyboard(session: fight_session.FightSession) -> types.InlineK
     return kb
 
 
-def _hp_bar_with_numbers(current: int, maximum: int, width: int = 18) -> str:
-    pct = max(0.0, min(1.0, float(current) / float(maximum)))
-    fill = int(round(pct * width))
-    bar = f"{'▓' * fill}{'░' * (width - fill)}"
+def _hp_bar_with_numbers(current, maximum, width=18):
+    pct = max(0, min(1, current / maximum)) if maximum > 0 else 0
+    fill = int(pct * width)
+    bar = "▓" * fill + "░" * (width - fill)
     return f"{bar} {current} / {maximum}"
 
 
@@ -68,16 +69,19 @@ def _build_caption(session: fight_session.FightSession) -> str:
         f"⚔️ *Battle — {p_name} vs {m_name}*\n\n"
         f"{p_name}: {_hp_bar_with_numbers(session.player_hp, p_max)}\n"
         f"{m_name}: {_hp_bar_with_numbers(session.mob_hp, m_max)}\n\n"
-        f"Turn: {session.turn}\n"
+        f"Turn: {session.turn}"
     )
-
     return caption
 
+
+# =====================================================
+# COOLDOWN HELPERS
+# =====================================================
 
 def _get_user_cooldowns(user_id: int) -> dict:
     try:
         db._add_column_if_missing("cooldowns", "TEXT")
-    except Exception:
+    except:
         pass
 
     try:
@@ -85,7 +89,7 @@ def _get_user_cooldowns(user_id: int) -> dict:
         row = db.cursor.fetchone()
         if row and row[0]:
             return json.loads(row[0])
-    except Exception:
+    except:
         pass
 
     return {}
@@ -93,21 +97,29 @@ def _get_user_cooldowns(user_id: int) -> dict:
 
 def _set_user_cooldowns(user_id: int, cooldowns: dict):
     try:
-        payload = json.dumps(cooldowns)
-        db.cursor.execute("UPDATE users SET cooldowns=? WHERE user_id=?", (payload, user_id))
+        data = json.dumps(cooldowns)
+        db.cursor.execute("UPDATE users SET cooldowns=? WHERE user_id=?", (data, user_id))
         db.conn.commit()
     except:
         pass
 
 
 # =====================================================
-# UI REFRESH — delete old message and send new one
+# FIXED _refresh_ui WITH CORRECT SESSION MERGE
 # =====================================================
 
 def _refresh_ui(bot: TeleBot, sess: fight_session.FightSession, chat_id: int):
-    # Delete previous UI
+    """
+    Deletes previous frame reliably, sends new frame, and updates the session
+    WITHOUT wiping metadata like _last_sent_message.
+    """
+
+    user_id = sess.user_id
+
+    # 1) DELETE old UI frame (pull from session store, not from to_dict)
     try:
-        last_meta = sess.to_dict().get("_last_sent_message", {})
+        store_entry = fight_session.manager._sessions.get(str(user_id), {})
+        last_meta = store_entry.get("_last_sent_message", {})
         old_msg = last_meta.get("message_id")
         if old_msg:
             try:
@@ -117,15 +129,28 @@ def _refresh_ui(bot: TeleBot, sess: fight_session.FightSession, chat_id: int):
     except:
         pass
 
-    # Send new UI
+    # 2) CREATE new UI message
     kb = _build_action_keyboard(sess)
     caption = _build_caption(sess)
     new_msg = bot.send_message(chat_id, caption, parse_mode="Markdown", reply_markup=kb)
 
-    # Save new pointer
-    meta = sess.to_dict()
-    meta["_last_sent_message"] = {"chat_id": chat_id, "message_id": new_msg.message_id}
-    fight_session.manager._sessions[str(sess.user_id)] = meta
+    # 3) MERGE session dict correctly
+    sess_dict = sess.to_dict()
+
+    # Merge old metadata so we don't lose fields
+    old_data = fight_session.manager._sessions.get(str(user_id), {})
+    for k, v in old_data.items():
+        if k not in sess_dict:
+            sess_dict[k] = v
+
+    # Overwrite with new UI pointer
+    sess_dict["_last_sent_message"] = {
+        "chat_id": chat_id,
+        "message_id": new_msg.message_id
+    }
+
+    # 4) SAVE final session to disk
+    fight_session.manager._sessions[str(user_id)] = sess_dict
     fight_session.manager.save_session(sess)
 
     return new_msg
@@ -141,24 +166,27 @@ def setup(bot: TeleBot):
     def battle_cmd(message):
         user_id = message.from_user.id
 
-        # Cooldown only (NO quest fight check!)
+        # --- Check cooldown only (DO NOT check fight quest key) ---
         cooldowns = _get_user_cooldowns(user_id)
         last = int(cooldowns.get("battle", 0))
         now = int(time.time())
 
-        if last and (now - last < BATTLE_COOLDOWN_SECONDS):
+        if last and now - last < BATTLE_COOLDOWN_SECONDS:
             rem = BATTLE_COOLDOWN_SECONDS - (now - last)
-            bot.reply_to(message, f"⏳ Next battle in {rem//3600}h {(rem%3600)//60}m.")
+            bot.reply_to(
+                message,
+                f"⏳ Next /battle available in {rem//3600}h {(rem%3600)//60}m."
+            )
             return
 
-        # Load player + mob
-        mob = random.choice(MOBS)
         user = get_user(user_id)
+        mob = random.choice(MOBS)
 
+        # Username: use @username or fallback
         username = (message.from_user.username and f"@{message.from_user.username}") or f"User{user_id}"
 
         player_stats = fight_session.build_player_stats_from_user(user, username_fallback=username)
-        player_stats["username"] = username  # enforce TG username
+        player_stats["username"] = username
 
         mob_stats = fight_session.build_mob_stats_from_mob(mob)
 
@@ -171,16 +199,16 @@ def setup(bot: TeleBot):
         # Create session
         sess = fight_session.manager.create_session(user_id, player_stats, mob_stats)
 
-        # Initial UI
+        # First UI
         _refresh_ui(bot, sess, message.chat.id)
 
-    # -------------------------
+    # -----------------------------
     # CALLBACK HANDLER
-    # -------------------------
+    # -----------------------------
     @bot.callback_query_handler(func=lambda c: c.data and c.data.startswith("battle:"))
     def battle_callback(call):
-        parts = call.data.split(":")
-        _, _, action, owner = parts[:4]
+
+        _, _, action, owner = call.data.split(":")
         owner_id = int(owner)
 
         if call.from_user.id != owner_id:
@@ -189,12 +217,12 @@ def setup(bot: TeleBot):
 
         sess = fight_session.manager.load_session(owner_id)
         if not sess:
-            bot.answer_callback_query(call.id, "Battle expired. Start /battle again.", show_alert=True)
+            bot.answer_callback_query(call.id, "Session expired. Start /battle again.", show_alert=True)
             return
 
         chat_id = call.message.chat.id
 
-        # ----- SURRENDER -----
+        # --- SURRENDER ---
         if action == "surrender":
             sess.ended = True
             sess.winner = "mob"
@@ -203,10 +231,11 @@ def setup(bot: TeleBot):
             _refresh_ui(bot, sess, chat_id)
             _finalize(bot, sess, chat_id)
             fight_session.manager.end_session(owner_id)
+
             bot.answer_callback_query(call.id, "You surrendered.")
             return
 
-        # ----- AUTO MODE -----
+        # --- AUTO MODE ---
         if action == "auto":
             sess.auto_mode = not sess.auto_mode
             fight_session.manager.save_session(sess)
@@ -223,7 +252,7 @@ def setup(bot: TeleBot):
                 fight_session.manager.end_session(owner_id)
             return
 
-        # ----- NORMAL ACTION -----
+        # --- NORMAL ACTIONS ---
         ACTIONS = {
             "attack": fight_session.ACTION_ATTACK,
             "block":  fight_session.ACTION_BLOCK,
@@ -247,7 +276,7 @@ def setup(bot: TeleBot):
 
 
 # =====================================================
-# FINAL XP + SUMMARY
+# FINALIZATION
 # =====================================================
 
 def _finalize(bot: TeleBot, sess: fight_session.FightSession, chat_id: int):
@@ -256,10 +285,11 @@ def _finalize(bot: TeleBot, sess: fight_session.FightSession, chat_id: int):
     user = get_user(user_id)
     mob = sess.mob
 
-    # XP calc
+    # XP calculation
     base_xp = random.randint(mob.get("min_xp", 10), mob.get("max_xp", 25))
-    lvl = user["level"]
-    evo_mult = evolutions.get_xp_multiplier_for_level(lvl) * float(user.get("evolution_multiplier", 1.0))
+    level = user["level"]
+
+    evo_mult = evolutions.get_xp_multiplier_for_level(level) * float(user.get("evolution_multiplier", 1.0))
     effective_xp = int(base_xp * evo_mult)
 
     xp_total = user["xp_total"] + effective_xp
@@ -270,24 +300,19 @@ def _finalize(bot: TeleBot, sess: fight_session.FightSession, chat_id: int):
     leveled = False
     while cur >= xp_to_next:
         cur -= xp_to_next
-        lvl += 1
+        level += 1
         xp_to_next = int(xp_to_next * curve)
         leveled = True
 
-    update_user_xp(user_id, dict(
-        xp_total=xp_total,
-        xp_current=cur,
-        xp_to_next_level=xp_to_next,
-        level=lvl
-    ))
+    update_user_xp(
+        user_id,
+        {"xp_total": xp_total, "xp_current": cur, "xp_to_next_level": xp_to_next, "level": level}
+    )
 
-    if sess.winner == "player":
-        increment_win(user_id)
-
-    # IMPORTANT: battle quest key = "battle"
+    # Record only "battle" (NOT "fight")
     record_quest(user_id, "battle")
 
-    # Apply cooldown
+    # Cooldown
     cooldowns = _get_user_cooldowns(user_id)
     cooldowns["battle"] = int(time.time())
     _set_user_cooldowns(user_id, cooldowns)
@@ -301,7 +326,7 @@ def _finalize(bot: TeleBot, sess: fight_session.FightSession, chat_id: int):
     except:
         pass
 
-    # Summary text
+    # Summary
     txt = []
 
     if sess.winner == "player":
