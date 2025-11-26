@@ -1,72 +1,30 @@
-GROKDEX = {
-    "FUDling": {
-        "name": "FUDling",
-        "rarity": "Common",
-        "type": "Shadow-Amphibian",
-        "description":
-            "A small creature born from fear, uncertainty, and doubt. "
-            "It feeds on weak charts and shaky hands.",
-        "weakness": "Confidence",
-        "strength": "Spreading panic",
-        "portrait": "assets/mobs/fudling.png",
-        "combat_power": 1,
-        "drops": ["+XP", "Wisdom Fragment"]
-    },
+# bot/grokdex.py
+# Unified GrokDex powered by the 25-mob master database.
 
-    "DoomHopper": {
-        "name": "DoomHopper",
-        "rarity": "Rare",
-        "type": "Abyssal Hopper",
-        "description":
-            "Forged in the Rugnarok depths, DoomHopper leaps through shadows "
-            "with destructive hop-energy.",
-        "weakness": "Light",
-        "strength": "Burst damage",
-        "portrait": "assets/mobs/doomhopper.png",
-        "combat_power": 3,
-        "drops": ["+XP", "Hopium Core"]
-    },
+from bot.mobs import MOBS, TIERS
 
-    "BearOgre": {
-        "name": "Bear Ogre",
-        "rarity": "Epic",
-        "type": "Market Titan",
-        "description":
-            "A colossal brute that awakens whenever markets turn red. "
-            "Every growl sends prices down 3%.",
-        "weakness": "Bullish Sentiment",
-        "strength": "Tanky HP",
-        "portrait": "assets/mobs/bearogre.png",
-        "combat_power": 4,
-        "drops": ["+XP", "Bull Talisman"]
-    },
+def get_grokdex_list():
+    """
+    Returns a dictionary grouped by tier:
+    {
+        1: [mob1, mob2, ...],
+        2: [...],
+        ...
+    }
+    """
+    grouped = {tier: [] for tier in TIERS.keys()}
+    for mob_key, mob in MOBS.items():
+        tier = mob.get("tier", 1)
+        grouped[tier].append(mob)
+    return grouped
 
-    "HopGoblin": {
-        "name": "HopGoblin",
-        "rarity": "Uncommon",
-        "type": "Chaotic Hopper",
-        "description":
-            "A mischievous creature that channels raw hop-energy. "
-            "Often found causing trouble in liquidity pools.",
-        "weakness": "Calmness",
-        "strength": "Fast attacks",
-        "portrait": "assets/mobs/hopgoblin.png",
-        "combat_power": 2,
-        "drops": ["+XP", "Goblin Tongue"]
-    },
+def search_mob(name: str):
+    """Case-insensitive lookup by mob name or key."""
+    if not name:
+        return None
+    name = name.strip().lower()
 
-    "FomoBeast": {
-        "name": "FomoBeast",
-        "rarity": "Legendary",
-        "type": "Parabolic Entity",
-        "description":
-            "Born from sudden hype spikes. It grows stronger with every green candle "
-            "and charges straight at late buyers.",
-        "weakness": "Patience",
-        "strength": "Explosive growth",
-        "portrait": "assets/mobs/fomobeast.png",
-        "combat_power": 5,
-        "drops": ["+XP", "FOMO Heart"]
-    },
-}
-
+    for key, mob in MOBS.items():
+        if key.lower() == name or mob["name"].lower() == name:
+            return mob
+    return None
