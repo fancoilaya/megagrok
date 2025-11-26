@@ -257,47 +257,4 @@ def register_handlers(bot: TeleBot):
         except Exception as e:
             bot.reply_to(message, f"Error generating leaderboard: {e}")
 
-    # ---------------- GROKDEX ----------------
-    @bot.message_handler(commands=['grokdex'])
-    def grokdex_cmd(message):
-        text = "📘 *MEGAGROK DEX — Known Creatures*\n\n"
-        for key, mob in GROKDEX.items():
-            text += f"• *{mob['name']}* — {mob['rarity']}\n"
-        text += "\nUse `/mob <name>` for details."
-        bot.reply_to(message, text, parse_mode="Markdown")
 
-    # ---------------- MOB INFO ----------------
-    @bot.message_handler(commands=['mob'])
-    def mob_info(message):
-        try:
-            name = message.text.split(" ", 1)[1].strip()
-        except Exception:
-            bot.reply_to(message, "Usage: `/mob FUDling`", parse_mode="Markdown")
-            return
-
-        if name not in GROKDEX:
-            bot.reply_to(message, "❌ Creature not found.")
-            return
-
-        mob = GROKDEX[name]
-
-        txt = (
-            f"📘 *{mob['name']}*\n"
-            f"⭐ Rarity: *{mob['rarity']}*\n"
-            f"🎭 Type: {mob.get('type','?')}\n"
-            f"💥 Power: {mob.get('combat_power','?')}\n\n"
-            f"📜 {mob.get('description','No description.')}\n\n"
-            f"⚔️ Strength: {mob.get('strength','?')}\n"
-            f"🛡 Weakness: {mob.get('weakness','?')}\n"
-            f"🎁 Drops: {', '.join(mob.get('drops',[]))}"
-        )
-
-        try:
-            portrait = mob.get("portrait")
-            if portrait and os.path.exists(portrait):
-                with open(portrait, "rb") as f:
-                    bot.send_photo(message.chat.id, f, caption=txt, parse_mode="Markdown")
-            else:
-                bot.reply_to(message, txt, parse_mode="Markdown")
-        except Exception:
-            bot.reply_to(message, txt, parse_mode="Markdown")
