@@ -18,15 +18,14 @@ ACTION_DODGE = "dodge"
 ACTION_CHARGE = "charge"
 
 # ============================================================
-# SESSION FILE (Render-compatible writable path!)
+# SESSION FILE (Render Worker Compatible: /tmp)
 # ============================================================
-# OLD (BROKEN ON RENDER): "data/battle_sessions.json"
-# NEW (WORKING): "/data/battle_sessions.json"
-_SESSIONS_FILE = "/data/battle_sessions.json"
+# Render workers ALWAYS allow writing to /tmp
+_SESSIONS_FILE = "/tmp/battle_sessions.json"
 
 
 # ============================================================
-# SAFE LOAD / SAVE (AUTO-CREATE /data)
+# SAFE LOAD / SAVE (AUTO-CREATE /tmp)
 # ============================================================
 
 def _safe_load_sessions() -> Dict[str, Any]:
@@ -41,8 +40,8 @@ def _safe_load_sessions() -> Dict[str, Any]:
 
 def _safe_save_sessions(sessions: Dict[str, Any]) -> None:
     try:
-        # Ensure directory exists (important for Render!)
-        os.makedirs("/data", exist_ok=True)
+        # Ensure directory exists
+        os.makedirs("/tmp", exist_ok=True)
 
         with open(_SESSIONS_FILE, "w") as f:
             json.dump(sessions, f, indent=2)
@@ -175,7 +174,6 @@ class FightSession:
             base *= 2
             crit = True
 
-        # Randomize ±30%
         low = max(1, int(base * 0.7))
         high = max(low, int(base * 1.3))
         dmg = random.randint(low, high)
@@ -191,13 +189,12 @@ class FightSession:
 
         p_name = self.player.get("username", "You")
         m_name = self.mob.get("name", "Mob")
+
         self.last_action_by_user = action
 
         # ----- PLAYER TURN -----
         if action == ACTION_ATTACK:
             dmg, crit = self._calc_base_damage(self.player, self.mob)
-
-            # mob dodge
             if self._random_check(self.mob.get("dodge_chance", 0.01)):
                 self._append_event(FightEvent(self.turn, p_name, action, m_name,
                                               damage=0, dodged=True,
@@ -216,21 +213,18 @@ class FightSession:
 
         elif action == ACTION_BLOCK:
             self._append_event(FightEvent(self.turn, p_name, ACTION_BLOCK, m_name,
-                                          damage=0, actor_hp=self.player_hp,
-                                          target_hp=self.mob_hp))
+                                          actor_hp=self.player_hp, target_hp=self.mob_hp))
 
         elif action == ACTION_DODGE:
             self._append_event(FightEvent(self.turn, p_name, ACTION_DODGE, m_name,
-                                          damage=0, actor_hp=self.player_hp,
-                                          target_hp=self.mob_hp))
+                                          actor_hp=self.player_hp, target_hp=self.mob_hp))
 
         elif action == ACTION_CHARGE:
             bonus = int(self.player.get("attack", 10) * 0.5)
             self.player["_charge_bonus"] = self.player.get("_charge_bonus", 0) + bonus
 
             self._append_event(FightEvent(self.turn, p_name, ACTION_CHARGE, m_name,
-                                          damage=0, actor_hp=self.player_hp,
-                                          target_hp=self.mob_hp))
+                                          actor_hp=self.player_hp, target_hp=self.mob_hp))
 
         # Player killed mob?
         if self.mob_hp <= 0:
@@ -244,16 +238,13 @@ class FightSession:
 
         base = int(max(1, round(mob_attack - mob_defense * 0.5)))
 
-        # Mob damage ±30%
         low = max(1, int(base * 0.7))
         high = max(low, int(base * 1.3))
         mob_dmg = random.randint(low, high)
 
-        # apply block reduce
         if action == ACTION_BLOCK:
             mob_dmg = int(mob_dmg * 0.4)
 
-        # dodge check
         if action == ACTION_DODGE:
             if self._random_check(self.player.get("dodge_chance", 0.25)):
                 self._append_event(FightEvent(self.turn, m_name, "attack", p_name,
@@ -263,7 +254,6 @@ class FightSession:
                 self.turn += 1
                 return {}
 
-        # apply mob damage
         self.player_hp = max(0, self.player_hp - mob_dmg)
 
         self._append_event(FightEvent(self.turn, m_name, "attack", p_name,
@@ -305,15 +295,12 @@ class FightSession:
         mob_hp = self.mob_hp
         p_max = int(self.player.get("current_hp", self.player.get("hp", 100)))
 
-        # Mob nearly dead → finish
         if mob_hp <= int(self.player.get("attack", 10) * 1.4):
             act = ACTION_ATTACK
 
-        # Very low HP → dodge/block
         elif player_hp <= int(p_max * 0.20):
             act = ACTION_DODGE if random.random() < 0.6 else ACTION_BLOCK
 
-        # Moderately low → mix
         elif player_hp <= int(p_max * 0.35):
             r = random.random()
             if r < 0.45:
@@ -323,11 +310,9 @@ class FightSession:
             else:
                 act = ACTION_ATTACK
 
-        # Mob very healthy → charge sometimes
         elif mob_hp >= int(p_max * 0.70):
             act = ACTION_CHARGE if random.random() < 0.50 else ACTION_ATTACK
 
-        # Normal mid fight
         else:
             r = random.random()
             if r < 0.70:
@@ -375,7 +360,7 @@ class SessionManager:
         return list(self._sessions.keys())
 
 
-# global manager
+# global session manager
 manager = SessionManager()
 
 
