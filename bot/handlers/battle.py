@@ -8,7 +8,7 @@ from telebot import types
 from telebot import TeleBot
 
 from services import fight_session
-from bot.mobs import MOBS
+from bot.mobs import get_random_mob
 from bot.db import (
     get_user,
     update_user_xp,
@@ -55,7 +55,10 @@ def _build_action_keyboard(session: fight_session.FightSession):
 
 
 def _hp_bar_with_numbers(current, maximum, width=18):
-    pct = max(0, min(1, current / maximum))
+    try:
+        pct = max(0, min(1, float(current) / float(maximum)))
+    except Exception:
+        pct = 0
     fill = int(pct * width)
     bar = "▓" * fill + "░" * (width - fill)
     return f"{bar} {current} / {maximum}"
@@ -83,7 +86,7 @@ def _build_caption(session: fight_session.FightSession):
 def _get_user_cooldowns(uid: int) -> dict:
     try:
         db._add_column_if_missing("cooldowns", "TEXT")
-    except:
+    except Exception:
         pass
 
     try:
@@ -91,7 +94,7 @@ def _get_user_cooldowns(uid: int) -> dict:
         row = db.cursor.fetchone()
         if row and row[0]:
             return json.loads(row[0])
-    except:
+    except Exception:
         pass
 
     return {}
@@ -102,7 +105,7 @@ def _set_user_cooldowns(uid: int, cooldowns: dict):
         payload = json.dumps(cooldowns)
         db.cursor.execute("UPDATE users SET cooldowns=? WHERE user_id=?", (payload, uid))
         db.conn.commit()
-    except:
+    except Exception:
         pass
 
 
@@ -118,17 +121,18 @@ def _refresh_ui(bot: TeleBot, sess: fight_session.FightSession, chat_id: int):
 
     uid = sess.user_id
 
-    # 1) DELETE OLD MESSAGE
+    # 1) DELETE OLD MESSAGE (if present)
     try:
         store = fight_session.manager._sessions.get(str(uid), {})
         last_meta = store.get("_last_sent_message", {})
+        old_chat = last_meta.get("chat_id")
         old_msg = last_meta.get("message_id")
-        if old_msg:
+        if old_chat and old_msg:
             try:
-                bot.delete_message(chat_id, old_msg)
-            except:
+                bot.delete_message(old_chat, old_msg)
+            except Exception:
                 pass
-    except:
+    except Exception:
         pass
 
     # 2) SEND NEW UI
@@ -151,6 +155,7 @@ def _refresh_ui(bot: TeleBot, sess: fight_session.FightSession, chat_id: int):
         "message_id": new_msg.message_id
     }
 
+    # update in-memory store and persist
     fight_session.manager._sessions[str(uid)] = sess_dict
     fight_session.manager.save_session(sess)
 
@@ -179,7 +184,12 @@ def setup(bot: TeleBot):
 
         # Build player + mob
         user = get_user(user_id)
-        mob = random.choice(MOBS)
+
+        # Use unified mob getter (returns a full mob dict)
+        mob = get_random_mob()
+        if not mob:
+            bot.reply_to(message, "⚠️ No mobs available.")
+            return
 
         username = (message.from_user.username and f"@{message.from_user.username}") or f"User{user_id}"
 
@@ -191,8 +201,11 @@ def setup(bot: TeleBot):
         # Play intro
         try:
             safe_send_gif(bot, message.chat.id, GIF_INTRO)
-        except:
-            bot.send_message(message.chat.id, "⚔️ The battle begins!")
+        except Exception:
+            try:
+                bot.send_message(message.chat.id, "⚔️ The battle begins!")
+            except Exception:
+                pass
 
         sess = fight_session.manager.create_session(user_id, player_stats, mob_stats)
 
@@ -204,8 +217,17 @@ def setup(bot: TeleBot):
     @bot.callback_query_handler(func=lambda c: c.data and c.data.startswith("battle:"))
     def battle_callback(call: types.CallbackQuery):
         parts = call.data.split(":")
+        # expected format: battle:act:<action>:<owner>
+        if len(parts) < 4:
+            bot.answer_callback_query(call.id, "Malformed callback.", show_alert=True)
+            return
+
         _, _, action, owner = parts[:4]
-        owner = int(owner)
+        try:
+            owner = int(owner)
+        except Exception:
+            bot.answer_callback_query(call.id, "Invalid owner ID.", show_alert=True)
+            return
 
         if call.from_user.id != owner:
             bot.answer_callback_query(call.id, "Not your battle!", show_alert=True)
@@ -239,6 +261,7 @@ def setup(bot: TeleBot):
             bot.answer_callback_query(call.id, "Auto toggled.")
 
             if sess.auto_mode:
+                # run a single auto turn immediately
                 sess.resolve_auto_turn()
                 fight_session.manager.save_session(sess)
 
@@ -261,8 +284,15 @@ def setup(bot: TeleBot):
             bot.answer_callback_query(call.id, "Invalid action.")
             return
 
-        sess.resolve_player_action(ACTIONS[action])
-        fight_session.manager.save_session(sess)
+        # resolve the player action
+        try:
+            sess.resolve_player_action(ACTIONS[action])
+            fight_session.manager.save_session(sess)
+        except Exception as e:
+            # defensive: report and abort gracefully
+            fight_session.manager.save_session(sess)
+            bot.answer_callback_query(call.id, f"Action failed: {e}", show_alert=True)
+            return
 
         _refresh_ui(bot, sess, chat_id)
         bot.answer_callback_query(call.id, "Action performed")
@@ -320,8 +350,11 @@ def _finalize(bot: TeleBot, sess: fight_session.FightSession, chat_id: int):
         old_chat = last.get("chat_id")
         old_msg = last.get("message_id")
         if old_chat and old_msg:
-            bot.delete_message(old_chat, old_msg)
-    except:
+            try:
+                bot.delete_message(old_chat, old_msg)
+            except Exception:
+                pass
+    except Exception:
         pass
 
     # FINAL GIF
@@ -330,7 +363,7 @@ def _finalize(bot: TeleBot, sess: fight_session.FightSession, chat_id: int):
             safe_send_gif(bot, chat_id, GIF_VICTORY)
         elif sess.winner == "mob" and os.path.exists(GIF_DEFEAT):
             safe_send_gif(bot, chat_id, GIF_DEFEAT)
-    except:
+    except Exception:
         pass
 
     # SUMMARY
