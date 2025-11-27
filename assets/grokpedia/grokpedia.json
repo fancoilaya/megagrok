@@ -1,0 +1,182 @@
+{
+  "categories": [
+    "megagrok",
+    "villains",
+    "grokcity",
+    "artifacts",
+    "physics",
+    "community",
+    "mysteries",
+    "events"
+  ],
+  "facts": [
+
+    /* ======================================================
+       MEGAGROK (100–115)
+       ====================================================== */
+
+    { "id": 101, "category": "megagrok", "title": "First Punch", "text": "MegaGrok’s first punch broke a sandwich. The second broke the universe’s respect for gravity." },
+    { "id": 102, "category": "megagrok", "title": "Sleep Style", "text": "Contrary to rumors, MegaGrok sleeps — he just does it standing up and glowing quietly." },
+    { "id": 103, "category": "megagrok", "text": "MegaGrok once ran so fast he arrived before the starting signal and complained about the wait." },
+    { "id": 104, "category": "megagrok", "text": "As a kid, MegaGrok won a duel by drawing a smiley face on the opponent’s sword." },
+    { "id": 105, "category": "megagrok", "text": "MegaGrok’s sneakers are listed on the national registry of improbable footwear." },
+    { "id": 106, "category": "megagrok", "text": "He maintains a minor rivalry with a squirrel named Bolt. Score remains tied." },
+    { "id": 107, "category": "megagrok", "text": "MegaGrok dislikes low battery warnings on highly spiritual days." },
+    { "id": 108, "category": "megagrok", "text": "When MegaGrok sneezes, nearby clocks skip two seconds to regain composure." },
+    { "id": 109, "category": "megagrok", "text": "MegaGrok once attempted a 7-day meditation. Meditation left after 5." },
+    { "id": 110, "category": "megagrok", "text": "His emergency plan includes coffee, a poem, and one dramatically timed ear-flap." },
+    { "id": 111, "category": "megagrok", "text": "He owns a sock containing three parallel universes and one lost coin." },
+    { "id": 112, "category": "megagrok", "text": "MegaGrok’s shadow has its own loyal fan club." },
+    { "id": 113, "category": "megagrok", "text": "Rumors claim MegaGrok once beat time at chess. Investigations ongoing." },
+    { "id": 114, "category": "megagrok", "text": "His alias in the Subtle League is ‘Slightly Unreasonable Guardian’." },
+    { "id": 115, "category": "megagrok", "text": "MegaGrok learned to whistle from a gust of wind that later ran for mayor." },
+
+
+    /* ======================================================
+       VILLAINS (200–215)
+       ====================================================== */
+
+    { "id": 201, "category": "villains", "text": "Dr. FUD’s ultimate technique is a 30-minute speech that dissolves confidence." },
+    { "id": 202, "category": "villains", "text": "The Rogue Algorithm declines friend requests from anyone wearing loafers." },
+    { "id": 203, "category": "villains", "text": "ShadowGrok isn’t evil — he’s just allergic to smalltalk." },
+    { "id": 204, "category": "villains", "text": "The Taxidermist of Time collects deadlines in glass jars labeled with sighs." },
+    { "id": 205, "category": "villains", "text": "Mrs. Bureaucracy demands forms for feelings and charges in stamps." },
+    { "id": 206, "category": "villains", "text": "Captain Lag’s superpower is entering slow-motion monologues mid-battle." },
+    { "id": 207, "category": "villains", "text": "The Meme Siren lures developers into endless threads of irony." },
+    { "id": 208, "category": "villains", "text": "The Phantom Cookie can erase your best strategies with a single crumb." },
+    { "id": 209, "category": "villains", "text": "Baron Buffer holds souls hostage until someone reloads." },
+    { "id": 210, "category": "villains", "text": "The Null Auditor eats receipts for breakfast and dreams in red tape." },
+    { "id": 211, "category": "villains", "text": "Lady Overdraft steals points by inventing ‘optional fees’." },
+    { "id": 212, "category": "villains", "text": "The Whisperer can make passwords forget themselves." },
+    { "id": 213, "category": "villains", "text": "Professor Untagged designs puzzles that can only be solved if ignored." },
+    { "id": 214, "category": "villains", "text": "The Spam King commands an army of motivational PDFs." },
+    { "id": 215, "category": "villains", "text": "Heistmaster Zero plans robberies but forgets that loot can be metaphysical." },
+
+
+    /* ======================================================
+       GROKCITY (300–315)
+       ====================================================== */
+
+    { "id": 301, "category": "grokcity", "text": "GrokCity’s subway has four lines, two timelines, and one train refusing to stop since 1998." },
+    { "id": 302, "category": "grokcity", "text": "The Celestial District has no crime — trouble is too polite to occur there." },
+    { "id": 303, "category": "grokcity", "text": "The Pothole of Destiny leads to another dimension. Parking here grants prophecy." },
+    { "id": 304, "category": "grokcity", "text": "A taco stand sells Truth Tacos every Tuesday. Side effects: clarity." },
+    { "id": 305, "category": "grokcity", "text": "Neon gulls in Harbor Sector accept shiny offerings and deliver gossip." },
+    { "id": 306, "category": "grokcity", "text": "The Library of Maybe lends books that return with alternate endings." },
+    { "id": 307, "category": "grokcity", "text": "GrokCity’s mayor is a highly organized rock. Re-election pending." },
+    { "id": 308, "category": "grokcity", "text": "The Clocktower chimes in languages currently trending on X." },
+    { "id": 309, "category": "grokcity", "text": "Every midnight, lampposts share stories about the sunset." },
+    { "id": 310, "category": "grokcity", "text": "The Market of Slightly Broken Things sells maps that forget themselves." },
+    { "id": 311, "category": "grokcity", "text": "An alley returns whatever you whisper into it—except secrets." },
+    { "id": 312, "category": "grokcity", "text": "GrokCity weather is negotiable if you tell a compelling joke." },
+    { "id": 313, "category": "grokcity", "text": "The Glass Gardens bloom only when someone recalls a childhood promise." },
+    { "id": 314, "category": "grokcity", "text": "A bench plaque reads: ‘Reserved for someone about to change a mind.’" },
+    { "id": 315, "category": "grokcity", "text": "The Signpost of Decisions points to ‘Maybe’ more often than ‘Here’." },
+
+
+    /* ======================================================
+       ARTIFACTS (400–415)
+       ====================================================== */
+
+    { "id": 401, "category": "artifacts", "text": "The Nebula Nunchucks activate only for the brave and extremely confused." },
+    { "id": 402, "category": "artifacts", "text": "Cosmic Coffee injects exactly the right amount of destiny into your morning." },
+    { "id": 403, "category": "artifacts", "text": "The Quantum Wallet always knows when you are about to buy the top." },
+    { "id": 404, "category": "artifacts", "text": "A Pocket of Pause lets you freeze one awkward moment—single use." },
+    { "id": 405, "category": "artifacts", "text": "The Mirror of Maybe shows who you’d be if you remembered small acts." },
+    { "id": 406, "category": "artifacts", "text": "The Lightbulb of Ideas flickers in sympathy with brainstorms." },
+    { "id": 407, "category": "artifacts", "text": "The Worn Map rewrites itself whenever you take a different path." },
+    { "id": 408, "category": "artifacts", "text": "The Compass of Compliments always points to someone who needs one." },
+    { "id": 409, "category": "artifacts", "text": "A Bottle of Tomorrow contains forecasts in tiny origami clouds." },
+    { "id": 410, "category": "artifacts", "text": "The Paperweight of Persistence keeps good ideas from floating away." },
+    { "id": 411, "category": "artifacts", "text": "The Giga-Key opens doors only if you promise to tell a joke when leaving." },
+    { "id": 412, "category": "artifacts", "text": "A Continuity Sock can repair the ending of a short story." },
+    { "id": 413, "category": "artifacts", "text": "Chrono-Chalk draws timelines you can step across—at the cost of memories." },
+    { "id": 414, "category": "artifacts", "text": "The Silent Bell rings for things people haven’t said yet." },
+    { "id": 415, "category": "artifacts", "text": "The Pen of Slight Exaggeration makes every sentence 6% more heroic." },
+
+
+    /* ======================================================
+       PHYSICS (500–515)
+       ====================================================== */
+
+    { "id": 501, "category": "physics", "text": "In Grok-space, gravity is optional before 8 a.m." },
+    { "id": 502, "category": "physics", "text": "Time slows near MegaGrok because it tries to look busy." },
+    { "id": 503, "category": "physics", "text": "Light avoids disappointing MegaGrok; shadows remain dramatic." },
+    { "id": 504, "category": "physics", "text": "Sound can be traded for old jokes in certain districts." },
+    { "id": 505, "category": "physics", "text": "Probability here is more of a suggestion than a rule." },
+    { "id": 506, "category": "physics", "text": "Mirrors may return alternative outcomes if stared at cross-eyed." },
+    { "id": 507, "category": "physics", "text": "The speed limit for ideas is officially ‘eventually.’" },
+    { "id": 508, "category": "physics", "text": "Entropy takes coffee breaks; sudden organization may result." },
+    { "id": 509, "category": "physics", "text": "Constellations update their status when people clap in unison." },
+    { "id": 510, "category": "physics", "text": "Maps are honest only if you promise to get lost sometimes." },
+    { "id": 511, "category": "physics", "text": "Colors complain when overused and demand variety." },
+    { "id": 512, "category": "physics", "text": "Numbers swap places if written in the dark." },
+    { "id": 513, "category": "physics", "text": "Heat escalates small situations purely for dramatic effect." },
+    { "id": 514, "category": "physics", "text": "Echoes can hold grudges for up to three days." },
+    { "id": 515, "category": "physics", "text": "A whispered promise to a stone will be kept until it grows tired." },
+
+
+    /* ======================================================
+       COMMUNITY (600–615)
+       ====================================================== */
+
+    { "id": 601, "category": "community", "text": "The average holder can lift 1.3× more optimism than a normal human." },
+    { "id": 602, "category": "community", "text": "Every time someone says ‘wen’, a villain grows 0.0001% stronger." },
+    { "id": 603, "category": "community", "text": "Chat activity spikes 12% when MegaGrok sneezes somewhere in the multiverse." },
+    { "id": 604, "category": "community", "text": "The ‘First Message of the Day’ badge grants temporary confidence." },
+    { "id": 605, "category": "community", "text": "Sending a thank-you emoji increases regional kindness output." },
+    { "id": 606, "category": "community", "text": "Myth says: two users who post the same meme are spiritually linked." },
+    { "id": 607, "category": "community", "text": "Helping a newcomer increases global warmth by 0.4%." },
+    { "id": 608, "category": "community", "text": "Lurkers are believed to be writing fanfiction about the dev team." },
+    { "id": 609, "category": "community", "text": "Collective laughter is the only renewable resource in GrokCity." },
+    { "id": 610, "category": "community", "text": "Voting in polls generates karma in unknown locations." },
+    { "id": 611, "category": "community", "text": "The Night Owl badge glows faintly if used with pride." },
+    { "id": 612, "category": "community", "text": "Helping newbies improves the Market of Slightly Broken Things." },
+    { "id": 613, "category": "community", "text": "Chat streaks summon tiny, invisible fireworks." },
+    { "id": 614, "category": "community", "text": "Hosting memes may grant protection from the Meme Siren." },
+    { "id": 615, "category": "community", "text": "If three users type ‘GROK’ within one minute, a legend is born." },
+
+
+    /* ======================================================
+       MYSTERIES (700–715)
+       ====================================================== */
+
+    { "id": 701, "category": "mysteries", "text": "No one knows who built the GrokGate — but the gate definitely knows you." },
+    { "id": 702, "category": "mysteries", "text": "Rumors tell of a MegaGrok variant made entirely of Wi-Fi." },
+    { "id": 703, "category": "mysteries", "text": "Every 7th Tuesday, a glowing figure appears and whispers ‘update when’." },
+    { "id": 704, "category": "mysteries", "text": "An invisible library holds books you wrote in other lives." },
+    { "id": 705, "category": "mysteries", "text": "A vanished district appears only to people with honest pockets." },
+    { "id": 706, "category": "mysteries", "text": "Some claim the mayor-rock moves slightly when unobserved." },
+    { "id": 707, "category": "mysteries", "text": "A subterranean song grants memory in exchange for something forgotten." },
+    { "id": 708, "category": "mysteries", "text": "A small constellation spells out usernames on certain nights." },
+    { "id": 709, "category": "mysteries", "text": "An unsent letter in the world mailbox is addressed ‘To Tomorrow’." },
+    { "id": 710, "category": "mysteries", "text": "A park statue is rumored to blink occasionally." },
+    { "id": 711, "category": "mysteries", "text": "The old clockmaker was last seen turning time to face east." },
+    { "id": 712, "category": "mysteries", "text": "A midnight radiowave collects forgotten jokes." },
+    { "id": 713, "category": "mysteries", "text": "A mysterious address delivers items to ‘whoever needs this.’" },
+    { "id": 714, "category": "mysteries", "text": "Lost pets sometimes return as faint constellations." },
+    { "id": 715, "category": "mysteries", "text": "Coins tossed into the Fountain of Maybe echo advice from your future self." },
+
+
+    /* ======================================================
+       EVENTS (800–815)
+       ====================================================== */
+
+    { "id": 801, "category": "events", "text": "Festival of Slightly Bright Ideas: mismatched hats and graffiti-filed patents." },
+    { "id": 802, "category": "events", "text": "Raid of the Midnight Snack: citizens defend a bakery from phantom hunger." },
+    { "id": 803, "category": "events", "text": "The Parade of Minor Triumphs celebrates trivial victories with confetti." },
+    { "id": 804, "category": "events", "text": "The Night of Soft Questions yields quieter inquiries and better answers." },
+    { "id": 805, "category": "events", "text": "The Eclipse Market appears when enough people agree to be pleasantly surprised." },
+    { "id": 806, "category": "events", "text": "The Day of Returned Calls encourages answering old messages." },
+    { "id": 807, "category": "events", "text": "Lanterns of Maybe drift messages to those who need them most." },
+    { "id": 808, "category": "events", "text": "The Great Meme Exchange happens seasonally and is surprisingly polite." },
+    { "id": 809, "category": "events", "text": "The Hour of Novelty resets all clocks and permits new hobbies guilt-free." },
+    { "id": 810, "category": "events", "text": "The Quiet Parade moves slowly so people can finish their thoughts." },
+    { "id": 811, "category": "events", "text": "The Breakfast of Champions serves toast with mild prophecy." },
+    { "id": 812, "category": "events", "text": "The Trial of Lost Notifications judges all forgotten pings fairly." },
+    { "id": 813, "category": "events", "text": "The Moonlight Bazaar sells bottled starlight as souvenirs." },
+    { "id": 814, "category": "events", "text": "The Week of Small Wins asks citizens to share one tiny victory per day." },
+    { "id": 815, "category": "events", "text": "The Return of Forgotten Passwords involves chanting and mild panic." }
+
+  ]
+}
