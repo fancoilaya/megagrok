@@ -52,7 +52,7 @@ def _kb_mobs_for_tier(tier):
         if not mob_key:
             continue
         safe_key = urllib.parse.quote_plus(mob_key)
-        kb.add(types.InlineKeyboardButton(f"View {mob['name']}", callback_data=f"{CB_PREFIX_MOB}{safe_key}"))
+        kb.add(types.InlineKeyboardButton(mob['name'], callback_data=f"{CB_PREFIX_MOB}{safe_key}"))
 
     # Back button to main tiers
     kb.add(types.InlineKeyboardButton("⬅ Back", callback_data=f"{CB_PREFIX_BACK}main"))
