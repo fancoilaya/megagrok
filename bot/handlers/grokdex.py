@@ -1,6 +1,6 @@
 # bot/handlers/grokdex.py
-# Interactive GrokDex UI (single-message window)
-# Tier → Mob List → Poster → Back (all inside same message)
+# Interactive GrokDex UI — single-message navigation
+# Tier → Mob List → Poster → Back
 
 import os
 import urllib.parse
@@ -19,9 +19,9 @@ CB_PREFIX_MOB = "grokdex:mob:"
 CB_PREFIX_BACK = "grokdex:back:"
 
 
-# ================
-# KEYBOARD BUILDERS
-# ================
+# ---------------------------------------------------------
+# KEYBOARDS
+# ---------------------------------------------------------
 
 def _kb_tier_selection():
     kb = types.InlineKeyboardMarkup(row_width=2)
@@ -31,7 +31,7 @@ def _kb_tier_selection():
 
 
 def _kb_mobs_for_tier(tier):
-    kb = types.InlineKeyboardMarkup(row_width=1)
+    kb = types.InlineKeyboardMarkup(row_width=2)
 
     try:
         tier = int(tier)
@@ -47,6 +47,7 @@ def _kb_mobs_for_tier(tier):
             if v.get("name", "").lower() == mob.get("name", "").lower():
                 mob_key = k
                 break
+
         if not mob_key:
             continue
 
@@ -66,9 +67,10 @@ def _kb_back_from_mob(tier):
     return kb
 
 
-# =================
-# MAIN SETUP
-# =================
+# ---------------------------------------------------------
+# MAIN SETUP FUNCTION FOR HANDLER LOADING
+# ---------------------------------------------------------
+
 def setup(bot: TeleBot):
 
     # /grokdex entry point
@@ -81,14 +83,14 @@ def setup(bot: TeleBot):
             reply_markup=_kb_tier_selection()
         )
 
-    # Callback handler
+    # --- Callback UI routing ---
     @bot.callback_query_handler(func=lambda c: c.data and c.data.startswith("grokdex:"))
     def grokdex_callback(call: types.CallbackQuery):
         data = call.data
 
-        # ============
+        # -------------------------------------------------
         # SELECT TIER
-        # ============
+        # -------------------------------------------------
         if data.startswith(CB_PREFIX_TIER):
             try:
                 _, _, tier_str = data.split(":", 2)
@@ -105,7 +107,6 @@ def setup(bot: TeleBot):
                 text += f"• *{mob.get('name', '?')}*\n"
             text += "\nSelect a creature:"
 
-            # Replace message with tier list
             try:
                 call.message.edit_text(
                     text,
@@ -113,14 +114,19 @@ def setup(bot: TeleBot):
                     reply_markup=_kb_mobs_for_tier(tier)
                 )
             except:
-                bot.send_message(call.message.chat.id, text, parse_mode="Markdown", reply_markup=_kb_mobs_for_tier(tier))
+                bot.send_message(
+                    call.message.chat.id,
+                    text,
+                    parse_mode="Markdown",
+                    reply_markup=_kb_mobs_for_tier(tier)
+                )
 
             bot.answer_callback_query(call.id)
             return
 
-        # ============
+        # -------------------------------------------------
         # SELECT MOB
-        # ============
+        # -------------------------------------------------
         if data.startswith(CB_PREFIX_MOB):
             try:
                 _, _, encoded = data.split(":", 2)
@@ -143,33 +149,30 @@ def setup(bot: TeleBot):
                 "Tap image to view full."
             )
 
-            # Try to replace the current message with the poster
+            # Replace current message with poster
             try:
                 from telebot.types import InputMediaPhoto
                 with open(portrait, "rb") as f:
                     media = InputMediaPhoto(f, caption=caption, parse_mode="Markdown")
-
-                    # Replace message media
                     bot.edit_message_media(
                         media=media,
                         chat_id=call.message.chat.id,
-                        message_id=call.message.message_id
+                        message_id=call.message.message_id,
                     )
 
-                # Replace caption + keyboard
                 bot.edit_message_caption(
                     caption=caption,
                     chat_id=call.message.chat.id,
                     message_id=call.message.message_id,
                     parse_mode="Markdown",
-                    reply_markup=_kb_back_from_mob(mob.get("tier", 1))
+                    reply_markup=_kb_back_from_mob(mob.get("tier", 1)),
                 )
 
                 bot.answer_callback_query(call.id)
                 return
 
-            except Exception as e:
-                # Fallback: send it as a new message
+            except Exception:
+                # If editing fails, fallback to sending a new message
                 try:
                     with open(portrait, "rb") as f:
                         bot.send_photo(
@@ -184,7 +187,7 @@ def setup(bot: TeleBot):
                 except:
                     pass
 
-            # Final fallback: text
+            # Final fallback (text only)
             bot.send_message(
                 call.message.chat.id,
                 caption,
@@ -194,9 +197,9 @@ def setup(bot: TeleBot):
             bot.answer_callback_query(call.id)
             return
 
-        # ============
+        # -------------------------------------------------
         # BACK BUTTONS
-        # ============
+        # -------------------------------------------------
         if data.startswith(CB_PREFIX_BACK):
             try:
                 _, _, what = data.split(":", 2)
@@ -211,7 +214,12 @@ def setup(bot: TeleBot):
                         reply_markup=_kb_tier_selection()
                     )
                 except:
-                    bot.send_message(call.message.chat.id, TITLE, parse_mode="Markdown", reply_markup=_kb_tier_selection())
+                    bot.send_message(
+                        call.message.chat.id,
+                        TITLE,
+                        parse_mode="Markdown",
+                        reply_markup=_kb_tier_selection()
+                    )
 
                 bot.answer_callback_query(call.id)
                 return
