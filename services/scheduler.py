@@ -22,7 +22,7 @@ from services import grokpedia_service
 
 
 # How often to post a new Grokpedia fact (in seconds)
-POST_INTERVAL = 3 * 60 * 60   # 3 hours
+POST_INTERVAL = 1 * 15 * 60   # 3 hours
 
 
 def _poster_loop(bot, channel_id: str):
