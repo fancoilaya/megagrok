@@ -9,6 +9,7 @@
 # - safe fallback loaders
 # - stable polling loop for worker mode
 # - automatic cleanup of battle_sessions.json
+# - GROKPEDIA 3-hour auto-poster (NEW)
 
 import os
 import sys
@@ -23,8 +24,9 @@ from pathlib import Path
 
 from telebot import TeleBot, apihelper
 
+
 # ==============================================
-# Load API Token (NOW SUPPORTS MULTIPLE ENV NAMES)
+# Load API Token (supports multiple env names)
 # ==============================================
 TOKEN = (
     os.getenv("Telegram_token") or
@@ -40,8 +42,9 @@ print(f"BOOT: PID={os.getpid()} TOKEN_PREFIX={TOKEN[:8]}…")
 
 bot = TeleBot(TOKEN)
 
+
 # ==============================================
-# Heartbeat (helpful for Render logs)
+# Heartbeat (helps Render logs)
 # ==============================================
 def heartbeat():
     while True:
@@ -49,6 +52,7 @@ def heartbeat():
         time.sleep(60)
 
 threading.Thread(target=heartbeat, daemon=True).start()
+
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 if ROOT_DIR not in sys.path:
@@ -218,6 +222,17 @@ def load_modular_handlers():
                 print(f"❌ Failed loading handler: {file_path}: {e2}")
 
 load_modular_handlers()
+
+
+# ==============================================
+# ⏰ GROKPEDIA: Start 3-hour Auto-Poster (NEW)
+# ==============================================
+try:
+    from services import scheduler
+    scheduler.start_grokpedia_autopost(bot)
+    print("✔ Grokpedia scheduler initialized.")
+except Exception as e:
+    print("⚠ Failed to start Grokpedia scheduler:", e)
 
 
 # ==============================================
