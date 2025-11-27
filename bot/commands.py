@@ -14,10 +14,10 @@ from bot.db import (
     increment_ritual,
     get_top_users
 )
+
 from bot.images import generate_profile_image, generate_leaderboard_image
-from bot.mobs import MOBS
+from bot.mobs import get_random_mob   # <-- Unified mob database function
 from bot.utils import safe_send_gif
-from bot.grokdex import GROKDEX
 import bot.evolutions as evolutions
 
 
@@ -67,10 +67,6 @@ def register_handlers(bot: TeleBot):
     @bot.message_handler(commands=['help'])
     def help_cmd(message):
         bot.reply_to(message, HELP_TEXT, parse_mode="Markdown")
-
-    # ======================================================
-    #   GROW COMMAND MOVED TO /bot/handlers/growmygrok.py
-    # ======================================================
 
     # ---------------- HOP ----------------
     @bot.message_handler(commands=['hop'])
@@ -122,7 +118,8 @@ def register_handlers(bot: TeleBot):
             bot.reply_to(message, "⚔️ You already fought today.")
             return
 
-        mob = random.choice(MOBS)
+        # Unified mob database now requires: get_random_mob()
+        mob = get_random_mob()
 
         bot.reply_to(
             message,
@@ -130,9 +127,11 @@ def register_handlers(bot: TeleBot):
             parse_mode="Markdown"
         )
 
+        # Show portrait if available
+        portrait = mob.get("portrait")
         try:
-            if mob.get("portrait") and os.path.exists(mob["portrait"]):
-                with open(mob["portrait"], "rb") as f:
+            if portrait and os.path.exists(portrait):
+                with open(portrait, "rb") as f:
                     bot.send_photo(message.chat.id, f)
         except:
             pass
@@ -140,11 +139,9 @@ def register_handlers(bot: TeleBot):
         win = random.choice([True, False])
         if win:
             base_xp = random.randint(mob.get("min_xp", 10), mob.get("max_xp", 25))
-            outcome = mob.get("win_text", "You won!")
             increment_win(user_id)
         else:
             base_xp = random.randint(10, 25)
-            outcome = mob.get("lose_text", "You lost!")
 
         user = get_user(user_id)
         level = user["level"]
@@ -181,13 +178,11 @@ def register_handlers(bot: TeleBot):
 
         record_quest(user_id, "fight")
 
-        # Progress bar
         pct = cur / xp_to_next
         fill = int(20 * pct)
         bar = "▓" * fill + "░" * (20 - fill)
         pct_int = int(pct * 100)
 
-        # OPTION B — CLEAN RPG STYLE
         msg = (
             f"⚔️ **Battle Outcome: {'VICTORY' if win else 'DEFEAT'}!**\n"
             f"Enemy: *{mob['name']}*\n\n"
@@ -224,7 +219,6 @@ def register_handlers(bot: TeleBot):
 
         try:
             png_path = generate_profile_image(user_payload)
-
             jpeg_path = f"/tmp/profile_{user_id}_{int(time.time())}.jpg"
 
             img = Image.open(png_path).convert("RGBA")
@@ -256,5 +250,3 @@ def register_handlers(bot: TeleBot):
                 bot.reply_to(message, "Leaderboard not available.")
         except Exception as e:
             bot.reply_to(message, f"Error generating leaderboard: {e}")
-
-
