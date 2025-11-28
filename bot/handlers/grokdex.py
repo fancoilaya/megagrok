@@ -41,8 +41,12 @@ def _kb_mobs_for_tier(tier):
     dex = get_grokdex_list()
     mobs = dex.get(tier, [])
 
+    # Collect buttons
+    buttons = []
     for mob in mobs:
         mob_key = None
+
+        # Match mob key
         for k, v in MOBS.items():
             if v.get("name", "").lower() == mob.get("name", "").lower():
                 mob_key = k
@@ -52,9 +56,19 @@ def _kb_mobs_for_tier(tier):
             continue
 
         safe_key = urllib.parse.quote_plus(mob_key)
-        kb.add(types.InlineKeyboardButton(mob["name"], callback_data=f"{CB_PREFIX_MOB}{safe_key}"))
+        btn = types.InlineKeyboardButton(
+            mob["name"],
+            callback_data=f"{CB_PREFIX_MOB}{safe_key}"
+        )
+        buttons.append(btn)
 
+    # Add in rows of 2
+    for i in range(0, len(buttons), 2):
+        kb.add(*buttons[i:i + 2])
+
+    # Back button alone
     kb.add(types.InlineKeyboardButton("⬅ Back", callback_data=f"{CB_PREFIX_BACK}main"))
+
     return kb
 
 
@@ -149,7 +163,7 @@ def setup(bot: TeleBot):
                 "Tap image to view full."
             )
 
-            # Replace current message with poster
+            # Try editing message into a photo
             try:
                 from telebot.types import InputMediaPhoto
                 with open(portrait, "rb") as f:
@@ -157,7 +171,7 @@ def setup(bot: TeleBot):
                     bot.edit_message_media(
                         media=media,
                         chat_id=call.message.chat.id,
-                        message_id=call.message.message_id,
+                        message_id=call.message.message_id
                     )
 
                 bot.edit_message_caption(
@@ -165,7 +179,7 @@ def setup(bot: TeleBot):
                     chat_id=call.message.chat.id,
                     message_id=call.message.message_id,
                     parse_mode="Markdown",
-                    reply_markup=_kb_back_from_mob(mob.get("tier", 1)),
+                    reply_markup=_kb_back_from_mob(mob.get("tier", 1))
                 )
 
                 bot.answer_callback_query(call.id)
@@ -187,7 +201,7 @@ def setup(bot: TeleBot):
                 except:
                     pass
 
-            # Final fallback (text only)
+            # Final fallback: text only
             bot.send_message(
                 call.message.chat.id,
                 caption,
