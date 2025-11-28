@@ -1,6 +1,5 @@
 # bot/handlers/grokdex.py
-# Interactive GrokDex UI — single-message navigation
-# Dynamic multi-column layout
+# Final fixed version — ALWAYS one message, no duplicate frames
 
 import os
 import urllib.parse
@@ -19,15 +18,10 @@ CB_PREFIX_BACK = "grokdex:back:"
 
 
 # ---------------------------------------------------------
-# DYNAMIC KEYBOARD BUILDER
+# DYNAMIC KEYBOARD GENERATOR
 # ---------------------------------------------------------
 
 def build_dynamic_keyboard(buttons, max_cols=3):
-    """
-    Dynamically create rows with up to max_cols items.
-    Buttons: list of InlineKeyboardButton
-    Returns: InlineKeyboardMarkup
-    """
     kb = types.InlineKeyboardMarkup()
     for i in range(0, len(buttons), max_cols):
         kb.add(*buttons[i:i + max_cols])
@@ -35,34 +29,38 @@ def build_dynamic_keyboard(buttons, max_cols=3):
 
 
 # ---------------------------------------------------------
-# Tier selection menu
+# Tier list keyboard
 # ---------------------------------------------------------
 
 def _kb_tier_selection():
-    buttons = []
-    for tier in sorted(TIERS.keys()):
-        buttons.append(
-            types.InlineKeyboardButton(
-                f"Tier {tier}",
-                callback_data=f"{CB_PREFIX_TIER}{tier}"
-            )
+    btns = [
+        types.InlineKeyboardButton(
+            f"Tier {tier}",
+            callback_data=f"{CB_PREFIX_TIER}{tier}"
         )
-    return build_dynamic_keyboard(buttons, max_cols=3)
+        for tier in sorted(TIERS.keys())
+    ]
+    return build_dynamic_keyboard(btns, max_cols=3)
 
 
 # ---------------------------------------------------------
-# Mob list for a tier
+# Mob list keyboard
 # ---------------------------------------------------------
 
 def _kb_mobs_for_tier(tier):
-    dex = get_grokdex_list()
-    mobs = dex.get(int(tier), [])
+    try:
+        tier = int(tier)
+    except:
+        return types.InlineKeyboardMarkup()
 
-    buttons = []
+    dex = get_grokdex_list()
+    mobs = dex.get(tier, [])
+
+    btns = []
     for mob in mobs:
         mob_key = None
         for k, v in MOBS.items():
-            if v.get("name", "").lower() == mob.get("name", "").lower():
+            if v["name"].lower() == mob["name"].lower():
                 mob_key = k
                 break
 
@@ -70,16 +68,14 @@ def _kb_mobs_for_tier(tier):
             continue
 
         safe_key = urllib.parse.quote_plus(mob_key)
-        buttons.append(
+        btns.append(
             types.InlineKeyboardButton(
                 mob["name"],
                 callback_data=f"{CB_PREFIX_MOB}{safe_key}"
             )
         )
 
-    kb = build_dynamic_keyboard(buttons, max_cols=3)
-
-    # Back button on its own row
+    kb = build_dynamic_keyboard(btns, max_cols=3)
     kb.add(types.InlineKeyboardButton("⬅ Back", callback_data=f"{CB_PREFIX_BACK}main"))
     return kb
 
@@ -94,146 +90,137 @@ def _kb_back_from_mob(tier):
 
 
 # ---------------------------------------------------------
-# MAIN SETUP FUNCTION
+# MAIN SETUP
 # ---------------------------------------------------------
 
 def setup(bot: TeleBot):
 
+    # ENTRY: always use send_message, never reply_to
     @bot.message_handler(commands=["grokdex"])
     def grokdex_entry(message):
-        bot.reply_to(
-            message,
+        bot.send_message(
+            message.chat.id,
             TITLE,
             parse_mode="Markdown",
             reply_markup=_kb_tier_selection()
         )
 
+    # ---------------------------------------------------------
+    # CALLBACK ROUTING
+    # ---------------------------------------------------------
+
     @bot.callback_query_handler(func=lambda c: c.data and c.data.startswith("grokdex:"))
     def grokdex_callback(call: types.CallbackQuery):
-        data = call.data
 
-        # =====================
-        # SELECT TIER
-        # =====================
+        data = call.data
+        chat_id = call.message.chat.id
+        msg_id = call.message.message_id
+
+        # =====================================================
+        # TIER SELECTED
+        # =====================================================
         if data.startswith(CB_PREFIX_TIER):
             _, _, tier_str = data.split(":", 2)
             tier = int(tier_str)
 
-            dex = get_grokdex_list()
-            mobs = dex.get(tier, [])
+            # Delete previous media message if any
+            try:
+                bot.delete_message(chat_id, msg_id)
+            except:
+                pass
+
+            mobs = get_grokdex_list().get(tier, [])
 
             text = f"🟩 *Tier {tier} — {TIERS.get(tier, '?')}*\n\n"
             for mob in mobs:
-                text += f"• *{mob.get('name', '?')}*\n"
+                text += f"• *{mob['name']}*\n"
             text += "\nSelect a creature:"
 
-            try:
-                call.message.edit_text(
-                    text,
-                    parse_mode="Markdown",
-                    reply_markup=_kb_mobs_for_tier(tier)
-                )
-            except:
-                bot.send_message(
-                    call.message.chat.id, text,
-                    parse_mode="Markdown",
-                    reply_markup=_kb_mobs_for_tier(tier)
-                )
+            # Send a fresh editable message
+            bot.send_message(
+                chat_id,
+                text,
+                parse_mode="Markdown",
+                reply_markup=_kb_mobs_for_tier(tier)
+            )
 
             bot.answer_callback_query(call.id)
             return
 
-        # =====================
-        # SELECT MOB
-        # =====================
+        # =====================================================
+        # MOB SELECTED
+        # =====================================================
         if data.startswith(CB_PREFIX_MOB):
             _, _, encoded = data.split(":", 2)
             mob_key = urllib.parse.unquote_plus(encoded)
-            mob = MOBS.get(mob_key) or search_mob(mob_key)
 
+            mob = MOBS.get(mob_key) or search_mob(mob_key)
             if not mob:
                 bot.answer_callback_query(call.id, "Not found.")
                 return
 
             portrait = mob.get("portrait")
+            tier = mob.get("tier", "?")
+
             caption = (
-                f"📘 *{mob.get('name')}* (Tier {mob.get('tier')})\n"
-                f"{mob.get('type')}\n"
-                f"Rarity: {mob.get('rarity')}\n\n"
-                f"Tap image to view full."
+                f"📘 *{mob['name']}* (Tier {tier})\n"
+                f"{mob['type']}\n"
+                f"Rarity: {mob['rarity']}\n\n"
+                "Tap image to view full."
             )
 
+            # Delete previous text message (text → media)
             try:
-                from telebot.types import InputMediaPhoto
+                bot.delete_message(chat_id, msg_id)
+            except:
+                pass
+
+            # Send media fresh (much safer than editing)
+            try:
                 with open(portrait, "rb") as f:
-                    media = InputMediaPhoto(f, caption=caption, parse_mode="Markdown")
-
-                bot.edit_message_media(
-                    media=media,
-                    chat_id=call.message.chat.id,
-                    message_id=call.message.message_id
-                )
-
-                bot.edit_message_caption(
-                    caption=caption,
-                    chat_id=call.message.chat.id,
-                    message_id=call.message.message_id,
-                    parse_mode="Markdown",
-                    reply_markup=_kb_back_from_mob(mob.get("tier"))
-                )
-
+                    bot.send_photo(
+                        chat_id,
+                        f,
+                        caption=caption,
+                        parse_mode="Markdown",
+                        reply_markup=_kb_back_from_mob(tier)
+                    )
                 bot.answer_callback_query(call.id)
                 return
+            except:
+                pass
 
-            except Exception:
-                # fallback
-                try:
-                    with open(portrait, "rb") as f:
-                        bot.send_photo(
-                            call.message.chat.id, f,
-                            caption=caption,
-                            parse_mode="Markdown",
-                            reply_markup=_kb_back_from_mob(mob.get("tier"))
-                        )
-                    bot.answer_callback_query(call.id)
-                    return
-                except:
-                    pass
-
+            # Final fallback
             bot.send_message(
-                call.message.chat.id,
+                chat_id,
                 caption,
                 parse_mode="Markdown",
-                reply_markup=_kb_back_from_mob(mob.get("tier"))
+                reply_markup=_kb_back_from_mob(tier)
             )
             bot.answer_callback_query(call.id)
             return
 
-        # =====================
+        # =====================================================
         # BACK BUTTONS
-        # =====================
+        # =====================================================
         if data.startswith(CB_PREFIX_BACK):
-            try:
-                _, _, what = data.split(":", 2)
-            except:
-                what = "main"
+            _, _, what = data.split(":", 2)
 
+            # BACK TO MAIN
             if what == "main":
                 try:
-                    call.message.edit_text(
-                        TITLE,
-                        parse_mode="Markdown",
-                        reply_markup=_kb_tier_selection()
-                    )
+                    bot.delete_message(chat_id, msg_id)
                 except:
-                    bot.send_message(
-                        call.message.chat.id, TITLE,
-                        parse_mode="Markdown",
-                        reply_markup=_kb_tier_selection()
-                    )
+                    pass
 
+                bot.send_message(
+                    chat_id,
+                    TITLE,
+                    parse_mode="Markdown",
+                    reply_markup=_kb_tier_selection()
+                )
                 bot.answer_callback_query(call.id)
                 return
 
-            bot.answer_callback_query(call.id, "Unknown back action.")
+            bot.answer_callback_query(call.id)
             return
