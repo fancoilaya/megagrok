@@ -1,158 +1,118 @@
 # bot/images.py
-# Leaderboard + Profile image generator (Pillow)
+# MegaGrok Leaderboard Poster Generator (v2)
+# Fully compatible with db.get_top_users()
 
 import os
 from PIL import Image, ImageDraw, ImageFont
 
-# -------------------------------------------------------------
+# -------------------------------
 # FONT SETUP
-# -------------------------------------------------------------
-FONT_TITLE = "/usr/local/share/fonts/megagrok.ttf"
-FONT_BODY = "/usr/local/share/fonts/megagrok.ttf"
-
-if not os.path.exists(FONT_TITLE):
-    # fallback
-    FONT_TITLE = FONT_BODY = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+# -------------------------------
+FONT_PATH = "/usr/local/share/fonts/megagrok.ttf"
+if not os.path.exists(FONT_PATH):
+    FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 
 
-def _load_font(size):
+def _font(size):
     try:
-        return ImageFont.truetype(FONT_BODY, size)
+        return ImageFont.truetype(FONT_PATH, size)
     except:
         return ImageFont.load_default()
 
 
-# -------------------------------------------------------------
-# DRAWING HELPERS
-# -------------------------------------------------------------
-
-def _text(draw, text, xy, size, fill):
-    font = _load_font(size)
-    draw.text(xy, text, font=font, fill=fill)
-
-
-def _bbox(draw, text, size):
-    font = _load_font(size)
-    return draw.textbbox((0, 0), text, font=font)
-
-
-def _medal_icon(draw, x, y, size, fill_color, outline="black"):
-    """
-    Draws a comic-style circular medal with a star.
-    size = diameter
-    """
+# -------------------------------
+# DRAW HELPERS
+# -------------------------------
+def _draw_medal(draw, x, y, size, fill):
+    """Comic-style medal with thick outline."""
     r = size // 2
-    # Circle
-    draw.ellipse((x - r, y - r, x + r, y + r), fill=fill_color, outline=outline, width=4)
-    # Star (simple 5-point style)
+    draw.ellipse(
+        (x - r, y - r, x + r, y + r),
+        fill=fill,
+        outline="black",
+        width=6
+    )
+    # Simple star
     star = [
-        (x, y - r + 6),
-        (x + r - 4, y + r - 8),
-        (x - r + 4, y + r - 8),
+        (x, y - r + 8),
+        (x + r - 6, y + r - 10),
+        (x - r + 6, y + r - 10),
     ]
-    draw.polygon(star, fill="white", outline=outline)
+    draw.polygon(star, fill="white", outline="black")
 
 
-# -------------------------------------------------------------
-# LEADERBOARD GENERATOR
-# -------------------------------------------------------------
-
+# -------------------------------
+# MAIN POSTER GENERATOR
+# -------------------------------
 def generate_leaderboard_poster_v2(users, output_path="/tmp/leaderboard.png"):
     """
-    users = [(user_id, username, xp), ...] sorted descending by XP
-    Writes image file to output_path
+    users = list of dicts from db.get_top_users()
     """
 
+    # BASE CANVAS
     W, H = 1080, 1920
-    img = Image.new("RGB", (W, H), "#1a1a1d")
+    img = Image.new("RGB", (W, H), "#191A1D")
     draw = ImageDraw.Draw(img)
 
-    # Title
+    # TITLE
     title = "MEGAGROK\nLEADERBOARD"
-    title_font = _load_font(140)
-    title_bbox = draw.multiline_textbbox((0, 0), title, font=title_font)
-    tw = title_bbox[2] - title_bbox[0]
+    font_title = _font(130)
+    tw, th = draw.multiline_textsize(title, font=font_title)
     draw.multiline_text(
-        ((W - tw) // 2, 80),
+        ((W - tw) // 2, 60),
         title,
-        font=title_font,
-        fill="#ff9933",
+        font=font_title,
+        fill="#FFB347",
         align="center"
     )
 
-    # Y offset under title
-    y = 400
+    # Y OFFSET
+    y = 350
+    row_height = 150
 
-    # Row settings
-    row_h = 150
-    padding = 20
-
-    for idx, (uid, uname, xp) in enumerate(users[:50]):  # max 50 entries
+    # LOOP ROWS
+    for idx, u in enumerate(users):
         rank = idx + 1
 
-        # fallback username
-        if not uname:
-            uname = f"User{uid}"
+        uid = u["user_id"]
+        uname = u["username"] or f"User{uid}"
+        xp = u["xp_total"]
 
-        # Determine style for top 3
-        medal_color = None
-        strip_color = None
+        # TOP 3 COLORS
+        medal = None
+        strip = None
 
         if rank == 1:
-            medal_color = "#ffd700"      # Gold
-            strip_color = "#3a2a00"
+            medal = "#FFD700"     # Gold
+            strip = "#3A2A00"
         elif rank == 2:
-            medal_color = "#c0c0c0"      # Silver
-            strip_color = "#2e2e2e"
+            medal = "#C0C0C0"     # Silver
+            strip = "#2E2E2E"
         elif rank == 3:
-            medal_color = "#cd7f32"      # Bronze
-            strip_color = "#3b2415"
+            medal = "#CD7F32"     # Bronze
+            strip = "#3B2415"
 
-        # Draw colored strip behind top 3
-        if strip_color:
+        # BACKGROUND STRIP FOR TOP 3
+        if strip:
             draw.rectangle(
-                (60, y - 20, W - 60, y + row_h - 50),
-                fill=strip_color
+                (60, y - 20, W - 60, y + row_height - 40),
+                fill=strip
             )
 
-        # Draw medal
-        if medal_color:
-            _medal_icon(draw, 140, y + 40, 80, medal_color)
+        # MEDAL
+        if medal:
+            _draw_medal(draw, 140, y + 40, 90, medal)
 
-        # Rank text
-        _text(draw, f"{rank}", (240, y), 70, "#ffffff")
+        # RANK
+        draw.text((240, y), f"{rank}", font=_font(70), fill="white")
 
-        # Username
-        _text(draw, uname, (350, y), 70, "#8df0ff")
+        # USERNAME
+        draw.text((350, y), uname, font=_font(70), fill="#8DF0FF")
 
-        # XP text
-        _text(draw, f"{xp} XP", (350, y + 70), 50, "#ffcc66")
+        # XP
+        draw.text((350, y + 70), f"{xp} XP", font=_font(55), fill="#FFDD99")
 
-        y += row_h
+        y += row_height
 
     img.save(output_path)
     return output_path
-
-
-# -------------------------------------------------------------
-# PROFILE IMAGE (placeholder until we finalize new design)
-# -------------------------------------------------------------
-def generate_profile_image(user):
-    """
-    Placeholder until we rebuild profile card v2.
-    """
-    W, H = 1080, 1080
-    img = Image.new("RGB", (W, H), "#202024")
-    draw = ImageDraw.Draw(img)
-
-    uname = user.get("username", f"User{user['user_id']}")
-    xp = user.get("xp_total", 0)
-    lvl = user.get("level", 1)
-
-    _text(draw, uname, (60, 60), 80, "#8df0ff")
-    _text(draw, f"Level {lvl}", (60, 180), 60, "#ff9933")
-    _text(draw, f"XP: {xp}", (60, 260), 60, "#ffffff")
-
-    path = f"/tmp/profile_{user['user_id']}.png"
-    img.save(path)
-    return path
