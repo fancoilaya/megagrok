@@ -66,7 +66,7 @@ START_TEXT = (
 # REGISTER COMMAND HANDLERS
 # ------------------------------------------------------------
 
-def setup(bot: TeleBot):
+def register_handlers(bot: TeleBot):
 
     # START COMMAND
     @bot.message_handler(commands=['start'])
