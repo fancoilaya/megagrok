@@ -1,241 +1,143 @@
 # bot/images.py
-# MegaGrok Premium Comic Leaderboard Renderer (fixed)
-# Resolution: 1080x1920 — Telegram-optimized
-# Uses draw.textbbox (Pillow 8+) for text measurement to avoid textsize issues.
+# MegaGrok Leaderboard Renderer — Comic Style Premium Edition
 
-from PIL import Image, ImageDraw, ImageFont, ImageColor, ImageFilter
-import math
 import os
+from PIL import Image, ImageDraw, ImageFont
 
-# Canvas
-WIDTH = 1080
-HEIGHT = 1920
+FONT_PATH = "assets/fonts/megagrok.ttf"
+DEFAULT_FONT = "DejaVuSans-Bold.ttf"
 
-# Colors
-BACKGROUND_COLOR = (18, 18, 20)   # dark graphite
-TITLE_COLOR = (255, 184, 77)      # gold/orange
-USERNAME_COLOR = (142, 240, 255)  # neon cyan
-STAT_COLOR = (255, 184, 77)       # gold for LV • XP
-RANK_WHITE = (255, 255, 255)
-
-# Fonts: try to use a custom font path, fallback to DejaVu
-FONT_FOLDER = "assets/fonts"
-PREFERRED_FONT = os.path.join(FONT_FOLDER, "Megagrok.ttf")  # your packaged font
-FALLBACK_FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-
-# Layout
-MAX_USERNAME_LEN = 18
-START_Y = 360
-ROW_HEIGHT = 200
-ROW_GAP = 20
-LEFT_MARGIN = 80
-BURST_SIZE = 160
-TEXT_OFFSET_X = LEFT_MARGIN + BURST_SIZE + 40
-TITLE_Y = 80
-
-# Burst and strip colors
-BURST_COLORS = [
-    "#FFD700",  # gold
-    "#C0C0C0",  # silver
-    "#CD7F32",  # bronze
-]
-DEFAULT_BURST = "#2E2E2E"
-STRIP_COLORS = [
-    (80, 60, 0),
-    (60, 60, 60),
-    (80, 45, 20)
-]
-STRIP_DEFAULT = (40, 40, 40)
-
-
-# ---------------------------
-# Helpers
-# ---------------------------
-def _load_font(path, size):
+# --------------------------------------------------------
+# FONT LOADING
+# --------------------------------------------------------
+def load_font(size):
     try:
-        return ImageFont.truetype(path, size=size)
-    except Exception:
-        try:
-            return ImageFont.truetype(FALLBACK_FONT, size=size)
-        except Exception:
-            return ImageFont.load_default()
+        return ImageFont.truetype(FONT_PATH, size)
+    except:
+        return ImageFont.truetype(DEFAULT_FONT, size)
 
+# --------------------------------------------------------
+# SAFE TEXT SIZE
+# --------------------------------------------------------
+def measure(draw, text, font):
+    box = draw.textbbox((0, 0), text, font=font)
+    return (box[2] - box[0], box[3] - box[1])
 
-def _truncate_username(name: str, max_len=MAX_USERNAME_LEN):
-    if not isinstance(name, str):
-        name = str(name)
-    if len(name) <= max_len:
-        return name
-    if max_len <= 1:
-        return name[:max_len]
-    return name[: max_len - 1] + "…"
+# --------------------------------------------------------
+# OUTLINE TEXT DRAWING
+# --------------------------------------------------------
+def draw_text_outline(draw, xy, text, font, fill, outline="black", width=3):
+    x, y = xy
+    for dx in range(-width, width+1):
+        for dy in range(-width, width+1):
+            draw.text((x+dx, y+dy), text, font=font, fill=outline)
+    draw.text((x, y), text, font=font, fill=fill)
 
+# --------------------------------------------------------
+# COMIC MEDAL BADGES FOR TOP 3
+# --------------------------------------------------------
+def draw_medal(draw, x, y, rank):
+    if rank == 1:
+        color = "#FFD700"  # Gold
+    elif rank == 2:
+        color = "#C0C0C0"  # Silver
+    elif rank == 3:
+        color = "#CD7F32"  # Bronze
+    else:
+        return  # no medal for rank > 3
 
-def _text_size(draw: ImageDraw.Draw, text: str, font: ImageFont.ImageFont):
-    """
-    Return (w,h) using textbbox which is more reliable across Pillow versions.
-    """
-    bbox = draw.textbbox((0, 0), text, font=font)
-    w = bbox[2] - bbox[0]
-    h = bbox[3] - bbox[1]
-    return (w, h)
+    # Burst explosion circle
+    r = 32
+    cx, cy = x + r, y + r
 
-
-# ---------------------------
-# Burst drawing
-# ---------------------------
-def _explosion_points(cx, cy, outer_r, inner_r, spikes=12, rotation=0.0):
     pts = []
-    total = spikes * 2
-    for i in range(total):
-        angle = rotation + (i * math.pi * 2) / total
-        r = outer_r if (i % 2 == 0) else inner_r
-        x = cx + math.cos(angle) * r
-        y = cy + math.sin(angle) * r
-        pts.append((x, y))
-    return pts
+    for i in range(18):
+        angle = i * 3.14159 * 2 / 18
+        dist = r if i % 2 == 0 else r * 0.6
+        pts.append((cx + dist * 1.0 * (math.cos(angle)),
+                    cy + dist * 1.0 * (math.sin(angle))))
 
+    draw.polygon(pts, fill=color, outline="black")
+    draw.ellipse((cx - 16, cy - 16, cx + 16, cy + 16), fill="white", outline="black")
 
-def _draw_burst(draw: ImageDraw.Draw, cx, cy, outer_r, inner_r, color_hex, outline=(0, 0, 0), spikes=14):
-    # polygon points
-    pts = _explosion_points(cx, cy, outer_r, inner_r, spikes=spikes)
-    draw.polygon(pts, fill=ImageColor.getrgb(color_hex), outline=outline)
-    # inner circle (white)
-    inner_box = [cx - inner_r * 0.6, cy - inner_r * 0.6, cx + inner_r * 0.6, cy + inner_r * 0.6]
-    draw.ellipse(inner_box, fill=(255, 255, 255), outline=outline)
-
-
-def _draw_rank_number(draw: ImageDraw.Draw, cx, cy, rank, font):
+    fnt = load_font(28)
     txt = str(rank)
-    tw, th = _text_size(draw, txt, font)
-    # black outline by drawing multiple offsets
-    offsets = [(-2, -2), (-2, 2), (2, -2), (2, 2)]
-    for ox, oy in offsets:
-        draw.text((cx - tw / 2 + ox, cy - th / 2 + oy), txt, font=font, fill=(0, 0, 0))
-    draw.text((cx - tw / 2, cy - th / 2), txt, font=font, fill=RANK_WHITE)
+    tw, th = measure(draw, txt, fnt)
+    draw.text((cx - tw/2, cy - th/2), txt, font=fnt, fill="black")
 
-
-# ---------------------------
-# Halftone subtle overlay
-# ---------------------------
-def _halftone_overlay(size, spacing=18, radius=1, color=(255, 255, 255, 6)):
-    w, h = size
-    layer = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    dd = ImageDraw.Draw(layer)
-    for y in range(0, h, spacing):
-        for x in range(0, w, spacing):
-            dd.ellipse((x - radius, y - radius, x + radius, y + radius), fill=color)
-    return layer.filter(ImageFilter.GaussianBlur(0.2))
-
-
-# ---------------------------
-# Main generation function
-# ---------------------------
-def generate_leaderboard_premium(users, output_path="/tmp/leaderboard_premium.png", max_rows=12):
+# --------------------------------------------------------
+# LEADERBOARD GENERATOR (MAIN FUNCTION)
+# --------------------------------------------------------
+def generate_leaderboard_premium(users):
     """
-    users: list of dicts, ordered top-first:
-      {"user_id":..., "username": "...", "level": int, "xp_total": int}
-    Returns: path to PNG
+    users = list of dicts:
+      user_id, username, level, xp_total
     """
 
-    # Prepare canvas
-    canvas = Image.new("RGB", (WIDTH, HEIGHT), BACKGROUND_COLOR)
-    draw = ImageDraw.Draw(canvas)
+    W, H = 1080, 1920
+    img = Image.new("RGB", (W, H), (22, 22, 22))
+    dr = ImageDraw.Draw(img)
 
-    # fonts
-    font_title = _load_font(PREFERRED_FONT, 120)
-    font_name = _load_font(PREFERRED_FONT, 64)
-    font_stats = _load_font(PREFERRED_FONT, 44)
-    font_rank = _load_font(PREFERRED_FONT, 48)
-    font_rank_small = _load_font(PREFERRED_FONT, 40)
+    # ---------- TITLE ----------
+    title = "MEGAGROK LEADERBOARD"
+    title_font = load_font(110)
+    tw, th = measure(dr, title, title_font)
+    draw_text_outline(
+        dr,
+        ((W - tw) // 2, 80),
+        title,
+        title_font,
+        fill="#FFB545"
+    )
 
-    # subtle halftone overlay
-    try:
-        ht = _halftone_overlay((WIDTH, HEIGHT), spacing=20, radius=1)
-        canvas = Image.alpha_composite(canvas.convert("RGBA"), ht).convert("RGB")
-        draw = ImageDraw.Draw(canvas)
-    except Exception:
-        # ignore halftone errors
-        draw = ImageDraw.Draw(canvas)
+    # ---------- HEADER LINE ----------
+    dr.line((120, 240, W - 120, 240), fill="#FFB545", width=6)
 
-    # title (centered)
-    title = "MEGAGROK\nLEADERBOARD"
-    # compute title size and center
-    t_w, t_h = draw.multiline_textbbox((0, 0), title, font=font_title)[2:4]
-    title_x = (WIDTH - t_w) // 2
-    draw.multiline_text((title_x, TITLE_Y), title, font=font_title, fill=TITLE_COLOR, align="center")
+    # ---------- ROW SETTINGS ----------
+    start_y = 300
+    row_h = 120
 
-    # rows (clamped)
-    rows = users[:max_rows]
+    name_font = load_font(58)
+    stats_font = load_font(46)
 
-    y = START_Y
+    for idx, user in enumerate(users[:12]):
+        y = start_y + idx * row_h
 
-    for idx, u in enumerate(rows):
         rank = idx + 1
-        username = u.get("username") or f"User{u.get('user_id')}"
-        level = u.get("level", u.get("lvl", 1))
-        xp = u.get("xp_total", u.get("xp", 0))
+        uid = user.get("user_id")
+        username = user.get("username") or f"User{uid}"
+        level = user.get("level", 1)
+        xp = user.get("xp_total", 0)
 
-        # row strip background (rounded rectangle: approximate with rectangle since pillow rounded may be absent)
-        left = LEFT_MARGIN
-        right = WIDTH - LEFT_MARGIN
-        top = y
-        bottom = y + ROW_HEIGHT - ROW_GAP
-
-        # strip color
+        # MEDAL FOR TOP 3
         if rank <= 3:
-            strip_color = STRIP_COLORS[rank - 1]
-            burst_color = BURST_COLORS[rank - 1]
+            draw_medal(dr, 120, y + 10, rank)
+            name_x = 200
         else:
-            strip_color = STRIP_DEFAULT
-            burst_color = DEFAULT_BURST
+            # Draw rank number normally
+            rank_text = f"{rank}."
+            rtw, rth = measure(dr, rank_text, name_font)
+            draw_text_outline(dr, (120, y + 25), rank_text, name_font, fill="white")
+            name_x = 200
 
-        # draw strip rectangle
-        draw.rectangle([left, top, right, bottom], fill=strip_color)
+        # USERNAME
+        draw_text_outline(dr, (name_x, y + 10), username, name_font, fill="#7EF2FF")
 
-        # burst center coords
-        burst_cx = left + BURST_SIZE // 2
-        burst_cy = top + (bottom - top) // 2
+        # LEVEL + XP (right aligned)
+        stats_text = f"LV {level} • {xp} XP"
+        stw, sth = measure(dr, stats_text, stats_font)
+        draw_text_outline(dr, (W - 160 - stw, y + 35), stats_text, stats_font, fill="#FFB545")
 
-        # draw burst and rank
-        _draw_burst(draw, burst_cx, burst_cy, BURST_SIZE // 2 + 10, BURST_SIZE // 4, burst_color, outline=(0, 0, 0), spikes=14)
-        # rank number - use smaller font for center
-        _draw_rank_number(draw, burst_cx, burst_cy, rank, font_rank_small)
+        # Row separator line
+        dr.line((120, y + row_h - 10, W - 120, y + row_h - 10), fill="#303030", width=3)
 
-        # username (truncate)
-        uname = _truncate_username(username, max_len=MAX_USERNAME_LEN)
+    # ---------- FOOTER ----------
+    footer = "MegaGrok Metaverse"
+    ff = load_font(48)
+    ftw, fth = measure(dr, footer, ff)
+    draw_text_outline(dr, ((W-ftw)//2, H-160), footer, ff, fill="#777777")
 
-        # compute name position; ensure no overlap with burst
-        name_x = TEXT_OFFSET_X
-        name_y = top + 30
-
-        # draw black outline for username for pop
-        offsets = [(-2, -2), (-2, 2), (2, -2), (2, 2)]
-        for ox, oy in offsets:
-            draw.text((name_x + ox, name_y + oy), uname, font=font_name, fill=(0, 0, 0))
-        draw.text((name_x, name_y), uname, font=font_name, fill=USERNAME_COLOR)
-
-        # stats line: LV 23 • 149 XP (gold color)
-        stats_txt = f"LV {int(level)} \u2022 {int(xp)} XP"
-        stats_x = name_x
-        stats_y = name_y + 72
-        draw.text((stats_x, stats_y), stats_txt, font=font_stats, fill=STAT_COLOR)
-
-        # increment y
-        y += ROW_HEIGHT
-
-    # footer
-    footer = "t.me/megagrok  •  MegaGrok Metaverse"
-    fw, fh = _text_size(draw, footer, font=_load_font(PREFERRED_FONT, 28))
-    draw.text(((WIDTH - fw) // 2, HEIGHT - 80), footer, font=_load_font(PREFERRED_FONT, 28), fill=(107, 107, 107))
-
-    # save
-    try:
-        canvas.save(output_path, quality=90)
-    except Exception as e:
-        # fallback location if permission issues
-        alt = "/tmp/leaderboard_premium.png"
-        canvas.save(alt, quality=90)
-        return alt
-
-    return output_path
+    # Save
+    out = "/tmp/leaderboard.jpg"
+    img.save(out, quality=95)
+    return out
