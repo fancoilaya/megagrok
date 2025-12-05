@@ -1,24 +1,63 @@
 # bot/db.py
 # -----------------------------------------------------------
-# Central MegaGrok Database Layer
-# Handles Users, XP, Quests, Wins, Cooldowns & Leaderboards
+# MegaGrok Database Layer (Persistent Disk Compatible)
+# Handles:
+# - User profiles
+# - XP & leveling
+# - Quests (hop / fight / battle)
+# - Wins, rituals
+# - Cooldowns
+# - Leaderboards
 # -----------------------------------------------------------
 
 import sqlite3
 import json
-import time
 from typing import Dict, Any, List
 
-DB_PATH = "/var/data/megagrok.db"
+# -----------------------------------------------------------
+# DATABASE PATH — MUST POINT TO PERSISTENT DISK ON RENDER
+# -----------------------------------------------------------
+DB_PATH = "/var/data/megagrok.db"   # <--- IMPORTANT
 
+
+# -----------------------------------------------------------
+# DB CONNECTION
+# -----------------------------------------------------------
 conn = sqlite3.connect(DB_PATH, check_same_thread=False)
 cursor = conn.cursor()
 
 
 # -----------------------------------------------------------
-# Ensure required columns exist (safe auto-migration)
+# CREATE TABLES IF THEY DO NOT EXIST
 # -----------------------------------------------------------
+def init_db():
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            user_id INTEGER PRIMARY KEY,
+            username TEXT,
+            level INTEGER DEFAULT 1,
+            xp_total INTEGER DEFAULT 0,
+            xp_current INTEGER DEFAULT 0,
+            xp_to_next_level INTEGER DEFAULT 100,
+            level_curve_factor REAL DEFAULT 1.35,
+            wins INTEGER DEFAULT 0,
+            mobs_defeated INTEGER DEFAULT 0,
+            rituals INTEGER DEFAULT 0,
+            quests TEXT,
+            cooldowns TEXT,
+            evolution_multiplier REAL DEFAULT 1.0
+        )
+    """)
+    conn.commit()
 
+
+# Run table initialization
+init_db()
+
+
+# -----------------------------------------------------------
+# SAFE COLUMN ADDER (AUTO MIGRATION)
+# -----------------------------------------------------------
 def _add_column_if_missing(col: str, type_: str):
     cursor.execute("PRAGMA table_info(users)")
     cols = [c[1].lower() for c in cursor.fetchall()]
@@ -28,33 +67,33 @@ def _add_column_if_missing(col: str, type_: str):
 
 
 # -----------------------------------------------------------
-# USER RETRIEVAL & CREATION
+# GET OR CREATE USER
 # -----------------------------------------------------------
-
 def get_user(user_id: int) -> Dict[str, Any]:
     cursor.execute("SELECT * FROM users WHERE user_id=?", (user_id,))
     row = cursor.fetchone()
 
+    # If user does not exist → create new row
     if not row:
-        # Create new user with defaults
         cursor.execute("""
-            INSERT INTO users (user_id, username, level, xp_total, xp_current,
-                               xp_to_next_level, level_curve_factor, wins,
-                               mobs_defeated, rituals, evolution_multiplier)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (user_id, "", 1, 0, 0, 100, 1.35, 0, 0, 0, 1.0))
+            INSERT INTO users (
+                user_id, username, level, xp_total, xp_current,
+                xp_to_next_level, level_curve_factor, wins,
+                mobs_defeated, rituals, quests, cooldowns, evolution_multiplier
+            )
+            VALUES (?, ?, 1, 0, 0, 100, 1.35, 0, 0, 0, ?, ?, 1.0)
+        """, (user_id, "", json.dumps({}), json.dumps({})))
         conn.commit()
         return get_user(user_id)
 
-    # Map columns → dict
+    # Convert row into dictionary
     desc = [d[0] for d in cursor.description]
     return {desc[i]: row[i] for i in range(len(desc))}
 
 
 # -----------------------------------------------------------
-# XP / LEVEL UPDATES
+# UPDATE USER XP / LEVEL
 # -----------------------------------------------------------
-
 def update_user_xp(user_id: int, data: Dict[str, Any]):
     fields = []
     values = []
@@ -70,15 +109,13 @@ def update_user_xp(user_id: int, data: Dict[str, Any]):
 
 
 # -----------------------------------------------------------
-# QUEST STATE SYSTEM (fight / hop / battle)
+# QUEST SYSTEM (hop / fight / battle)
 # -----------------------------------------------------------
-
 def get_quests(user_id: int) -> Dict[str, Any]:
     _add_column_if_missing("quests", "TEXT")
 
     cursor.execute("SELECT quests FROM users WHERE user_id=?", (user_id,))
     row = cursor.fetchone()
-
     if not row or not row[0]:
         return {}
 
@@ -90,7 +127,7 @@ def get_quests(user_id: int) -> Dict[str, Any]:
 
 def record_quest(user_id: int, quest_key: str):
     quests = get_quests(user_id)
-    quests[quest_key] = 1  # mark as completed
+    quests[quest_key] = 1
 
     cursor.execute(
         "UPDATE users SET quests=? WHERE user_id=?",
@@ -100,9 +137,8 @@ def record_quest(user_id: int, quest_key: str):
 
 
 # -----------------------------------------------------------
-# WINS / RITUAL COUNTERS
+# WINS & RITUAL COUNT
 # -----------------------------------------------------------
-
 def increment_win(user_id: int):
     cursor.execute("UPDATE users SET wins = wins + 1 WHERE user_id=?", (user_id,))
     conn.commit()
@@ -114,15 +150,13 @@ def increment_ritual(user_id: int):
 
 
 # -----------------------------------------------------------
-# COOLDOWN HANDLING (battle system)
+# COOLDOWN SYSTEM (battle cooldown uses this)
 # -----------------------------------------------------------
-
 def get_cooldowns(user_id: int) -> Dict[str, Any]:
     _add_column_if_missing("cooldowns", "TEXT")
 
     cursor.execute("SELECT cooldowns FROM users WHERE user_id=?", (user_id,))
     row = cursor.fetchone()
-
     if not row or not row[0]:
         return {}
 
@@ -141,13 +175,12 @@ def set_cooldowns(user_id: int, cooldowns: Dict[str, Any]):
 
 
 # -----------------------------------------------------------
-# LEADERBOARD (Top Players)
+# LEADERBOARD
 # -----------------------------------------------------------
-
 def get_top_users(limit: int = 10) -> List[Dict[str, Any]]:
     """
-    Returns top players sorted by total XP.
-    Shape guaranteed to match leaderboard poster v2.
+    Returns top users sorted by xp_total.
+    Compatible with leaderboard poster v2.
     """
     cursor.execute("""
         SELECT
@@ -169,29 +202,23 @@ def get_top_users(limit: int = 10) -> List[Dict[str, Any]]:
     for r in rows:
         user_id = r[0]
         username = r[1] or f"User{user_id}"
-        xp_total = r[2] or 0
-        level = r[3] or 1
-        wins = r[4] or 0
-        kills = r[5] or 0
-        rituals = r[6] or 0
 
         out.append({
             "user_id": user_id,
             "username": username,
-            "xp_total": xp_total,
-            "level": level,
-            "wins": wins,
-            "kills": kills,
-            "rituals": rituals,
+            "xp_total": r[2] or 0,
+            "level": r[3] or 1,
+            "wins": r[4] or 0,
+            "kills": r[5] or 0,
+            "rituals": r[6] or 0,
         })
 
     return out
 
 
 # -----------------------------------------------------------
-# SAVE USERNAME (optional, updated auto)
+# UPDATE USERNAME
 # -----------------------------------------------------------
-
 def update_username(user_id: int, username: str):
     cursor.execute("UPDATE users SET username=? WHERE user_id=?", (username, user_id))
     conn.commit()
