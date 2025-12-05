@@ -57,7 +57,7 @@ def _medal_icon(draw, x, y, size, fill_color, outline="black"):
 # LEADERBOARD GENERATOR
 # -------------------------------------------------------------
 
-def generate_leaderboard_image(users, output_path="/tmp/leaderboard.png"):
+def generate_leaderboard_poster_v2(users, output_path="/tmp/leaderboard.png"):
     """
     users = [(user_id, username, xp), ...] sorted descending by XP
     Writes image file to output_path
