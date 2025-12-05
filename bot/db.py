@@ -9,7 +9,7 @@ import json
 import time
 from typing import Dict, Any, List
 
-DB_PATH = "megagrok.db"
+DB_PATH = "/var/data/megagrok.db"
 
 conn = sqlite3.connect(DB_PATH, check_same_thread=False)
 cursor = conn.cursor()
