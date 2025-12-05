@@ -20,7 +20,7 @@ ACTION_CHARGE = "charge"
 # ============================================================
 # SESSION STORAGE — use /tmp (Render Worker writable)
 # ============================================================
-_SESSIONS_FILE = "/tmp/battle_sessions.json"
+_SESSIONS_FILE = "/var/data//battle_sessions.json"
 
 
 # ============================================================
