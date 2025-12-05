@@ -1,7 +1,6 @@
-# bot/handlers/commands.py
-# ------------------------------------------------------------
-# Main command handlers for MegaGrok RPG
-# ------------------------------------------------------------
+# bot/commands.py
+# Core command handlers for MegaGrok bot
+# All modular commands (/battle, /growmygrok, /grokdex, etc.) are in /bot/handlers
 
 import os
 import time
@@ -16,89 +15,70 @@ from bot.db import (
     record_quest,
     increment_win,
     increment_ritual,
-    get_top_users,
-    update_username   # NEW: keep Telegram username synced
+    get_top_users
 )
 
-# NEW IMPORTS (split image system)
-from bot.profile_image import generate_profile_image
 from bot.images import generate_leaderboard_poster_v2
-
+from bot.profile_image import generate_profile_image
 from bot.mobs import MOBS
 import bot.evolutions as evolutions
-from bot.utils import safe_send_gif
 
 
-# ------------------------------------------------------------
-# STATIC TEXTS
-# ------------------------------------------------------------
+# ======================================================
+# • HELP TEXT
+# ======================================================
 
 HELP_TEXT = (
-    "🐸 **MegaGrok Bot Commands**\n\n"
-    "/start – Begin your journey.\n"
-    "/help – Show this help menu.\n"
-    "/growmygrok – Gain XP and grow your Grok.\n"
-    "/hop – Perform your daily hop ritual.\n"
-    "/fight – Fight a random mob for XP.\n"
-    "/battle – Advanced turn-based combat.\n"
-    "/profile – Show your Grok profile card.\n"
-    "/leaderboard – View the MegaGrok Leaderboard.\n"
-    "/grokdex – Explore the Mob Encyclopedia.\n\n"
-    "Evolve your Grok, gain XP, and conquer the Hop-Verse!"
+    "🐸 **MEGAGROK COMMANDS**\n\n"
+    "/start – Begin your journey\n"
+    "/help – Show this help menu\n"
+    "/profile – View your Grok profile card\n"
+    "/leaderboard – Global ranking poster\n"
+    "/growmygrok – Gain XP and evolve your Grok\n"
+    "/hop – Daily ritual for bonus XP\n"
+    "/fight – Classic fight (1/day)\n"
+    "/battle – Advanced RPG battle engine\n"
+    "/grokdex – Browse all mobs\n"
+    "/mob <name> – Inspect a creature\n\n"
+    "🚀 Train. Evolve. Dominate the Hop-Verse."
 )
 
 START_TEXT = (
-    "🐸🌌 *THE COSMIC AMPHIBIAN HAS AWAKENED* 🌌🐸\n\n"
-    "✨ A portal cracks open…\n"
-    "✨ Your MegaGrok emerges from the liquidity void…\n"
-    "✨ Your evolution begins *now*.\n\n"
-    "⚡ *Core Commands*\n"
-    "🐸 /growmygrok — Feed cosmic hop-energy\n"
-    "🔮 /hop — Daily ritual boost\n"
-    "⚔️ /fight — Battle Hop-Verse creatures\n"
-    "🧬 /profile — View your Grok\n"
-    "📜 /help — Full command list\n\n"
-    "🚀 Train him. Evolve him. Conquer the Hop-Verse."
+    "🐸🌌 *THE COSMIC AMPHIBIAN HAS AWAKENED*\n\n"
+    "A portal cracks open… your MegaGrok emerges…\n"
+    "Your evolution begins *now*.\n\n"
+    "🔥 Core Commands:\n"
+    "• /growmygrok – Feed cosmic hop-energy\n"
+    "• /hop – Daily ritual boost\n"
+    "• /fight – Quick XP fight\n"
+    "• /battle – Full RPG combat\n"
+    "• /profile – Your Grok card\n"
+    "• /leaderboard – Global ranking\n\n"
+    "Welcome to the MegaGrok Metaverse!"
 )
 
 
-# ------------------------------------------------------------
-# REGISTER COMMAND HANDLERS
-# ------------------------------------------------------------
+# ======================================================
+# • REGISTER HANDLERS
+# ======================================================
 
 def register_handlers(bot: TeleBot):
 
-    # Utility: Always keep username updated
-    def sync_username(message):
-        try:
-            uid = message.from_user.id
-            uname = message.from_user.username or ""
-            update_username(uid, uname)
-        except:
-            pass
-
-
-    # START COMMAND
-    @bot.message_handler(commands=['start'])
-    def start(message):
-        sync_username(message)
+    # ---------------- START ----------------
+    @bot.message_handler(commands=["start"])
+    def start_cmd(message):
         bot.reply_to(message, START_TEXT, parse_mode="Markdown")
 
-
-    # HELP COMMAND
-    @bot.message_handler(commands=['help'])
+    # ---------------- HELP -----------------
+    @bot.message_handler(commands=["help"])
     def help_cmd(message):
-        sync_username(message)
         bot.reply_to(message, HELP_TEXT, parse_mode="Markdown")
 
-
-    # ------------------------------------------------------------
-    # HOP COMMAND
-    # ------------------------------------------------------------
-    @bot.message_handler(commands=['hop'])
-    def hop(message):
-        sync_username(message)
-
+    # ======================================================
+    #   /hop COMMAND
+    # ======================================================
+    @bot.message_handler(commands=["hop"])
+    def hop_cmd(message):
         user_id = message.from_user.id
         q = get_quests(user_id)
 
@@ -112,13 +92,12 @@ def register_handlers(bot: TeleBot):
         xp_total = user["xp_total"] + xp_gain
         cur = user["xp_current"] + xp_gain
         xp_to_next = user["xp_to_next_level"]
-        level = user["level"]
+        lvl = user["level"]
         curve = user["level_curve_factor"]
 
-        # Level calculation
         if cur >= xp_to_next:
             cur -= xp_to_next
-            level += 1
+            lvl += 1
             xp_to_next = int(xp_to_next * curve)
 
         update_user_xp(
@@ -127,23 +106,19 @@ def register_handlers(bot: TeleBot):
                 "xp_total": xp_total,
                 "xp_current": cur,
                 "xp_to_next_level": xp_to_next,
-                "level": level
+                "level": lvl
             }
         )
 
-        record_quest(user_id, "hop")
         increment_ritual(user_id)
-
+        record_quest(user_id, "hop")
         bot.reply_to(message, f"🐸✨ Hop Ritual complete! +{xp_gain} XP")
 
-
-    # ------------------------------------------------------------
-    # FIGHT COMMAND (Classic)
-    # ------------------------------------------------------------
-    @bot.message_handler(commands=['fight'])
-    def fight(message):
-        sync_username(message)
-
+    # ======================================================
+    #   /fight COMMAND (classic version)
+    # ======================================================
+    @bot.message_handler(commands=["fight"])
+    def fight_cmd(message):
         user_id = message.from_user.id
         q = get_quests(user_id)
 
@@ -151,46 +126,39 @@ def register_handlers(bot: TeleBot):
             bot.reply_to(message, "⚔️ You already fought today.")
             return
 
-        mob = random.choice(MOBS)
-
+        mob = random.choice(list(MOBS.values()))
         bot.reply_to(
             message,
-            f"⚔️ **{mob['name']} Encounter!**\n\n{mob.get('intro','')}",
+            f"⚔️ **{mob['name']} Encounter!**\n\n{mob.get('intro', '')}",
             parse_mode="Markdown"
         )
 
-        # Try sending portrait
-        try:
-            portrait = mob.get("portrait")
-            if portrait and os.path.exists(portrait):
-                with open(portrait, "rb") as f:
-                    bot.send_photo(message.chat.id, f)
-        except:
-            pass
+        # Try send portrait
+        portrait = mob.get("portrait")
+        if portrait and os.path.exists(portrait):
+            with open(portrait, "rb") as f:
+                bot.send_photo(message.chat.id, f)
 
         win = random.choice([True, False])
-        if win:
-            base_xp = random.randint(mob.get("min_xp", 10), mob.get("max_xp", 25))
-            increment_win(user_id)
-        else:
-            base_xp = random.randint(10, 25)
+        base_xp = random.randint(mob.get("min_xp", 10), mob.get("max_xp", 25))
 
         user = get_user(user_id)
-        level = user["level"]
+        lvl = user["level"]
 
-        evo_mult = evolutions.get_xp_multiplier_for_level(level) * float(user.get("evolution_multiplier", 1.0))
+        evo_mult = evolutions.get_xp_multiplier_for_level(lvl) * float(user.get("evolution_multiplier", 1.0))
         effective_xp = int(base_xp * evo_mult)
 
+        # XP UPDATE
         xp_total = user["xp_total"] + effective_xp
         cur = user["xp_current"] + effective_xp
         xp_to_next = user["xp_to_next_level"]
         curve = user["level_curve_factor"]
-
         leveled = False
+
         while cur >= xp_to_next:
             cur -= xp_to_next
+            lvl += 1
             xp_to_next = int(xp_to_next * curve)
-            level += 1
             leveled = True
 
         update_user_xp(
@@ -199,24 +167,27 @@ def register_handlers(bot: TeleBot):
                 "xp_total": xp_total,
                 "xp_current": cur,
                 "xp_to_next_level": xp_to_next,
-                "level": level
+                "level": lvl
             }
         )
 
+        # RECORD QUEST
         record_quest(user_id, "fight")
+        if win:
+            increment_win(user_id)
 
-        pct = int((cur / xp_to_next) * 100)
-        bar = "▓" * (pct // 5) + "░" * (20 - pct // 5)
+        pct = cur / xp_to_next
+        bar = "▓" * int(20 * pct) + "░" * (20 - int(20 * pct))
 
         msg = (
-            f"⚔️ **Battle Outcome: {'VICTORY' if win else 'DEFEAT'}!**\n"
+            f"⚔️ **{'VICTORY' if win else 'DEFEAT'}**\n"
             f"Enemy: *{mob['name']}*\n\n"
             f"📈 Base XP: +{base_xp}\n"
             f"🔮 Evo Boost: ×{evo_mult:.2f}\n"
             f"⚡ Effective XP: +{effective_xp}\n\n"
-            f"🧬 Level: {level}\n"
+            f"🧬 Level: {lvl}\n"
             f"🔸 XP: {cur} / {xp_to_next}\n"
-            f"🟩 Progress: `{bar}` {pct}%"
+            f"`{bar}` {int(pct * 100)}%\n"
         )
 
         if leveled:
@@ -224,56 +195,41 @@ def register_handlers(bot: TeleBot):
 
         bot.send_message(message.chat.id, msg, parse_mode="Markdown")
 
-
-    # ------------------------------------------------------------
-    # PROFILE (Comic-style poster)
-    # ------------------------------------------------------------
-    @bot.message_handler(commands=['profile'])
-    def profile(message):
-        sync_username(message)
-
-        user_id = message.from_user.id
-        user = get_user(user_id)
-
-        payload = {
-            "user_id": user_id,
-            "username": message.from_user.username or f"User{user_id}",
-            "form": user.get("form"),
-            "level": user.get("level"),
-            "wins": user.get("wins"),
-            "kills": user.get("mobs_defeated"),
-            "rituals": user.get("rituals"),
-            "xp_total": user.get("xp_total")
-        }
-
+    # ======================================================
+    #   /profile COMMAND
+    # ======================================================
+    @bot.message_handler(commands=["profile"])
+    def profile_cmd(message):
         try:
+            user_id = message.from_user.id
+            user = get_user(user_id)
+
+            payload = {
+                "user_id": user_id,
+                "username": message.from_user.username or f"User{user_id}",
+                "level": user["level"],
+                "xp_total": user["xp_total"],
+            }
+
             path = generate_profile_image(payload)
+
             with open(path, "rb") as f:
                 bot.send_photo(message.chat.id, f)
+
         except Exception as e:
             bot.reply_to(message, f"Error generating profile: {e}")
 
-
-    # ------------------------------------------------------------
-    # LEADERBOARD (Comic Poster v2)
-    # ------------------------------------------------------------
-    @bot.message_handler(commands=['leaderboard'])
-    def leaderboard(message):
-        sync_username(message)
-
-        rows = get_top_users(10)
-        if not rows:
-            bot.reply_to(message, "No players found.")
-            return
-
+    # ======================================================
+    #   /leaderboard COMMAND
+    # ======================================================
+    @bot.message_handler(commands=["leaderboard"])
+    def leaderboard_cmd(message):
         try:
-            poster = generate_leaderboard_poster_v2(rows)
-            with open(poster, "rb") as f:
-                bot.send_photo(
-                    message.chat.id,
-                    f,
-                    caption="🏆 *MegaGrok Leaderboard* 🏆",
-                    parse_mode="Markdown"
-                )
+            users = get_top_users(10)  # returns list of dicts
+            path = generate_leaderboard_poster_v2(users)
+
+            with open(path, "rb") as f:
+                bot.send_photo(message.chat.id, f)
+
         except Exception as e:
             bot.reply_to(message, f"Error generating leaderboard: {e}")
