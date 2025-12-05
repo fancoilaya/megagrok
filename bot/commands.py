@@ -1,12 +1,11 @@
 # bot/commands.py
-# Core command handlers for MegaGrok bot
-# All modular commands (/battle, /growmygrok, /grokdex, etc.) are in /bot/handlers
+# Core commands for MegaGrok — classic commands only.
+# All advanced systems (/battle, /grokdex, /growmygrok, etc.) live in /bot/handlers/.
 
 import os
 import time
 import random
 from telebot import TeleBot
-from PIL import Image
 
 from bot.db import (
     get_user,
@@ -18,14 +17,14 @@ from bot.db import (
     get_top_users
 )
 
-from bot.images import generate_leaderboard_poster_v2
+from bot.images import generate_leaderboard_premium
 from bot.profile_image import generate_profile_image
 from bot.mobs import MOBS
 import bot.evolutions as evolutions
 
 
 # ======================================================
-# • HELP TEXT
+# HELP & START TEXT
 # ======================================================
 
 HELP_TEXT = (
@@ -36,10 +35,8 @@ HELP_TEXT = (
     "/leaderboard – Global ranking poster\n"
     "/growmygrok – Gain XP and evolve your Grok\n"
     "/hop – Daily ritual for bonus XP\n"
-    "/fight – Classic fight (1/day)\n"
-    "/battle – Advanced RPG battle engine\n"
-    "/grokdex – Browse all mobs\n"
-    "/mob <name> – Inspect a creature\n\n"
+    "/battle – Advanced RPG combat engine\n"
+    "/grokdex – View all creatures\n"
     "🚀 Train. Evolve. Dominate the Hop-Verse."
 )
 
@@ -50,16 +47,15 @@ START_TEXT = (
     "🔥 Core Commands:\n"
     "• /growmygrok – Feed cosmic hop-energy\n"
     "• /hop – Daily ritual boost\n"
-    "• /fight – Quick XP fight\n"
-    "• /battle – Full RPG combat\n"
+    "• /battle – Full RPG battle engine\n"
     "• /profile – Your Grok card\n"
-    "• /leaderboard – Global ranking\n\n"
+    "• /leaderboard – Global rankings\n\n"
     "Welcome to the MegaGrok Metaverse!"
 )
 
 
 # ======================================================
-# • REGISTER HANDLERS
+# REGISTER HANDLERS
 # ======================================================
 
 def register_handlers(bot: TeleBot):
@@ -100,22 +96,20 @@ def register_handlers(bot: TeleBot):
             lvl += 1
             xp_to_next = int(xp_to_next * curve)
 
-        update_user_xp(
-            user_id,
-            {
-                "xp_total": xp_total,
-                "xp_current": cur,
-                "xp_to_next_level": xp_to_next,
-                "level": lvl
-            }
-        )
+        update_user_xp(user_id, {
+            "xp_total": xp_total,
+            "xp_current": cur,
+            "xp_to_next_level": xp_to_next,
+            "level": lvl
+        })
 
         increment_ritual(user_id)
         record_quest(user_id, "hop")
+
         bot.reply_to(message, f"🐸✨ Hop Ritual complete! +{xp_gain} XP")
 
     # ======================================================
-    #   /fight COMMAND (classic version)
+    #   /fight COMMAND (classic)
     # ======================================================
     @bot.message_handler(commands=["fight"])
     def fight_cmd(message):
@@ -133,7 +127,6 @@ def register_handlers(bot: TeleBot):
             parse_mode="Markdown"
         )
 
-        # Try send portrait
         portrait = mob.get("portrait")
         if portrait and os.path.exists(portrait):
             with open(portrait, "rb") as f:
@@ -148,7 +141,6 @@ def register_handlers(bot: TeleBot):
         evo_mult = evolutions.get_xp_multiplier_for_level(lvl) * float(user.get("evolution_multiplier", 1.0))
         effective_xp = int(base_xp * evo_mult)
 
-        # XP UPDATE
         xp_total = user["xp_total"] + effective_xp
         cur = user["xp_current"] + effective_xp
         xp_to_next = user["xp_to_next_level"]
@@ -161,23 +153,20 @@ def register_handlers(bot: TeleBot):
             xp_to_next = int(xp_to_next * curve)
             leveled = True
 
-        update_user_xp(
-            user_id,
-            {
-                "xp_total": xp_total,
-                "xp_current": cur,
-                "xp_to_next_level": xp_to_next,
-                "level": lvl
-            }
-        )
+        update_user_xp(user_id, {
+            "xp_total": xp_total,
+            "xp_current": cur,
+            "xp_to_next_level": xp_to_next,
+            "level": lvl
+        })
 
-        # RECORD QUEST
         record_quest(user_id, "fight")
         if win:
             increment_win(user_id)
 
         pct = cur / xp_to_next
-        bar = "▓" * int(20 * pct) + "░" * (20 - int(20 * pct))
+        bar_len = int(20 * pct)
+        bar = "▓" * bar_len + "░" * (20 - bar_len)
 
         msg = (
             f"⚔️ **{'VICTORY' if win else 'DEFEAT'}**\n"
@@ -212,7 +201,6 @@ def register_handlers(bot: TeleBot):
             }
 
             path = generate_profile_image(payload)
-
             with open(path, "rb") as f:
                 bot.send_photo(message.chat.id, f)
 
@@ -225,8 +213,11 @@ def register_handlers(bot: TeleBot):
     @bot.message_handler(commands=["leaderboard"])
     def leaderboard_cmd(message):
         try:
-            users = get_top_users(10)  # returns list of dicts
-            path = generate_leaderboard_poster_v2(users)
+            users = get_top_users(12)  # returns list of dicts
+            path = generate_leaderboard_premium(
+                users,
+                output_path=f"/tmp/leaderboard_{int(time.time())}.png"
+            )
 
             with open(path, "rb") as f:
                 bot.send_photo(message.chat.id, f)
