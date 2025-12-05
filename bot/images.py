@@ -1,122 +1,158 @@
 # bot/images.py
-# ------------------------------------------------------------
-# MegaGrok Comic-Style Leaderboard Poster Generator (Pillow 10+ safe)
-# ------------------------------------------------------------
+# Leaderboard + Profile image generator (Pillow)
 
-from PIL import Image, ImageDraw, ImageFont
 import os
-import time
-from typing import List, Dict
+from PIL import Image, ImageDraw, ImageFont
 
-CANVAS_W = 1080
-CANVAS_H = 1920
+# -------------------------------------------------------------
+# FONT SETUP
+# -------------------------------------------------------------
+FONT_TITLE = "/usr/local/share/fonts/megagrok.ttf"
+FONT_BODY = "/usr/local/share/fonts/megagrok.ttf"
 
-FONT_PATHS = [
-    "assets/fonts/megagrok_bold.ttf",
-    "/var/data/megagrok_bold.ttf",
-]
+if not os.path.exists(FONT_TITLE):
+    # fallback
+    FONT_TITLE = FONT_BODY = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 
-def _load_font(size: int):
-    for p in FONT_PATHS:
-        if os.path.exists(p):
-            try:
-                return ImageFont.truetype(p, size)
-            except:
-                pass
-    return ImageFont.load_default()
 
-def _text_size(draw, text, font):
-    """Pillow 10-compatible text measurement."""
-    bbox = draw.textbbox((0, 0), text, font=font)
-    w = bbox[2] - bbox[0]
-    h = bbox[3] - bbox[1]
-    return w, h
+def _load_font(size):
+    try:
+        return ImageFont.truetype(FONT_BODY, size)
+    except:
+        return ImageFont.load_default()
 
-# Colors
-COLOR_TITLE = (255, 159, 28)
-COLOR_USERNAME = (110, 231, 249)
-COLOR_BADGE = (255, 209, 102)
-COLOR_XP = (255, 244, 230)
-OUTLINE = (20, 12, 40)
 
-def _draw_text(draw, x, y, text, font, fill, outline, shadow=True):
-    if shadow:
-        draw.text((x+4, y+4), text, font=font, fill=(0,0,0))
-    for dx in (-2, -1, 0, 1, 2):
-        for dy in (-2, -1, 0, 1, 2):
-            draw.text((x+dx, y+dy), text, font=font, fill=outline)
-    draw.text((x, y), text, font=font, fill=fill)
+# -------------------------------------------------------------
+# DRAWING HELPERS
+# -------------------------------------------------------------
 
-def _create_gradient():
-    img = Image.new("RGB", (CANVAS_W, CANVAS_H), (10, 6, 20))
-    px = img.load()
-    for y in range(CANVAS_H):
-        f = y / CANVAS_H
-        r = int(10*(1-f) + 24*f)
-        g = int(6*(1-f) + 6*f)
-        b = int(20*(1-f) + 46*f)
-        for x in range(CANVAS_W):
-            px[x,y] = (r,g,b)
-    return img
+def _text(draw, text, xy, size, fill):
+    font = _load_font(size)
+    draw.text(xy, text, font=font, fill=fill)
 
-def generate_leaderboard_poster_v2(rows: List[Dict], limit: int = 10):
-    rows = rows[:limit]
-    while len(rows) < 10:
-        rows.append({
-            "username": "Unknown",
-            "xp_total": 0,
-            "level": 1
-        })
 
-    bg = _create_gradient()
-    draw = ImageDraw.Draw(bg)
+def _bbox(draw, text, size):
+    font = _load_font(size)
+    return draw.textbbox((0, 0), text, font=font)
 
-    title_font = _load_font(110)
-    row_font = _load_font(60)
-    xp_font = _load_font(40)
-    lvl_font = _load_font(32)
 
-    # TITLE
-    y = 80
-    for line in ("MEGAGROK", "LEADERBOARD"):
-        w, h = _text_size(draw, line, title_font)
-        x = (CANVAS_W - w)//2
-        _draw_text(draw, x, y, line, title_font, COLOR_TITLE, OUTLINE)
-        y += h + 5
+def _medal_icon(draw, x, y, size, fill_color, outline="black"):
+    """
+    Draws a comic-style circular medal with a star.
+    size = diameter
+    """
+    r = size // 2
+    # Circle
+    draw.ellipse((x - r, y - r, x + r, y + r), fill=fill_color, outline=outline, width=4)
+    # Star (simple 5-point style)
+    star = [
+        (x, y - r + 6),
+        (x + r - 4, y + r - 8),
+        (x - r + 4, y + r - 8),
+    ]
+    draw.polygon(star, fill="white", outline=outline)
 
-    start_y = y + 80
-    row_height = 130
 
-    for i, entry in enumerate(rows):
-        row_y = start_y + i * row_height
+# -------------------------------------------------------------
+# LEADERBOARD GENERATOR
+# -------------------------------------------------------------
 
-        # Rank badge
-        cx, cy = 140, row_y + 50
-        r = 42
-        draw.ellipse((cx-r, cy-r, cx+r, cy+r), fill=COLOR_BADGE, outline=(0,0,0), width=4)
+def generate_leaderboard_image(users, output_path="/tmp/leaderboard.png"):
+    """
+    users = [(user_id, username, xp), ...] sorted descending by XP
+    Writes image file to output_path
+    """
 
-        rn = str(i + 1)
-        rw, rh = _text_size(draw, rn, row_font)
-        draw.text((cx - rw/2, cy - rh/2), rn, font=row_font, fill=(0,0,0))
+    W, H = 1080, 1920
+    img = Image.new("RGB", (W, H), "#1a1a1d")
+    draw = ImageDraw.Draw(img)
+
+    # Title
+    title = "MEGAGROK\nLEADERBOARD"
+    title_font = _load_font(140)
+    title_bbox = draw.multiline_textbbox((0, 0), title, font=title_font)
+    tw = title_bbox[2] - title_bbox[0]
+    draw.multiline_text(
+        ((W - tw) // 2, 80),
+        title,
+        font=title_font,
+        fill="#ff9933",
+        align="center"
+    )
+
+    # Y offset under title
+    y = 400
+
+    # Row settings
+    row_h = 150
+    padding = 20
+
+    for idx, (uid, uname, xp) in enumerate(users[:50]):  # max 50 entries
+        rank = idx + 1
+
+        # fallback username
+        if not uname:
+            uname = f"User{uid}"
+
+        # Determine style for top 3
+        medal_color = None
+        strip_color = None
+
+        if rank == 1:
+            medal_color = "#ffd700"      # Gold
+            strip_color = "#3a2a00"
+        elif rank == 2:
+            medal_color = "#c0c0c0"      # Silver
+            strip_color = "#2e2e2e"
+        elif rank == 3:
+            medal_color = "#cd7f32"      # Bronze
+            strip_color = "#3b2415"
+
+        # Draw colored strip behind top 3
+        if strip_color:
+            draw.rectangle(
+                (60, y - 20, W - 60, y + row_h - 50),
+                fill=strip_color
+            )
+
+        # Draw medal
+        if medal_color:
+            _medal_icon(draw, 140, y + 40, 80, medal_color)
+
+        # Rank text
+        _text(draw, f"{rank}", (240, y), 70, "#ffffff")
 
         # Username
-        username = entry.get("username", "Unknown")
-        _draw_text(draw, 240, row_y, username, row_font, COLOR_USERNAME, OUTLINE)
+        _text(draw, uname, (350, y), 70, "#8df0ff")
 
-        # XP
-        xp_txt = f"{entry.get('xp_total', 0)} XP"
-        xp_w, _ = _text_size(draw, xp_txt, xp_font)
-        _draw_text(draw, CANVAS_W - xp_w - 90, row_y + 40, xp_txt, xp_font, COLOR_XP, OUTLINE)
+        # XP text
+        _text(draw, f"{xp} XP", (350, y + 70), 50, "#ffcc66")
 
-        # Level
-        lvl = f"LV {entry.get('level', 1)}"
-        draw.text((240, row_y + 80), lvl, font=lvl_font, fill=(255,220,150))
+        y += row_h
 
-    out_path = f"/var/data/leaderboard_{int(time.time())}.png"
-    try:
-        bg.save(out_path, "PNG")
-        return out_path
-    except:
-        tmp = f"/tmp/leaderboard_{int(time.time())}.png"
-        bg.save(tmp, "PNG")
-        return tmp
+    img.save(output_path)
+    return output_path
+
+
+# -------------------------------------------------------------
+# PROFILE IMAGE (placeholder until we finalize new design)
+# -------------------------------------------------------------
+def generate_profile_image(user):
+    """
+    Placeholder until we rebuild profile card v2.
+    """
+    W, H = 1080, 1080
+    img = Image.new("RGB", (W, H), "#202024")
+    draw = ImageDraw.Draw(img)
+
+    uname = user.get("username", f"User{user['user_id']}")
+    xp = user.get("xp_total", 0)
+    lvl = user.get("level", 1)
+
+    _text(draw, uname, (60, 60), 80, "#8df0ff")
+    _text(draw, f"Level {lvl}", (60, 180), 60, "#ff9933")
+    _text(draw, f"XP: {xp}", (60, 260), 60, "#ffffff")
+
+    path = f"/tmp/profile_{user['user_id']}.png"
+    img.save(path)
+    return path
