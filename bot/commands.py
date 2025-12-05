@@ -16,13 +16,13 @@ from bot.db import (
     record_quest,
     increment_win,
     increment_ritual,
-    get_top_users
+    get_top_users,
+    update_username   # NEW: keep Telegram username synced
 )
 
-from bot.images import (
-    generate_profile_image,
-    generate_leaderboard_poster_v2
-)
+# NEW IMPORTS (split image system)
+from bot.profile_image import generate_profile_image
+from bot.images import generate_leaderboard_poster_v2
 
 from bot.mobs import MOBS
 import bot.evolutions as evolutions
@@ -68,21 +68,37 @@ START_TEXT = (
 
 def register_handlers(bot: TeleBot):
 
+    # Utility: Always keep username updated
+    def sync_username(message):
+        try:
+            uid = message.from_user.id
+            uname = message.from_user.username or ""
+            update_username(uid, uname)
+        except:
+            pass
+
+
     # START COMMAND
     @bot.message_handler(commands=['start'])
     def start(message):
+        sync_username(message)
         bot.reply_to(message, START_TEXT, parse_mode="Markdown")
+
 
     # HELP COMMAND
     @bot.message_handler(commands=['help'])
     def help_cmd(message):
+        sync_username(message)
         bot.reply_to(message, HELP_TEXT, parse_mode="Markdown")
+
 
     # ------------------------------------------------------------
     # HOP COMMAND
     # ------------------------------------------------------------
     @bot.message_handler(commands=['hop'])
     def hop(message):
+        sync_username(message)
+
         user_id = message.from_user.id
         q = get_quests(user_id)
 
@@ -99,6 +115,7 @@ def register_handlers(bot: TeleBot):
         level = user["level"]
         curve = user["level_curve_factor"]
 
+        # Level calculation
         if cur >= xp_to_next:
             cur -= xp_to_next
             level += 1
@@ -119,11 +136,14 @@ def register_handlers(bot: TeleBot):
 
         bot.reply_to(message, f"🐸✨ Hop Ritual complete! +{xp_gain} XP")
 
+
     # ------------------------------------------------------------
     # FIGHT COMMAND (Classic)
     # ------------------------------------------------------------
     @bot.message_handler(commands=['fight'])
     def fight(message):
+        sync_username(message)
+
         user_id = message.from_user.id
         q = get_quests(user_id)
 
@@ -139,7 +159,7 @@ def register_handlers(bot: TeleBot):
             parse_mode="Markdown"
         )
 
-        # Portrait
+        # Try sending portrait
         try:
             portrait = mob.get("portrait")
             if portrait and os.path.exists(portrait):
@@ -204,46 +224,48 @@ def register_handlers(bot: TeleBot):
 
         bot.send_message(message.chat.id, msg, parse_mode="Markdown")
 
+
     # ------------------------------------------------------------
-    # PROFILE
+    # PROFILE (Comic-style poster)
     # ------------------------------------------------------------
     @bot.message_handler(commands=['profile'])
     def profile(message):
+        sync_username(message)
+
         user_id = message.from_user.id
         user = get_user(user_id)
 
-        user_payload = {
+        payload = {
             "user_id": user_id,
             "username": message.from_user.username or f"User{user_id}",
             "form": user.get("form"),
             "level": user.get("level"),
             "wins": user.get("wins"),
-            "fights": user.get("mobs_defeated"),
+            "kills": user.get("mobs_defeated"),
             "rituals": user.get("rituals"),
             "xp_total": user.get("xp_total")
         }
 
         try:
-            png_path = generate_profile_image(user_payload)
-
-            with open(png_path, "rb") as f:
+            path = generate_profile_image(payload)
+            with open(path, "rb") as f:
                 bot.send_photo(message.chat.id, f)
-
         except Exception as e:
             bot.reply_to(message, f"Error generating profile: {e}")
 
+
     # ------------------------------------------------------------
-    # NEW LEADERBOARD COMMAND (Poster v2)
+    # LEADERBOARD (Comic Poster v2)
     # ------------------------------------------------------------
     @bot.message_handler(commands=['leaderboard'])
     def leaderboard(message):
+        sync_username(message)
 
         rows = get_top_users(10)
         if not rows:
             bot.reply_to(message, "No players found.")
             return
 
-        # Generate comic leaderboard poster
         try:
             poster = generate_leaderboard_poster_v2(rows)
             with open(poster, "rb") as f:
@@ -254,4 +276,4 @@ def register_handlers(bot: TeleBot):
                     parse_mode="Markdown"
                 )
         except Exception as e:
-            bot.reply_to(message, f"Error generating leaderboard poster: {e}")
+            bot.reply_to(message, f"Error generating leaderboard: {e}")
