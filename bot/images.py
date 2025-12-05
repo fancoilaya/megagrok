@@ -1,6 +1,6 @@
 # bot/images.py
 # ------------------------------------------------------------
-# MegaGrok Comic-Style Leaderboard Poster Generator
+# MegaGrok Comic-Style Leaderboard Poster Generator (Pillow 10+ safe)
 # ------------------------------------------------------------
 
 from PIL import Image, ImageDraw, ImageFont
@@ -11,7 +11,6 @@ from typing import List, Dict
 CANVAS_W = 1080
 CANVAS_H = 1920
 
-# Font search locations
 FONT_PATHS = [
     "assets/fonts/megagrok_bold.ttf",
     "/var/data/megagrok_bold.ttf",
@@ -26,13 +25,19 @@ def _load_font(size: int):
                 pass
     return ImageFont.load_default()
 
+def _text_size(draw, text, font):
+    """Pillow 10-compatible text measurement."""
+    bbox = draw.textbbox((0, 0), text, font=font)
+    w = bbox[2] - bbox[0]
+    h = bbox[3] - bbox[1]
+    return w, h
+
 # Colors
 COLOR_TITLE = (255, 159, 28)
 COLOR_USERNAME = (110, 231, 249)
 COLOR_BADGE = (255, 209, 102)
 COLOR_XP = (255, 244, 230)
 OUTLINE = (20, 12, 40)
-SHADOW = (0, 0, 0, 180)
 
 def _draw_text(draw, x, y, text, font, fill, outline, shadow=True):
     if shadow:
@@ -47,9 +52,9 @@ def _create_gradient():
     px = img.load()
     for y in range(CANVAS_H):
         f = y / CANVAS_H
-        r = int(10 * (1 - f) + 24 * f)
-        g = int(6 * (1 - f) + 6 * f)
-        b = int(20 * (1 - f) + 46 * f)
+        r = int(10*(1-f) + 24*f)
+        g = int(6*(1-f) + 6*f)
+        b = int(20*(1-f) + 46*f)
         for x in range(CANVAS_W):
             px[x,y] = (r,g,b)
     return img
@@ -57,7 +62,11 @@ def _create_gradient():
 def generate_leaderboard_poster_v2(rows: List[Dict], limit: int = 10):
     rows = rows[:limit]
     while len(rows) < 10:
-        rows.append({"username": "Unknown", "xp_total": 0, "level": 1})
+        rows.append({
+            "username": "Unknown",
+            "xp_total": 0,
+            "level": 1
+        })
 
     bg = _create_gradient()
     draw = ImageDraw.Draw(bg)
@@ -67,48 +76,47 @@ def generate_leaderboard_poster_v2(rows: List[Dict], limit: int = 10):
     xp_font = _load_font(40)
     lvl_font = _load_font(32)
 
-    # Title
-    txt = "MEGAGROK\nLEADERBOARD"
+    # TITLE
     y = 80
-    for line in txt.split("\n"):
-        w, h = draw.textsize(line, font=title_font)
+    for line in ("MEGAGROK", "LEADERBOARD"):
+        w, h = _text_size(draw, line, title_font)
         x = (CANVAS_W - w)//2
         _draw_text(draw, x, y, line, title_font, COLOR_TITLE, OUTLINE)
         y += h + 5
 
-    start_y = y + 50
-    row_height = 120
+    start_y = y + 80
+    row_height = 130
 
     for i, entry in enumerate(rows):
         row_y = start_y + i * row_height
 
-        # rank badge
+        # Rank badge
         cx, cy = 140, row_y + 50
-        r = 40
-        draw.ellipse((cx-r,cy-r,cx+r,cy+r), fill=COLOR_BADGE, outline=(0,0,0), width=4)
-        rn = str(i+1)
-        rw, rh = draw.textsize(rn, font=row_font)
-        draw.text((cx-rw/2,cy-rh/2), rn, font=row_font, fill=(0,0,0))
+        r = 42
+        draw.ellipse((cx-r, cy-r, cx+r, cy+r), fill=COLOR_BADGE, outline=(0,0,0), width=4)
 
-        # username
-        username = entry.get("username","Unknown")
+        rn = str(i + 1)
+        rw, rh = _text_size(draw, rn, row_font)
+        draw.text((cx - rw/2, cy - rh/2), rn, font=row_font, fill=(0,0,0))
+
+        # Username
+        username = entry.get("username", "Unknown")
         _draw_text(draw, 240, row_y, username, row_font, COLOR_USERNAME, OUTLINE)
 
         # XP
-        xp = f"{entry.get('xp_total', 0)} XP"
-        xpw, _ = draw.textsize(xp, font=xp_font)
-        _draw_text(draw, CANVAS_W - xpw - 80, row_y+40, xp, xp_font, COLOR_XP, OUTLINE)
+        xp_txt = f"{entry.get('xp_total', 0)} XP"
+        xp_w, _ = _text_size(draw, xp_txt, xp_font)
+        _draw_text(draw, CANVAS_W - xp_w - 90, row_y + 40, xp_txt, xp_font, COLOR_XP, OUTLINE)
 
-        # level
-        lvl = f"LV {entry.get('level',1)}"
-        draw.text((240, row_y+70), lvl, font=lvl_font, fill=(255,220,150))
+        # Level
+        lvl = f"LV {entry.get('level', 1)}"
+        draw.text((240, row_y + 80), lvl, font=lvl_font, fill=(255,220,150))
 
-    # save to disk
     out_path = f"/var/data/leaderboard_{int(time.time())}.png"
     try:
         bg.save(out_path, "PNG")
         return out_path
     except:
-        fallback = f"/tmp/leaderboard_{int(time.time())}.png"
-        bg.save(fallback, "PNG")
-        return fallback
+        tmp = f"/tmp/leaderboard_{int(time.time())}.png"
+        bg.save(tmp, "PNG")
+        return tmp
