@@ -2,6 +2,7 @@
 # MegaGrok Leaderboard Renderer — Comic Style Premium Edition
 
 import os
+import math               # << REQUIRED for medal burst!
 from PIL import Image, ImageDraw, ImageFont
 
 FONT_PATH = "assets/fonts/megagrok.ttf"
@@ -52,10 +53,12 @@ def draw_medal(draw, x, y, rank):
 
     pts = []
     for i in range(18):
-        angle = i * 3.14159 * 2 / 18
+        angle = i * 2 * math.pi / 18
         dist = r if i % 2 == 0 else r * 0.6
-        pts.append((cx + dist * 1.0 * (math.cos(angle)),
-                    cy + dist * 1.0 * (math.sin(angle))))
+        pts.append((
+            cx + dist * math.cos(angle),
+            cy + dist * math.sin(angle)
+        ))
 
     draw.polygon(pts, fill=color, outline="black")
     draw.ellipse((cx - 16, cy - 16, cx + 16, cy + 16), fill="white", outline="black")
