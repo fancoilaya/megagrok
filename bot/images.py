@@ -1,126 +1,134 @@
 # bot/images.py
-# MegaGrok Leaderboard Poster Generator (Pillow 10+ Compatible)
+# Leaderboard + Profile image generator (Pillow)
 
 import os
 from PIL import Image, ImageDraw, ImageFont
 
-
-# -------------------------------------------------
+# -------------------------------------------------------------
 # FONT SETUP
-# -------------------------------------------------
-FONT_PATH = "/usr/local/share/fonts/megagrok.ttf"
-if not os.path.exists(FONT_PATH):
-    FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+# -------------------------------------------------------------
+FONT_TITLE = "/usr/local/share/fonts/megagrok.ttf"
+FONT_BODY = "/usr/local/share/fonts/megagrok.ttf"
+
+if not os.path.exists(FONT_TITLE):
+    # fallback
+    FONT_TITLE = FONT_BODY = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 
 
-def _font(size):
+def _load_font(size):
     try:
-        return ImageFont.truetype(FONT_PATH, size)
+        return ImageFont.truetype(FONT_BODY, size)
     except:
         return ImageFont.load_default()
 
 
-# -------------------------------------------------
-# DRAW HELPERS
-# -------------------------------------------------
-def _draw_medal(draw, x, y, size, fill):
-    """Comic-style medal with thick outline + simple star."""
+# -------------------------------------------------------------
+# DRAWING HELPERS
+# -------------------------------------------------------------
+
+def _text(draw, text, xy, size, fill):
+    font = _load_font(size)
+    draw.text(xy, text, font=font, fill=fill)
+
+
+def _bbox(draw, text, size):
+    font = _load_font(size)
+    return draw.textbbox((0, 0), text, font=font)
+
+
+def _medal_icon(draw, x, y, size, fill_color, outline="black"):
+    """
+    Draws a comic-style circular medal with a star.
+    size = diameter
+    """
     r = size // 2
-    draw.ellipse(
-        (x - r, y - r, x + r, y + r),
-        fill=fill,
-        outline="black",
-        width=6,
-    )
-
-    # Star (simple 3-point comic star)
+    # Circle
+    draw.ellipse((x - r, y - r, x + r, y + r), fill=fill_color, outline=outline, width=4)
+    # Star (simple 5-point style)
     star = [
-        (x, y - r + 8),
-        (x + r - 6, y + r - 10),
-        (x - r + 6, y + r - 10),
+        (x, y - r + 6),
+        (x + r - 4, y + r - 8),
+        (x - r + 4, y + r - 8),
     ]
-    draw.polygon(star, fill="white", outline="black")
+    draw.polygon(star, fill="white", outline=outline)
 
 
-# -------------------------------------------------
-# MAIN POSTER GENERATOR (FIXED FOR PILLOW 10+)
-# -------------------------------------------------
+# -------------------------------------------------------------
+# LEADERBOARD GENERATOR
+# -------------------------------------------------------------
+
 def generate_leaderboard_premium(users, output_path="/tmp/leaderboard.png"):
     """
-    users = list of dicts from db.get_top_users()
+    users = [(user_id, username, xp), ...] sorted descending by XP
+    Writes image file to output_path
     """
 
-    # Canvas
     W, H = 1080, 1920
-    img = Image.new("RGB", (W, H), "#191A1D")
+    img = Image.new("RGB", (W, H), "#1a1a1d")
     draw = ImageDraw.Draw(img)
 
-    # -------------------------------------------------
-    # TITLE (Pillow 10 fix)
-    # -------------------------------------------------
+    # Title
     title = "MEGAGROK\nLEADERBOARD"
-    font_title = _font(130)
-
-    # Correct Pillow 10+ method:
-    bbox = draw.multiline_textbbox((0, 0), title, font=font_title)
-    tw = bbox[2] - bbox[0]
-
+    title_font = _load_font(140)
+    title_bbox = draw.multiline_textbbox((0, 0), title, font=title_font)
+    tw = title_bbox[2] - title_bbox[0]
     draw.multiline_text(
-        ((W - tw) // 2, 60),
+        ((W - tw) // 2, 80),
         title,
-        font=font_title,
-        fill="#FFB347",
-        align="center",
+        font=title_font,
+        fill="#ff9933",
+        align="center"
     )
 
-    # -------------------------------------------------
-    # ROWS
-    # -------------------------------------------------
-    y = 350
-    row_height = 150
+    # Y offset under title
+    y = 400
 
-    for idx, u in enumerate(users):
+    # Row settings
+    row_h = 150
+    padding = 20
+
+    for idx, (uid, uname, xp) in enumerate(users[:50]):  # max 50 entries
         rank = idx + 1
 
-        uid = u["user_id"]
-        uname = u["username"] or f"User{uid}"
-        xp = u["xp_total"]
+        # fallback username
+        if not uname:
+            uname = f"User{uid}"
 
-        # Top 3 highlighting
-        medal = None
-        strip = None
+        # Determine style for top 3
+        medal_color = None
+        strip_color = None
 
         if rank == 1:
-            medal = "#FFD700"  # Gold
-            strip = "#3A2A00"
+            medal_color = "#ffd700"      # Gold
+            strip_color = "#3a2a00"
         elif rank == 2:
-            medal = "#C0C0C0"  # Silver
-            strip = "#2E2E2E"
+            medal_color = "#c0c0c0"      # Silver
+            strip_color = "#2e2e2e"
         elif rank == 3:
-            medal = "#CD7F32"  # Bronze
-            strip = "#3B2415"
+            medal_color = "#cd7f32"      # Bronze
+            strip_color = "#3b2415"
 
-        # Background strip
-        if strip:
+        # Draw colored strip behind top 3
+        if strip_color:
             draw.rectangle(
-                (60, y - 20, W - 60, y + row_height - 40),
-                fill=strip,
+                (60, y - 20, W - 60, y + row_h - 50),
+                fill=strip_color
             )
 
-        # Medal icon
-        if medal:
-            _draw_medal(draw, 140, y + 40, 90, medal)
+        # Draw medal
+        if medal_color:
+            _medal_icon(draw, 140, y + 40, 80, medal_color)
 
-        # Rank
-        draw.text((240, y), f"{rank}", font=_font(70), fill="white")
+        # Rank text
+        _text(draw, f"{rank}", (240, y), 70, "#ffffff")
 
         # Username
-        draw.text((350, y), uname, font=_font(70), fill="#8DF0FF")
+        _text(draw, uname, (350, y), 70, "#8df0ff")
 
-        # XP
-        draw.text((350, y + 70), f"{xp} XP", font=_font(55), fill="#FFDD99")
+        # XP text
+        _text(draw, f"{xp} XP", (350, y + 70), 50, "#ffcc66")
 
-        y += row_height
+        y += row_h
 
     img.save(output_path)
     return output_path
