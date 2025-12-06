@@ -1,9 +1,5 @@
 # bot/commands.py
-# MegaGrok Command Layer — Stable Production Version
-# Includes:
-# - Auto-save username on every message
-# - Help, start, hop, fight, profile, leaderboard, wipe
-# - Safe error handling & clean structure
+# MegaGrok Commands Module — Stable & Safe Edition
 
 import os
 import time
@@ -21,22 +17,25 @@ except:
 HELP_TEXT = (
     "🐸 **MegaGrok Commands**\n\n"
     "/start - Begin your journey\n"
-    "/help - Show help\n"
-    "/growmygrok - Gain XP & evolve\n"
-    "/hop - Daily ritual\n"
-    "/fight - Quick fight (1/day)\n"
-    "/battle - Interactive RPG battle\n"
+    "/help - Show help menu\n"
+    "/growmygrok - Gain XP and grow your Grok\n"
+    "/hop - Daily ritual reward\n"
+    "/fight - Quick daily fight\n"
+    "/battle - Advanced interactive battle\n"
     "/profile - Show your Grok profile card\n"
-    "/leaderboard - Show leaderboard poster\n"
-    "/wipe <username> - (admin) remove a player\n"
+    "/leaderboard - Show global rankings\n"
+    "/grokdex - Explore all Hop-Verse creatures\n"
+    "/wipe <username> - (admin) Remove a player\n"
 )
 
 
 def register_handlers(bot: TeleBot):
+    """
+    Registers all handlers SAFELY.
+    This prevents import errors from crashing the whole bot.
+    """
 
-    # --------------------------------------------------------
-    # SAFE DB IMPORTS
-    # --------------------------------------------------------
+    # ---------------- SAFE IMPORTS ----------------
     try:
         from bot.db import (
             get_user,
@@ -46,64 +45,55 @@ def register_handlers(bot: TeleBot):
             increment_win,
             increment_ritual,
             get_top_users,
-            update_username,
-            cursor,
-            conn,
+            update_username
         )
     except Exception as e:
         raise RuntimeError(f"DB import failure: {e}")
 
-    # --------------------------------------------------------
-    # AUTO-SAVE USERNAME ON EVERY MESSAGE
-    # --------------------------------------------------------
-    @bot.message_handler(func=lambda m: True, content_types=['text'])
-    def _auto_update_username(msg):
-        try:
-            uid = msg.from_user.id
-            uname = msg.from_user.username or ""
-            if uname:
-                update_username(uid, uname)
-        except Exception:
-            pass  # silent fail
+    try:
+        from bot.mobs import MOBS
+    except Exception:
+        MOBS = []
 
-    # --------------------------------------------------------
-    # START
-    # --------------------------------------------------------
+    # ---------------- START ----------------
     @bot.message_handler(commands=["start"])
     def _start(message):
-        try:
-            text = (
-                "🐸🌌 *THE COSMIC AMPHIBIAN AWAKENS* 🌌🐸\n\n"
-                "Welcome to the MegaGrok Metaverse!\n"
-                "Use /help to begin."
-            )
-            bot.reply_to(message, text, parse_mode="Markdown")
-        except Exception as e:
-            bot.reply_to(message, f"Start failed: {e}")
+        text = (
+            "🐸🌌 *THE COSMIC AMPHIBIAN HAS AWAKENED* 🌌🐸\n\n"
+            "Welcome to the MegaGrok Metaverse!\n"
+            "Use /help to begin your journey."
+        )
+        bot.reply_to(message, text, parse_mode="Markdown")
 
-    # --------------------------------------------------------
-    # HELP
-    # --------------------------------------------------------
+    # ---------------- HELP ----------------
     @bot.message_handler(commands=["help"])
     def _help(message):
         bot.reply_to(message, HELP_TEXT, parse_mode="Markdown")
 
-    # --------------------------------------------------------
-    # HOP
-    # --------------------------------------------------------
+    # ---------------- AUTO-USERNAME SYNC (non-command messages only) ----------------
+    @bot.message_handler(func=lambda m: m.text and not m.text.startswith("/"))
+    def _auto_username(msg):
+        try:
+            uname = msg.from_user.username
+            if uname:
+                update_username(msg.from_user.id, uname)
+        except:
+            pass
+
+    # ---------------- HOP ----------------
     @bot.message_handler(commands=["hop"])
     def _hop(message):
         try:
-            user_id = message.from_user.id
-            quests = get_quests(user_id)
+            uid = message.from_user.id
+            q = get_quests(uid)
 
-            if quests.get("hop", 0) == 1:
-                bot.reply_to(message, "🐸 You already performed today’s ritual.")
-                return
+            if q.get("hop", 0) == 1:
+                return bot.reply_to(message, "🐸 You already performed today’s Hop Ritual!")
 
+            user = get_user(uid)
             xp_gain = random.randint(20, 50)
-            user = get_user(user_id)
 
+            # XP + Level Handling
             xp_total = user["xp_total"] + xp_gain
             cur = user["xp_current"] + xp_gain
             xp_to_next = user["xp_to_next_level"]
@@ -117,124 +107,123 @@ def register_handlers(bot: TeleBot):
                 xp_to_next = int(xp_to_next * curve)
                 leveled = True
 
-            update_user_xp(user_id, {
+            update_user_xp(uid, {
                 "xp_total": xp_total,
                 "xp_current": cur,
                 "xp_to_next_level": xp_to_next,
                 "level": level
             })
 
-            record_quest(user_id, "hop")
-            increment_ritual(user_id)
+            record_quest(uid, "hop")
+            increment_ritual(uid)
 
-            msg = f"🐸✨ Ritual complete! +{xp_gain} XP"
+            msg = f"🐸✨ Hop Ritual complete! +{xp_gain} XP"
             if leveled:
                 msg += "\n🎉 LEVEL UP!"
-
             bot.reply_to(message, msg)
-        except Exception as e:
-            bot.reply_to(message, f"Hop error: {e}")
 
-    # --------------------------------------------------------
-    # FIGHT
-    # --------------------------------------------------------
+        except Exception as e:
+            bot.reply_to(message, f"Hop failed:\n```\n{traceback.format_exc()}\n```", parse_mode="Markdown")
+
+    # ---------------- FIGHT ----------------
     @bot.message_handler(commands=["fight"])
     def _fight(message):
         try:
-            from bot.mobs import MOBS
-            import bot.evolutions as evolutions
-        except:
-            bot.reply_to(message, "Fight unavailable — missing modules.")
-            return
+            uid = message.from_user.id
+            q = get_quests(uid)
+            if q.get("fight", 0) == 1:
+                return bot.reply_to(message, "⚔️ You already fought today.")
 
-        user_id = message.from_user.id
-        quests = get_quests(user_id)
+            mob = random.choice(list(MOBS.values())) if isinstance(MOBS, dict) else random.choice(MOBS)
+            mob_name = mob.get("name", "Mob")
+            intro = mob.get("intro", "")
 
-        if quests.get("fight", 0) == 1:
-            bot.reply_to(message, "⚔️ You already fought today.")
-            return
+            bot.reply_to(
+                message,
+                f"⚔️ **{mob_name} Encounter!**\n\n{intro}",
+                parse_mode="Markdown"
+            )
 
-        mob = random.choice(list(MOBS.values()))
-        bot.reply_to(message,
-            f"⚔️ **{mob['name']} Encounter!**\n\n{mob['intro']}",
-            parse_mode="Markdown"
-        )
+            # Portrait
+            try:
+                portrait = mob.get("portrait")
+                if portrait and os.path.exists(portrait):
+                    with open(portrait, "rb") as f:
+                        bot.send_photo(message.chat.id, f)
+            except:
+                pass
 
-        try:
-            if os.path.exists(mob["portrait"]):
-                with open(mob["portrait"], "rb") as f:
-                    bot.send_photo(message.chat.id, f)
-        except:
-            pass
+            # Win?
+            win = random.choice([True, False])
+            base_xp = random.randint(mob.get("min_xp", 10), mob.get("max_xp", 50))
 
-        win = random.choice([True, False])
-        base_xp = random.randint(mob["min_xp"], mob["max_xp"])
+            if win:
+                increment_win(uid)
 
-        if win:
-            increment_win(user_id)
+            user = get_user(uid)
+            level = user["level"]
 
-        user = get_user(user_id)
-        level = user["level"]
+            # evo multiplier
+            try:
+                import bot.evolutions as evolutions
+                evo_mult = evolutions.get_xp_multiplier_for_level(level)
+            except:
+                evo_mult = 1.0
 
-        try:
-            evo_mult = evolutions.get_xp_multiplier_for_level(level) * float(user.get("evolution_multiplier", 1.0))
-        except:
-            evo_mult = 1.0
+            effective_xp = int(base_xp * evo_mult)
 
-        earned = int(base_xp * evo_mult)
+            # XP update
+            xp_total = user["xp_total"] + effective_xp
+            cur = user["xp_current"] + effective_xp
+            xp_to_next = user["xp_to_next_level"]
+            curve = user["level_curve_factor"]
 
-        # LEVEL SYSTEM
-        xp_total = user["xp_total"] + earned
-        cur = user["xp_current"] + earned
-        xp_to_next = user["xp_to_next_level"]
-        curve = user["level_curve_factor"]
+            leveled = False
+            while cur >= xp_to_next:
+                cur -= xp_to_next
+                level += 1
+                xp_to_next *= curve
+                leveled = True
 
-        leveled = False
-        while cur >= xp_to_next:
-            cur -= xp_to_next
-            level += 1
-            xp_to_next = int(xp_to_next * curve)
-            leveled = True
+            update_user_xp(uid, {
+                "xp_total": xp_total,
+                "xp_current": cur,
+                "xp_to_next_level": int(xp_to_next),
+                "level": level
+            })
 
-        update_user_xp(user_id, {
-            "xp_total": xp_total,
-            "xp_current": cur,
-            "xp_to_next_level": xp_to_next,
-            "level": level
-        })
+            record_quest(uid, "fight")
 
-        record_quest(user_id, "fight")
+            bar = int((cur / xp_to_next) * 20)
+            bar_txt = "▓" * bar + "░" * (20 - bar)
 
-        pct = int(cur / xp_to_next * 100)
-        bar = "▓" * (pct // 5) + "░" * (20 - pct // 5)
+            msg = (
+                f"⚔️ **{'VICTORY' if win else 'DEFEAT'}!**\n"
+                f"Enemy: *{mob_name}*\n\n"
+                f"📈 Base XP: +{base_xp}\n"
+                f"🔮 Evo Multiplier: ×{evo_mult:.2f}\n"
+                f"⚡ Total XP: +{effective_xp}\n\n"
+                f"🧬 Level: {level}\n"
+                f"🔸 Progress: `{bar_txt}`"
+            )
 
-        msg = (
-            f"⚔️ **{'VICTORY' if win else 'DEFEAT'}**\n"
-            f"Enemy: *{mob['name']}*\n\n"
-            f"XP: +{earned}\n"
-            f"Level: {level}\n"
-            f"Progress: `{bar}` {pct}%"
-        )
-        if leveled:
-            msg += "\n🎉 LEVEL UP!"
+            bot.send_message(message.chat.id, msg, parse_mode="Markdown")
 
-        bot.send_message(message.chat.id, msg, parse_mode="Markdown")
+        except Exception:
+            bot.reply_to(message, f"Fight failed:\n```\n{traceback.format_exc()}\n```", parse_mode="Markdown")
 
-    # --------------------------------------------------------
-    # PROFILE CARD
-    # --------------------------------------------------------
+    # ---------------- PROFILE ----------------
     @bot.message_handler(commands=["profile"])
     def _profile(message):
         try:
             from bot.images import generate_profile_image
-        except:
-            bot.reply_to(message, "Profile image generator missing.")
-            return
+        except Exception:
+            return bot.reply_to(message, "Profile generator missing.")
 
         user_id = message.from_user.id
         user = get_user(user_id)
 
-        payload = {
+        data = {
             "user_id": user_id,
             "username": message.from_user.username or f"User{user_id}",
             "level": user["level"],
@@ -243,61 +232,56 @@ def register_handlers(bot: TeleBot):
             "xp_total": user["xp_total"]
         }
 
-        path = generate_profile_image(payload)
-        with open(path, "rb") as f:
-            bot.send_photo(message.chat.id, f)
+        path = generate_profile_image(data)
+        if path:
+            with open(path, "rb") as f:
+                bot.send_photo(message.chat.id, f)
+        else:
+            bot.reply_to(message, "Failed to generate profile card.")
 
-    # --------------------------------------------------------
-    # LEADERBOARD
-    # --------------------------------------------------------
+    # ---------------- LEADERBOARD ----------------
     @bot.message_handler(commands=["leaderboard"])
     def _leaderboard(message):
         try:
-            users = get_top_users(limit=12)
-
+            users = get_top_users(50)
             from bot.images import generate_leaderboard_premium
-            path = generate_leaderboard_premium(users)
+            out = generate_leaderboard_premium(users)
 
-            with open(path, "rb") as f:
+            with open(out, "rb") as f:
                 bot.send_photo(message.chat.id, f)
-        except Exception as e:
-            tb = traceback.format_exc()
-            bot.reply_to(message, f"Leaderboard failed: {e}\n{tb}")
 
-    # --------------------------------------------------------
-    # WIPE USER (ADMIN ONLY)
-    # --------------------------------------------------------
+        except Exception:
+            bot.reply_to(message, f"Leaderboard failed:\n```\n{traceback.format_exc()}\n```", parse_mode="Markdown")
+
+    # ---------------- WIPE USER (admin) ----------------
     @bot.message_handler(commands=["wipe"])
     def _wipe(message):
+        if message.from_user.id != ADMIN_ID:
+            return bot.reply_to(message, "❌ Not authorized.")
+
+        parts = message.text.split(" ", 1)
+        if len(parts) < 2:
+            return bot.reply_to(message, "Usage: /wipe <username>")
+
+        username = parts[1].lstrip("@").lower()
+
         try:
-            if message.from_user.id != ADMIN_ID:
-                bot.reply_to(message, "❌ Not allowed.")
-                return
+            from bot import db
+            rows = db.cursor.execute("SELECT user_id, username FROM users").fetchall()
 
-            parts = message.text.split(" ", 1)
-            if len(parts) < 2:
-                bot.reply_to(message, "Usage: /wipe <username>")
-                return
-
-            target = parts[1].lstrip("@").lower()
-
-            cursor.execute("SELECT user_id, username FROM users")
-            rows = cursor.fetchall()
-
-            to_delete = None
+            target_id = None
             for uid, uname in rows:
-                if uname and uname.lower() == target:
-                    to_delete = uid
+                if uname and uname.lower().lstrip("@") == username:
+                    target_id = uid
                     break
 
-            if not to_delete:
-                bot.reply_to(message, f"❌ User @{target} not found.")
-                return
+            if not target_id:
+                return bot.reply_to(message, f"No user @{username} found.")
 
-            cursor.execute("DELETE FROM users WHERE user_id=?", (to_delete,))
-            conn.commit()
+            db.cursor.execute("DELETE FROM users WHERE user_id=?", (target_id,))
+            db.conn.commit()
 
-            bot.reply_to(message, "🧹 User is wiped from the Metaverse.")
-        except Exception as e:
-            tb = traceback.format_exc()
-            bot.reply_to(message, f"Wipe error: {e}\n{tb}")
+            bot.reply_to(message, f"User @{username} wiped from the Metaverse.")
+
+        except Exception:
+            bot.reply_to(message, f"WIPE error:\n```\n{traceback.format_exc()}\n```", parse_mode="Markdown")
