@@ -45,7 +45,7 @@ def _draw_medal(draw, x, y, size, fill):
 # -------------------------------------------------
 # MAIN POSTER GENERATOR (FIXED FOR PILLOW 10+)
 # -------------------------------------------------
-def generate_leaderboard_poster_v2(users, output_path="/tmp/leaderboard.png"):
+def generate_leaderboard_premium(users, output_path="/tmp/leaderboard.png"):
     """
     users = list of dicts from db.get_top_users()
     """
