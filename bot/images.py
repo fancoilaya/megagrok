@@ -1,35 +1,35 @@
 # bot/images.py
-# FINAL Leaderboard Renderer (Compatible With DB dict output)
+# MegaGrok Leaderboard Renderer — Comic Style Premium Edition
 
 import os
 import math
 from PIL import Image, ImageDraw, ImageFont
 
 FONT_PATH = "assets/fonts/megagrok.ttf"
-FALLBACK_FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+DEFAULT_FONT = "DejaVuSans-Bold.ttf"
 
 
-# --------------------------------------------------
+# --------------------------------------------------------
 # FONT LOADING
-# --------------------------------------------------
+# --------------------------------------------------------
 def load_font(size):
     try:
         return ImageFont.truetype(FONT_PATH, size)
-    except:
-        return ImageFont.truetype(FALLBACK_FONT, size)
+    except Exception:
+        return ImageFont.truetype(DEFAULT_FONT, size)
 
 
-# --------------------------------------------------
-# TEXT MEASUREMENT
-# --------------------------------------------------
+# --------------------------------------------------------
+# SAFE TEXT SIZE
+# --------------------------------------------------------
 def measure(draw, text, font):
     box = draw.textbbox((0, 0), text, font=font)
     return (box[2] - box[0], box[3] - box[1])
 
 
-# --------------------------------------------------
-# OUTLINE TEXT
-# --------------------------------------------------
+# --------------------------------------------------------
+# OUTLINE TEXT DRAWING
+# --------------------------------------------------------
 def draw_text_outline(draw, xy, text, font, fill, outline="black", width=3):
     x, y = xy
     for dx in range(-width, width + 1):
@@ -38,100 +38,107 @@ def draw_text_outline(draw, xy, text, font, fill, outline="black", width=3):
     draw.text((x, y), text, font=font, fill=fill)
 
 
-# --------------------------------------------------
-# COMIC MEDALS FOR TOP 3
-# --------------------------------------------------
+# --------------------------------------------------------
+# COMIC MEDAL BADGES FOR TOP 3
+# --------------------------------------------------------
 def draw_medal(draw, x, y, rank):
-    colors = {
-        1: "#ffd700",  # Gold
-        2: "#c0c0c0",  # Silver
-        3: "#cd7f32",  # Bronze
-    }
-    if rank not in colors:
+    if rank == 1:
+        color = "#FFD700"  # Gold
+    elif rank == 2:
+        color = "#C0C0C0"  # Silver
+    elif rank == 3:
+        color = "#CD7F32"  # Bronze
+    else:
         return
 
-    color = colors[rank]
-    r = 28
+    r = 32
     cx, cy = x + r, y + r
 
-    # burst background
     pts = []
     for i in range(18):
-        ang = i * (math.pi * 2 / 18)
-        dist = r if i % 2 == 0 else r * 0.55
-        pts.append((cx + dist * math.cos(ang), cy + dist * math.sin(ang)))
+        angle = i * math.pi * 2 / 18
+        dist = r if i % 2 == 0 else r * 0.6
+        pts.append((cx + dist * math.cos(angle), cy + dist * math.sin(angle)))
+
     draw.polygon(pts, fill=color, outline="black")
+    draw.ellipse((cx - 16, cy - 16, cx + 16, cy + 16), fill="white", outline="black")
 
-    # center circle
-    draw.ellipse((cx - 14, cy - 14, cx + 14, cy + 14), fill="white", outline="black")
-
-    # rank text
-    fnt = load_font(26)
-    tw, th = measure(draw, str(rank), fnt)
-    draw.text((cx - tw / 2, cy - th / 2), str(rank), font=fnt, fill="black")
+    fnt = load_font(28)
+    txt = str(rank)
+    tw, th = measure(draw, txt, fnt)
+    draw.text((cx - tw / 2, cy - th / 2), txt, font=fnt, fill="black")
 
 
-# --------------------------------------------------
-# LEADERBOARD GENERATOR (DICT COMPATIBLE)
-# --------------------------------------------------
+# --------------------------------------------------------
+# LEADERBOARD GENERATOR (MAIN FUNCTION)
+# --------------------------------------------------------
 def generate_leaderboard_premium(users):
     """
-    users = list of dicts from db.get_top_users()
-    Required fields:
-      user_id, username, xp_total, level
+    users = list of dicts:
+      user_id, username, level, xp_total
     """
 
     W, H = 1080, 1920
-    img = Image.new("RGB", (W, H), "#1c1c1e")
+    img = Image.new("RGB", (W, H), (22, 22, 22))
     dr = ImageDraw.Draw(img)
 
-    # ---------- TITLE (2-line centered) ----------
+    # ---------- TITLE ----------
     title = "MEGAGROK\nLEADERBOARD"
-    tfont = load_font(120)
-    tb = dr.multiline_textbbox((0, 0), title, font=tfont, align="center")
-    tw = tb[2] - tb[0]
-    draw_text_outline(dr, ((W - tw) // 2, 70), title, tfont, fill="#ffbb55", width=4)
+    title_font = load_font(120)
 
-    # ---------- START AREA ----------
-    y = 330
-    row_h = 130
+    # Multi-line centered
+    for i, line in enumerate(title.split("\n")):
+        tw, th = measure(dr, line, title_font)
+        draw_text_outline(
+            dr,
+            ((W - tw) // 2, 80 + i * 120),
+            line,
+            title_font,
+            fill="#FFB545"
+        )
 
-    name_font = load_font(60)
-    stats_font = load_font(44)
+    # ---------- ROW SETTINGS ----------
+    start_y = 350
+    row_h = 150
+
+    name_font = load_font(64)
+    stats_font = load_font(48)
 
     for idx, user in enumerate(users[:12]):
-        rank = idx + 1
-        username = user.get("username") or f"User{user['user_id']}"
-        xp = user.get("xp_total", 0)
-        level = user.get("level", 1)
+        y = start_y + idx * row_h
 
-        # ------------ Medal or Rank Number ------------
+        rank = idx + 1
+        user_id = user.get("user_id")
+        username = user.get("username") or f"User{user_id}"
+        level = user.get("level", 1)
+        xp = user.get("xp_total", 0)
+
+        # --- Medal or Rank Number ---
         if rank <= 3:
             draw_medal(dr, 120, y + 10, rank)
             name_x = 220
         else:
-            draw_text_outline(dr, (120, y + 20), f"{rank}.", name_font, fill="white")
+            rank_text = f"{rank}."
+            draw_text_outline(dr, (120, y + 20), rank_text, name_font, fill="white")
             name_x = 220
 
-        # ------------ Username ------------
+        # --- Username (line 1) ---
         draw_text_outline(dr, (name_x, y), username, name_font, fill="#7EF2FF")
 
-        # ------------ Level + XP (right aligned) ------------
-        stats = f"LV {level}  •  {xp} XP"
-        stw, sth = measure(dr, stats, stats_font)
-        draw_text_outline(dr, (W - 140 - stw, y + 35), stats, stats_font, fill="#FFB545")
+        # --- Stats under username (line 2) ---
+        stats = f"LV {level} • {xp} XP"
+        draw_text_outline(dr, (name_x, y + 65), stats, stats_font, fill="#FFB545")
 
-        # ------------ Separator Line ------------
-        dr.line((120, y + row_h - 10, W - 120, y + row_h - 10), fill="#2e2e2e", width=3)
+        # Row separator
+        dr.line((120, y + row_h - 10, W - 120, y + row_h - 10), fill="#303030", width=3)
 
-        y += row_h
-
-    # --------- FOOTER ----------
+    # ---------- FOOTER ----------
     footer = "MegaGrok Metaverse"
-    ff = load_font(42)
+    ff = load_font(48)
     ftw, fth = measure(dr, footer, ff)
     draw_text_outline(dr, ((W - ftw) // 2, H - 150), footer, ff, fill="#777777")
 
+    # Save
     out = "/tmp/leaderboard.jpg"
     img.save(out, quality=95)
     return out
