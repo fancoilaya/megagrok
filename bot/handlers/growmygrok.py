@@ -1,4 +1,3 @@
-# bot/handlers/growmygrok.py
 import os
 import time
 import random
@@ -8,6 +7,7 @@ from telebot import TeleBot
 from bot.db import get_user, update_user_xp
 from bot.utils import safe_send_gif
 import bot.evolutions as evolutions   # ensure package import
+from bot.leaderboard_tracker import announce_leaderboard_if_changed
 
 GROW_COOLDOWN_SECONDS = 30 * 60  # 30 minutes
 COOLDOWN_FILE = "/tmp/grow_cooldowns.json"
@@ -17,7 +17,7 @@ def _load_cooldowns():
     if os.path.exists(COOLDOWN_FILE):
         try:
             return json.load(open(COOLDOWN_FILE))
-        except:
+        except Exception:
             return {}
     return {}
 
@@ -25,7 +25,7 @@ def _load_cooldowns():
 def _save_cooldowns(data):
     try:
         json.dump(data, open(COOLDOWN_FILE, "w"))
-    except:
+    except Exception:
         pass
 
 
@@ -47,7 +47,6 @@ def setup(bot: TeleBot):
 
     @bot.message_handler(commands=['growmygrok'])
     def grow(message):
-
         user_id = str(message.from_user.id)
         cooldowns = _load_cooldowns()
         now = time.time()
@@ -105,6 +104,7 @@ def setup(bot: TeleBot):
 
         old_stage = int(user.get("evolution_stage", 0))
 
+        # Persist XP change
         update_user_xp(
             int(user_id),
             {
@@ -115,15 +115,21 @@ def setup(bot: TeleBot):
             }
         )
 
+        # Announce leaderboard changes if any (best-effort)
+        try:
+            announce_leaderboard_if_changed(bot)
+        except Exception as e:
+            # Resist crashing the command; log for devs
+            print("Leaderboard update failed in growmygrok:", e)
+
+        # Save cooldown
         cooldowns[user_id] = now
         _save_cooldowns(cooldowns)
 
         pct = cur / xp_to_next if xp_to_next else 0
         bar, pct_int = _render_progress_bar(pct)
 
-        # ===========================
-        #  OPTION B — CLEAN RPG STYLE
-        # ===========================
+        # Output message
         msg = (
             f"✨ **MegaGrok Growth Surge!**\n\n"
             f"📈 **Base XP:** {base_xp:+d}\n"
@@ -164,14 +170,14 @@ def setup(bot: TeleBot):
                     f"🎉 **Evolution!** You became *{new_stage_data['name']}*!",
                     parse_mode="Markdown"
                 )
-            except:
+            except Exception:
                 pass
 
             hype = f"🔥 **{message.from_user.first_name}** evolved into **{new_stage_data['name']}**!"
             try:
                 if os.path.exists(gif_path):
                     safe_send_gif(bot, message.chat.id, gif_path)
-            except:
+            except Exception:
                 pass
 
             bot.send_message(message.chat.id, hype, parse_mode="Markdown")
