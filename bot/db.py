@@ -6,7 +6,7 @@
 # - Quests (hop / fight / battle)
 # - Wins, rituals
 # - Cooldowns
-# - Leaderboards
+# - Leaderboards (with Display Name support)
 # -----------------------------------------------------------
 
 import sqlite3
@@ -34,6 +34,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
             username TEXT,
+            display_name TEXT,                   -- NEW FIELD
             level INTEGER DEFAULT 1,
             xp_total INTEGER DEFAULT 0,
             xp_current INTEGER DEFAULT 0,
@@ -53,16 +54,15 @@ def init_db():
 # Run table initialization
 init_db()
 
-
-# -----------------------------------------------------------
-# SAFE COLUMN ADDER (AUTO MIGRATION)
-# -----------------------------------------------------------
+# Ensure new column exists for older databases
 def _add_column_if_missing(col: str, type_: str):
     cursor.execute("PRAGMA table_info(users)")
     cols = [c[1].lower() for c in cursor.fetchall()]
     if col.lower() not in cols:
         cursor.execute(f"ALTER TABLE users ADD COLUMN {col} {type_}")
         conn.commit()
+
+_add_column_if_missing("display_name", "TEXT")
 
 
 # -----------------------------------------------------------
@@ -76,12 +76,12 @@ def get_user(user_id: int) -> Dict[str, Any]:
     if not row:
         cursor.execute("""
             INSERT INTO users (
-                user_id, username, level, xp_total, xp_current,
+                user_id, username, display_name, level, xp_total, xp_current,
                 xp_to_next_level, level_curve_factor, wins,
                 mobs_defeated, rituals, quests, cooldowns, evolution_multiplier
             )
-            VALUES (?, ?, 1, 0, 0, 100, 1.35, 0, 0, 0, ?, ?, 1.0)
-        """, (user_id, "", json.dumps({}), json.dumps({})))
+            VALUES (?, ?, ?, 1, 0, 0, 100, 1.35, 0, 0, 0, ?, ?, 1.0)
+        """, (user_id, "", "", json.dumps({}), json.dumps({})))
         conn.commit()
         return get_user(user_id)
 
@@ -102,8 +102,47 @@ def update_user_xp(user_id: int, data: Dict[str, Any]):
         values.append(val)
 
     values.append(user_id)
-
     cursor.execute(f"UPDATE users SET {', '.join(fields)} WHERE user_id=?", values)
+    conn.commit()
+
+
+# -----------------------------------------------------------
+# DISPLAY NAME MANAGEMENT
+# -----------------------------------------------------------
+def update_display_name(user_id: int, display_name: str):
+    """
+    Store first_name + last_name as Telegram display name.
+    Never empty. Trim whitespace.
+    """
+    if not display_name or not display_name.strip():
+        return
+    
+    clean = display_name.strip()
+    cursor.execute(
+        "UPDATE users SET display_name=? WHERE user_id=?",
+        (clean, user_id)
+    )
+    conn.commit()
+
+
+# -----------------------------------------------------------
+# USERNAME MANAGEMENT
+# -----------------------------------------------------------
+def update_username(user_id: int, username: str):
+    """
+    Ensures usernames are stored consistently:
+    - Never empty
+    - Always prefixed with '@'
+    - Lowercased for consistency
+    """
+    if not username or not username.strip():
+        return
+
+    uname = username.strip().lower()
+    if not uname.startswith("@"):
+        uname = "@" + uname
+
+    cursor.execute("UPDATE users SET username=? WHERE user_id=?", (uname, user_id))
     conn.commit()
 
 
@@ -149,7 +188,7 @@ def increment_ritual(user_id: int):
 
 
 # -----------------------------------------------------------
-# COOLDOWN SYSTEM (battle cooldown uses this)
+# COOLDOWN SYSTEM
 # -----------------------------------------------------------
 def get_cooldowns(user_id: int) -> Dict[str, Any]:
     _add_column_if_missing("cooldowns", "TEXT")
@@ -174,17 +213,14 @@ def set_cooldowns(user_id: int, cooldowns: Dict[str, Any]):
 
 
 # -----------------------------------------------------------
-# LEADERBOARD
+# LEADERBOARD — NOW USES DISPLAY NAME
 # -----------------------------------------------------------
 def get_top_users(limit: int = 10) -> List[Dict[str, Any]]:
-    """
-    Returns top users sorted by xp_total.
-    Ensures username is valid and never empty.
-    """
     cursor.execute("""
         SELECT
             user_id,
             username,
+            display_name,
             xp_total,
             level,
             wins,
@@ -200,45 +236,29 @@ def get_top_users(limit: int = 10) -> List[Dict[str, Any]]:
 
     for r in rows:
         user_id = r[0]
-        raw_username = r[1]
+        username = r[1]
+        display_name = r[2]
 
-        # FIX: empty string or whitespace → fallback
-        if raw_username and raw_username.strip():
-            username = raw_username.strip()
+        # Priority:
+        # 1️⃣ display_name
+        # 2️⃣ username
+        # 3️⃣ fallback User123
+        if display_name and display_name.strip():
+            name = display_name.strip()
+        elif username and username.strip():
+            name = username.strip()
         else:
-            username = f"User{user_id}"
+            name = f"User{user_id}"
 
         out.append({
             "user_id": user_id,
+            "display_name": name,
             "username": username,
-            "xp_total": r[2] or 0,
-            "level": r[3] or 1,
-            "wins": r[4] or 0,
-            "kills": r[5] or 0,
-            "rituals": r[6] or 0,
+            "xp_total": r[3] or 0,
+            "level": r[4] or 1,
+            "wins": r[5] or 0,
+            "kills": r[6] or 0,
+            "rituals": r[7] or 0,
         })
 
     return out
-
-
-# -----------------------------------------------------------
-# UPDATE USERNAME  (FIXED & IMPROVED)
-# -----------------------------------------------------------
-def update_username(user_id: int, username: str):
-    """
-    Ensures usernames are stored consistently:
-    - Never empty
-    - Always prefixed with '@'
-    - Lowercased for consistency
-    """
-    if not username or not username.strip():
-        return  # Ignore invalid usernames
-
-    uname = username.strip().lower()
-
-    # Normalize to @username style
-    if not uname.startswith("@"):
-        uname = "@" + uname
-
-    cursor.execute("UPDATE users SET username=? WHERE user_id=?", (uname, user_id))
-    conn.commit()
