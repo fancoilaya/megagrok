@@ -1,4 +1,3 @@
-# bot/db.py
 # -----------------------------------------------------------
 # MegaGrok Database Layer (Persistent Disk Compatible)
 # Handles:
@@ -180,12 +179,12 @@ def set_cooldowns(user_id: int, cooldowns: Dict[str, Any]):
 def get_top_users(limit: int = 10) -> List[Dict[str, Any]]:
     """
     Returns top users sorted by xp_total.
-    Compatible with leaderboard poster v2.
+    Ensures username is valid and never empty.
     """
     cursor.execute("""
         SELECT
             user_id,
-            COALESCE(username, ''),
+            username,
             xp_total,
             level,
             wins,
@@ -201,7 +200,13 @@ def get_top_users(limit: int = 10) -> List[Dict[str, Any]]:
 
     for r in rows:
         user_id = r[0]
-        username = r[1] or f"User{user_id}"
+        raw_username = r[1]
+
+        # FIX: empty string or whitespace → fallback
+        if raw_username and raw_username.strip():
+            username = raw_username.strip()
+        else:
+            username = f"User{user_id}"
 
         out.append({
             "user_id": user_id,
@@ -217,8 +222,23 @@ def get_top_users(limit: int = 10) -> List[Dict[str, Any]]:
 
 
 # -----------------------------------------------------------
-# UPDATE USERNAME
+# UPDATE USERNAME  (FIXED & IMPROVED)
 # -----------------------------------------------------------
 def update_username(user_id: int, username: str):
-    cursor.execute("UPDATE users SET username=? WHERE user_id=?", (username, user_id))
+    """
+    Ensures usernames are stored consistently:
+    - Never empty
+    - Always prefixed with '@'
+    - Lowercased for consistency
+    """
+    if not username or not username.strip():
+        return  # Ignore invalid usernames
+
+    uname = username.strip().lower()
+
+    # Normalize to @username style
+    if not uname.startswith("@"):
+        uname = "@" + uname
+
+    cursor.execute("UPDATE users SET username=? WHERE user_id=?", (uname, user_id))
     conn.commit()
