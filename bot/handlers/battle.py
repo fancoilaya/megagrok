@@ -1,5 +1,3 @@
-# bot/handlers/battle.py
-
 import os
 import random
 import time
@@ -18,6 +16,7 @@ from bot.db import (
 import bot.db as db
 from bot.utils import safe_send_gif
 import bot.evolutions as evolutions
+from bot.leaderboard_tracker import announce_leaderboard_if_changed
 
 # Asset paths
 ASSETS_BASE = "assets/gifs"
@@ -110,7 +109,7 @@ def _set_user_cooldowns(uid: int, cooldowns: dict):
 
 
 # =========================================================
-# FIXED UI REFRESH (NOW WORKS 100%)
+# FIXED UI REFRESH
 # =========================================================
 
 def _refresh_ui(bot: TeleBot, sess: fight_session.FightSession, chat_id: int):
@@ -118,7 +117,6 @@ def _refresh_ui(bot: TeleBot, sess: fight_session.FightSession, chat_id: int):
     Deletes old battle UI, sends new UI, merges session metadata
     so we never lose the _last_sent_message pointer.
     """
-
     uid = sess.user_id
 
     # 1) DELETE OLD MESSAGE (if present)
@@ -307,7 +305,6 @@ def setup(bot: TeleBot):
 # =========================================================
 
 def _finalize(bot: TeleBot, sess: fight_session.FightSession, chat_id: int):
-
     user_id = sess.user_id
     user = get_user(user_id)
     mob = sess.mob
@@ -331,18 +328,31 @@ def _finalize(bot: TeleBot, sess: fight_session.FightSession, chat_id: int):
         xp_to_next = int(xp_to_next * curve)
         leveled = True
 
+    # Persist XP change
     update_user_xp(
         user_id,
         {"xp_total": xp_total, "xp_current": cur, "xp_to_next_level": xp_to_next, "level": lvl}
     )
 
+    # Announce leaderboard changes if any (best-effort)
+    try:
+        announce_leaderboard_if_changed(bot)
+    except Exception as e:
+        print("Leaderboard update failed in battle:", e)
+
     # record BATTLE quest (not /fight)
-    record_quest(user_id, "battle")
+    try:
+        record_quest(user_id, "battle")
+    except Exception:
+        pass
 
     # apply cooldown
-    cd = _get_user_cooldowns(user_id)
-    cd["battle"] = int(time.time())
-    _set_user_cooldowns(user_id, cd)
+    try:
+        cd = _get_user_cooldowns(user_id)
+        cd["battle"] = int(time.time())
+        _set_user_cooldowns(user_id, cd)
+    except Exception:
+        pass
 
     # DELETE FINAL BATTLE UI
     try:
