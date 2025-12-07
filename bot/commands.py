@@ -27,6 +27,8 @@ HELP_TEXT = (
     "/leaderboard - Show global rankings\n"
     "/grokdex - Explore all Hop-Verse creatures\n"
     "/wipe <user> - (admin) Reset a user's progress\n"
+    "/announce <text> - Admin announcement (Markdown)\n"
+    "/announce_html <html> - Admin announcement (HTML)\n"
 )
 
 
@@ -46,7 +48,7 @@ def register_handlers(bot: TeleBot):
             increment_ritual,
             get_top_users,
             update_username,
-            update_display_name,   # ⭐ required for display name sync
+            update_display_name,   # ⭐ For display name sync
         )
     except Exception as e:
         raise RuntimeError(f"DB import failure: {e}")
@@ -75,6 +77,13 @@ def register_handlers(bot: TeleBot):
         hop_setup(bot)
     except Exception as e:
         print("Failed loading hop handler:", e)
+
+    # ⭐ NEW ANNOUNCE HANDLER
+    try:
+        from bot.handlers.announce import setup as announce_setup
+        announce_setup(bot)
+    except Exception as e:
+        print("Failed loading announce handler:", e)
 
 
     # ---------------- START ----------------
@@ -214,7 +223,7 @@ def register_handlers(bot: TeleBot):
         user_id = message.from_user.id
         user = get_user(user_id)
 
-        # Use display name > username > fallback  
+        # Display name > username > fallback
         display_name = (
             user.get("display_name")
             or message.from_user.first_name
@@ -285,24 +294,24 @@ def register_handlers(bot: TeleBot):
 
             # 1️⃣ Check numeric ID
             if query.isdigit():
-                for uid, u, d in rows:
+                for uid, username, dn in rows:
                     if uid == int(query):
                         target_id = uid
                         break
 
             # 2️⃣ Username match
             if target_id is None:
-                q_u = query.lower().lstrip("@")
-                for uid, username, display_name in rows:
-                    if username and username.lower().lstrip("@") == q_u:
+                cleaned = query.lower().lstrip("@")
+                for uid, username, dn in rows:
+                    if username and username.lower().lstrip("@") == cleaned:
                         target_id = uid
                         break
 
             # 3️⃣ Display name match
             if target_id is None:
                 q_dn = query.lower()
-                for uid, username, display_name in rows:
-                    if display_name and display_name.lower() == q_dn:
+                for uid, username, dn in rows:
+                    if dn and dn.lower() == q_dn:
                         target_id = uid
                         break
 
@@ -332,8 +341,7 @@ def register_handlers(bot: TeleBot):
 
             bot.reply_to(
                 message,
-                f"🧹 User *{query}* (ID {target_id}) has been reset.\n"
-                f"They remain registered but are now Level 1.",
+                f"🧹 User *{query}* (ID {target_id}) has been reset to Level 1.",
                 parse_mode="Markdown"
             )
 
