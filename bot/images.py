@@ -1,5 +1,6 @@
 # bot/images.py
 # MegaGrok Leaderboard Renderer — Comic Style Premium Edition
+# Updated to use Display Name instead of Username (Option A)
 
 import os
 import math
@@ -74,8 +75,11 @@ def draw_medal(draw, x, y, rank):
 # --------------------------------------------------------
 def generate_leaderboard_premium(users):
     """
-    users = list of dicts:
-      user_id, username, level, xp_total
+    EXPECTED user dict fields:
+      display_name   (string or None)
+      username       (@username, string or None)
+      xp_total
+      level
     """
 
     W, H = 1080, 1920
@@ -86,7 +90,6 @@ def generate_leaderboard_premium(users):
     title = "MEGAGROK\nLEADERBOARD"
     title_font = load_font(120)
 
-    # Multi-line centered
     for i, line in enumerate(title.split("\n")):
         tw, th = measure(dr, line, title_font)
         draw_text_outline(
@@ -109,7 +112,17 @@ def generate_leaderboard_premium(users):
 
         rank = idx + 1
         user_id = user.get("user_id")
-        username = user.get("username") or f"User{user_id}"
+
+        # ⭐ DISPLAY NAME PRIORITY (Option A):
+        # 1. display_name
+        # 2. username
+        # 3. fallback User123
+        display_name = (
+            user.get("display_name")
+            or user.get("username")
+            or f"User{user_id}"
+        )
+
         level = user.get("level", 1)
         xp = user.get("xp_total", 0)
 
@@ -122,14 +135,14 @@ def generate_leaderboard_premium(users):
             draw_text_outline(dr, (120, y + 20), rank_text, name_font, fill="white")
             name_x = 220
 
-        # --- Username (line 1) ---
-        draw_text_outline(dr, (name_x, y), username, name_font, fill="#7EF2FF")
+        # --- Display Name (line 1) ---
+        draw_text_outline(dr, (name_x, y), display_name, name_font, fill="#7EF2FF")
 
-        # --- Stats under username (line 2) ---
+        # --- Stats under name (line 2) ---
         stats = f"LV {level} • {xp} XP"
         draw_text_outline(dr, (name_x, y + 65), stats, stats_font, fill="#FFB545")
 
-        # Row separator
+        # Row divider
         dr.line((120, y + row_h - 10, W - 120, y + row_h - 10), fill="#303030", width=3)
 
     # ---------- FOOTER ----------
@@ -138,7 +151,7 @@ def generate_leaderboard_premium(users):
     ftw, fth = measure(dr, footer, ff)
     draw_text_outline(dr, ((W - ftw) // 2, H - 150), footer, ff, fill="#777777")
 
-    # Save
+    # Save final image
     out = "/tmp/leaderboard.jpg"
     img.save(out, quality=95)
     return out
