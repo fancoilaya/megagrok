@@ -45,7 +45,8 @@ def register_handlers(bot: TeleBot):
             increment_win,
             increment_ritual,
             get_top_users,
-            update_username
+            update_username,
+            update_display_name,  # ⭐ NEW IMPORT
         )
     except Exception as e:
         raise RuntimeError(f"DB import failure: {e}")
@@ -56,8 +57,6 @@ def register_handlers(bot: TeleBot):
         MOBS = []
 
     # ---------------- REGISTER HANDLER MODULES ----------------
-    # These files now contain the logic for their respective commands.
-
     try:
         from bot.handlers.growmygrok import setup as grow_setup
         grow_setup(bot)
@@ -70,7 +69,6 @@ def register_handlers(bot: TeleBot):
     except Exception as e:
         print("Failed loading battle handler:", e)
 
-    # 🔥 NEW — Clean handler-based Hop Ritual logic
     try:
         from bot.handlers.hop import setup as hop_setup
         hop_setup(bot)
@@ -92,21 +90,22 @@ def register_handlers(bot: TeleBot):
     def _help(message):
         bot.reply_to(message, HELP_TEXT, parse_mode="Markdown")
 
-    # ---------------- AUTO-USERNAME SYNC (non-command messages only) ----------------
+    # ---------------- AUTO USER SYNC (USERNAME + DISPLAY NAME) ----------------
     @bot.message_handler(func=lambda m: m.text and not m.text.startswith("/"))
     def _auto_username(msg):
         try:
+            # Sync username (@tag)
             uname = msg.from_user.username
             if uname:
                 update_username(msg.from_user.id, uname)
-        except:
-            pass
 
-    # -------------------------------------------------------------------
-    # NOTE:
-    # /hop has been REMOVED from this file and now lives in:
-    #     bot/handlers/hop.py
-    # -------------------------------------------------------------------
+            # ⭐ Sync display name (first + last)
+            dname = f"{msg.from_user.first_name or ''} {msg.from_user.last_name or ''}".strip()
+            if dname:
+                update_display_name(msg.from_user.id, dname)
+
+        except Exception:
+            pass
 
     # ---------------- FIGHT ----------------
     @bot.message_handler(commands=["fight"])
@@ -206,9 +205,15 @@ def register_handlers(bot: TeleBot):
         user_id = message.from_user.id
         user = get_user(user_id)
 
+        # ⭐ Use display name when available
+        display_name = user.get("display_name") or message.from_user.first_name
+        if not display_name:
+            display_name = f"User{user_id}"
+
         data = {
             "user_id": user_id,
-            "username": message.from_user.username or f"User{user_id}",
+            "display_name": display_name,     # ⭐ NEW FIELD
+            "username": user.get("username"),
             "level": user["level"],
             "wins": user["wins"],
             "rituals": user["rituals"],
