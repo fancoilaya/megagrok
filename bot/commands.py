@@ -1,5 +1,5 @@
 # bot/commands.py
-# MegaGrok Commands Module — Stable & Safe Edition (FULLY UPDATED)
+# MegaGrok Commands Module — Updated /help and /help_admin
 
 import os
 import time
@@ -14,52 +14,51 @@ try:
 except:
     ADMIN_ID = 7574908943
 
-
+# NORMAL USER HELP (NO ADMIN COMMANDS)
 HELP_TEXT = (
-    "🐸 **MegaGrok Commands**\n\n"
+    "🐸 *MegaGrok Commands*\n\n"
     "/start - Begin your journey\n"
-    "/help - Show help menu\n"
-    "/growmygrok - Gain XP and grow your Grok\n"
+    "/help - Show this help menu\n"
+    "/growmygrok - Train and evolve your Grok\n"
     "/hop - Daily ritual reward\n"
     "/fight - Quick daily fight\n"
     "/battle - Advanced interactive battle\n"
     "/profile - Show your Grok profile card\n"
     "/leaderboard - Show global rankings\n"
     "/grokdex - Explore all Hop-Verse creatures\n"
-    "/wipe <user> - (admin) Reset a user's progress\n"
-    "/announce <text> - Admin announcement (Markdown)\n"
-    "/announce_html <html> - Admin announcement (HTML)\n"
+)
+
+# ADMIN HELP TEXT (Telegram-safe Markdown)
+ADMIN_HELP_TEXT = (
+    "🛡️ *MegaGrok Admin Commands*\n\n"
+    "/wipe `user` - Reset a user's progress (keeps account)\n"
+    "/announce `text` - Post a Markdown announcement to the channel\n"
+    "/announce_html `html` - Post an HTML announcement to the channel\n"
+    "/help_admin - Show this admin command list\n"
 )
 
 
 def register_handlers(bot: TeleBot):
-    """
-    Registers all handlers SAFELY.
-    """
 
-    # ---------------- SAFE IMPORTS ----------------
-    try:
-        from bot.db import (
-            get_user,
-            update_user_xp,
-            get_quests,
-            record_quest,
-            increment_win,
-            increment_ritual,
-            get_top_users,
-            update_username,
-            update_display_name,   # ⭐ For display name sync
-        )
-    except Exception as e:
-        raise RuntimeError(f"DB import failure: {e}")
+    # ---------------- IMPORTS ----------------
+    from bot.db import (
+        get_user,
+        update_user_xp,
+        get_quests,
+        record_quest,
+        increment_win,
+        increment_ritual,
+        get_top_users,
+        update_username,
+        update_display_name,
+    )
 
     try:
         from bot.mobs import MOBS
     except Exception:
         MOBS = []
 
-
-    # ---------------- REGISTER HANDLER MODULES ----------------
+    # ---------------- REGISTER SUB-HANDLERS ----------------
     try:
         from bot.handlers.growmygrok import setup as grow_setup
         grow_setup(bot)
@@ -78,48 +77,46 @@ def register_handlers(bot: TeleBot):
     except Exception as e:
         print("Failed loading hop handler:", e)
 
-    # ⭐ NEW ANNOUNCE HANDLER
     try:
         from bot.handlers.announce import setup as announce_setup
         announce_setup(bot)
     except Exception as e:
         print("Failed loading announce handler:", e)
 
-
     # ---------------- START ----------------
     @bot.message_handler(commands=["start"])
     def _start(message):
-        text = (
-            "🐸🌌 *THE COSMIC AMPHIBIAN HAS AWAKENED* 🌌🐸\n\n"
+        bot.reply_to(message,
+            "🐸🌌 *THE COSMIC AMPHIBIAN HAS AWAKENED*\n\n"
             "Welcome to the MegaGrok Metaverse!\n"
-            "Use /help to begin your journey."
+            "Use /help to begin your journey.",
+            parse_mode="Markdown"
         )
-        bot.reply_to(message, text, parse_mode="Markdown")
 
-
-    # ---------------- HELP ----------------
+    # ---------------- USER HELP ----------------
     @bot.message_handler(commands=["help"])
     def _help(message):
         bot.reply_to(message, HELP_TEXT, parse_mode="Markdown")
 
+    # ---------------- ADMIN HELP ----------------
+    @bot.message_handler(commands=["help_admin"])
+    def _help_admin(message):
+        if message.from_user.id != ADMIN_ID:
+            return bot.reply_to(message, "❌ Not authorized.")
+        bot.reply_to(message, ADMIN_HELP_TEXT, parse_mode="Markdown")
 
-    # ---------------- AUTO USER SYNC (USERNAME + DISPLAY NAME) ----------------
+    # ---------------- AUTO SYNC USERNAME / DISPLAY NAME ----------------
     @bot.message_handler(func=lambda m: m.text and not m.text.startswith("/"))
     def _auto_username(msg):
         try:
-            # Sync username (@tag)
-            uname = msg.from_user.username
-            if uname:
-                update_username(msg.from_user.id, uname)
+            if msg.from_user.username:
+                update_username(msg.from_user.id, msg.from_user.username)
 
-            # Sync display name
             dname = f"{msg.from_user.first_name or ''} {msg.from_user.last_name or ''}".strip()
             if dname:
                 update_display_name(msg.from_user.id, dname)
-
         except Exception:
             pass
-
 
     # ---------------- FIGHT ----------------
     @bot.message_handler(commands=["fight"])
@@ -134,13 +131,8 @@ def register_handlers(bot: TeleBot):
             mob_name = mob.get("name", "Mob")
             intro = mob.get("intro", "")
 
-            bot.reply_to(
-                message,
-                f"⚔️ **{mob_name} Encounter!**\n\n{intro}",
-                parse_mode="Markdown"
-            )
+            bot.reply_to(message, f"⚔️ *{mob_name} Encounter!*\n\n{intro}", parse_mode="Markdown")
 
-            # Portrait
             try:
                 portrait = mob.get("portrait")
                 if portrait and os.path.exists(portrait):
@@ -149,7 +141,6 @@ def register_handlers(bot: TeleBot):
             except:
                 pass
 
-            # Decide win
             win = random.choice([True, False])
             base_xp = random.randint(mob.get("min_xp", 10), mob.get("max_xp", 50))
 
@@ -167,7 +158,6 @@ def register_handlers(bot: TeleBot):
 
             effective_xp = int(base_xp * evo_mult)
 
-            # XP update
             xp_total = user["xp_total"] + effective_xp
             cur = user["xp_current"] + effective_xp
             xp_to_next = user["xp_to_next_level"]
@@ -193,7 +183,7 @@ def register_handlers(bot: TeleBot):
             bar_txt = "▓" * bar + "░" * (20 - bar)
 
             msg = (
-                f"⚔️ **{'VICTORY' if win else 'DEFEAT'}!**\n"
+                f"⚔️ *{'VICTORY' if win else 'DEFEAT'}!*\n"
                 f"Enemy: *{mob_name}*\n\n"
                 f"📈 Base XP: +{base_xp}\n"
                 f"🔮 Evo Multiplier: ×{evo_mult:.2f}\n"
@@ -205,49 +195,10 @@ def register_handlers(bot: TeleBot):
             bot.send_message(message.chat.id, msg, parse_mode="Markdown")
 
         except Exception:
-            bot.reply_to(
-                message,
+            bot.reply_to(message,
                 f"Fight failed:\n```\n{traceback.format_exc()}\n```",
                 parse_mode="Markdown"
             )
-
-
-    # ---------------- PROFILE ----------------
-    @bot.message_handler(commands=["profile"])
-    def _profile(message):
-        try:
-            from bot.profile_image import generate_profile_image
-        except Exception:
-            return bot.reply_to(message, "Profile generator missing.")
-
-        user_id = message.from_user.id
-        user = get_user(user_id)
-
-        # Display name > username > fallback
-        display_name = (
-            user.get("display_name")
-            or message.from_user.first_name
-            or user.get("username")
-            or f"User{user_id}"
-        )
-
-        data = {
-            "user_id": user_id,
-            "display_name": display_name,
-            "username": user.get("username"),
-            "level": user["level"],
-            "wins": user["wins"],
-            "rituals": user["rituals"],
-            "xp_total": user["xp_total"]
-        }
-
-        path = generate_profile_image(data)
-        if path:
-            with open(path, "rb") as f:
-                bot.send_photo(message.chat.id, f)
-        else:
-            bot.reply_to(message, "Failed to generate profile card.")
-
 
     # ---------------- LEADERBOARD ----------------
     @bot.message_handler(commands=["leaderboard"])
@@ -256,19 +207,15 @@ def register_handlers(bot: TeleBot):
             users = get_top_users(50)
             from bot.images import generate_leaderboard_premium
             out = generate_leaderboard_premium(users)
-
             with open(out, "rb") as f:
                 bot.send_photo(message.chat.id, f)
-
         except Exception:
-            bot.reply_to(
-                message,
+            bot.reply_to(message,
                 f"Leaderboard failed:\n```\n{traceback.format_exc()}\n```",
                 parse_mode="Markdown"
             )
 
-
-    # ---------------- WIPE USER (admin) — RESET, NOT DELETE ----------------
+    # ---------------- WIPE (admin) ----------------
     @bot.message_handler(commands=["wipe"])
     def _wipe(message):
         if message.from_user.id != ADMIN_ID:
@@ -276,10 +223,7 @@ def register_handlers(bot: TeleBot):
 
         parts = message.text.split(" ", 1)
         if len(parts) < 2:
-            return bot.reply_to(
-                message,
-                "Usage: /wipe <user_id | @username | display name>"
-            )
+            return bot.reply_to(message, "Usage: /wipe `user`", parse_mode="Markdown")
 
         query = parts[1].strip()
 
@@ -292,35 +236,35 @@ def register_handlers(bot: TeleBot):
 
             target_id = None
 
-            # 1️⃣ Check numeric ID
+            # By ID
             if query.isdigit():
+                qid = int(query)
                 for uid, username, dn in rows:
-                    if uid == int(query):
+                    if uid == qid:
                         target_id = uid
                         break
 
-            # 2️⃣ Username match
+            # By username
             if target_id is None:
-                cleaned = query.lower().lstrip("@")
+                norm = query.lstrip("@").lower()
                 for uid, username, dn in rows:
-                    if username and username.lower().lstrip("@") == cleaned:
+                    if username and username.lower().lstrip("@") == norm:
                         target_id = uid
                         break
 
-            # 3️⃣ Display name match
+            # By display name
             if target_id is None:
-                q_dn = query.lower()
+                qdn = query.lower()
                 for uid, username, dn in rows:
-                    if dn and dn.lower() == q_dn:
+                    if dn and dn.lower() == qdn:
                         target_id = uid
                         break
 
             if target_id is None:
-                return bot.reply_to(message, f"❌ No user found matching: {query}")
+                return bot.reply_to(message, f"No user found matching: {query}")
 
-            # ⭐ RESET USER DATA (do not delete row)
-            db.cursor.execute(
-                """
+            # Reset user
+            db.cursor.execute("""
                 UPDATE users SET
                     level = 1,
                     xp_total = 0,
@@ -334,20 +278,16 @@ def register_handlers(bot: TeleBot):
                     cooldowns = ?,
                     evolution_multiplier = 1.0
                 WHERE user_id = ?
-                """,
-                (json.dumps({}), json.dumps({}), target_id)
-            )
+            """, (json.dumps({}), json.dumps({}), target_id))
             db.conn.commit()
 
-            bot.reply_to(
-                message,
-                f"🧹 User *{query}* (ID {target_id}) has been reset to Level 1.",
+            bot.reply_to(message,
+                f"🧹 User *{query}* (ID {target_id}) has been reset.",
                 parse_mode="Markdown"
             )
 
         except Exception:
-            bot.reply_to(
-                message,
+            bot.reply_to(message,
                 f"Wipe error:\n```\n{traceback.format_exc()}\n```",
                 parse_mode="Markdown"
             )
