@@ -1,5 +1,6 @@
 # bot/profile_image.py
 # MEGAGROK PROFILE CARD v3 — Comic Halftone Edition (fixed title placement)
+# Updated to use display_name when available.
 
 import os
 import math
@@ -99,7 +100,17 @@ def draw_rank_badge(draw, rank, x, y):
 # main profile generator (returns /tmp path)
 def generate_profile_image(payload):
     user_id = payload["user_id"]
-    username = payload.get("username", f"User{user_id}")
+
+    # ⭐ Use display_name first, then username, then fallback
+    display_name = payload.get("display_name")
+    username = payload.get("username")
+    if display_name and str(display_name).strip():
+        name_to_show = str(display_name).strip()
+    elif username and str(username).strip():
+        name_to_show = str(username).strip()
+    else:
+        name_to_show = f"User{user_id}"
+
     level = payload.get("level", 1)
     xp_total = payload.get("xp_total", 0)
     wins = payload.get("wins", 0) or 0
@@ -147,14 +158,14 @@ def generate_profile_image(payload):
     halo = generate_halftone(stage, size=(pw, ph))
     img.paste(halo, (px, py))
 
-    # ---------- Username + level + xp ----------
+    # ---------- Display name + level + xp ----------
     name_font = load_font_safe(64)
     lv_font = load_font_safe(42)
 
     nx = px + pw + 80
     ny = py + 10
 
-    draw_outline(dr, (nx, ny), username, name_font, fill="#7EF2FF", outline=(0,0,0), w=3)
+    draw_outline(dr, (nx, ny), name_to_show, name_font, fill="#7EF2FF", outline=(0,0,0), w=3)
 
     lv_text = f"LV {level} • {xp_total} XP"
     draw_outline(dr, (nx, ny + 80), lv_text, lv_font, fill="#FFB545", outline=(0,0,0), w=2)
