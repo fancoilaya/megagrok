@@ -55,6 +55,28 @@ def register_handlers(bot: TeleBot):
     except Exception:
         MOBS = []
 
+    # ---------------- REGISTER HANDLER MODULES ----------------
+    # These files now contain the logic for their respective commands.
+
+    try:
+        from bot.handlers.growmygrok import setup as grow_setup
+        grow_setup(bot)
+    except Exception as e:
+        print("Failed loading growmygrok handler:", e)
+
+    try:
+        from bot.handlers.battle import setup as battle_setup
+        battle_setup(bot)
+    except Exception as e:
+        print("Failed loading battle handler:", e)
+
+    # 🔥 NEW — Clean handler-based Hop Ritual logic
+    try:
+        from bot.handlers.hop import setup as hop_setup
+        hop_setup(bot)
+    except Exception as e:
+        print("Failed loading hop handler:", e)
+
     # ---------------- START ----------------
     @bot.message_handler(commands=["start"])
     def _start(message):
@@ -80,50 +102,11 @@ def register_handlers(bot: TeleBot):
         except:
             pass
 
-    # ---------------- HOP ----------------
-    @bot.message_handler(commands=["hop"])
-    def _hop(message):
-        try:
-            uid = message.from_user.id
-            q = get_quests(uid)
-
-            if q.get("hop", 0) == 1:
-                return bot.reply_to(message, "🐸 You already performed today’s Hop Ritual!")
-
-            user = get_user(uid)
-            xp_gain = random.randint(20, 50)
-
-            # XP + Level Handling
-            xp_total = user["xp_total"] + xp_gain
-            cur = user["xp_current"] + xp_gain
-            xp_to_next = user["xp_to_next_level"]
-            level = user["level"]
-            curve = user["level_curve_factor"]
-
-            leveled = False
-            while cur >= xp_to_next:
-                cur -= xp_to_next
-                level += 1
-                xp_to_next = int(xp_to_next * curve)
-                leveled = True
-
-            update_user_xp(uid, {
-                "xp_total": xp_total,
-                "xp_current": cur,
-                "xp_to_next_level": xp_to_next,
-                "level": level
-            })
-
-            record_quest(uid, "hop")
-            increment_ritual(uid)
-
-            msg = f"🐸✨ Hop Ritual complete! +{xp_gain} XP"
-            if leveled:
-                msg += "\n🎉 LEVEL UP!"
-            bot.reply_to(message, msg)
-
-        except Exception as e:
-            bot.reply_to(message, f"Hop failed:\n```\n{traceback.format_exc()}\n```", parse_mode="Markdown")
+    # -------------------------------------------------------------------
+    # NOTE:
+    # /hop has been REMOVED from this file and now lives in:
+    #     bot/handlers/hop.py
+    # -------------------------------------------------------------------
 
     # ---------------- FIGHT ----------------
     @bot.message_handler(commands=["fight"])
