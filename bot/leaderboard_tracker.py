@@ -79,41 +79,52 @@ def announce_leaderboard_if_changed(bot, top_n=20):
     except Exception:
         return []
 
+    # New snapshot
     new_snap = _snapshot(users)
     old_snap = _load_cache()
     changes = _detect(old_snap, new_snap)
 
+    # Map of uid -> user
     uid_map = {str(u["user_id"]): u for u in users}
     announcements = []
 
     for uid, old_rank, new_rank in changes:
         user = uid_map.get(uid)
-        username = (user and user.get("username")) or f"User{uid}"
-        tag = f"@{username.lstrip('@')}"
 
-        # Build message
-        if old_rank is None and new_rank is not None:
-            msg = f"🔥 *NEW ENTRY!* {tag} enters the Top {top_n} at **#{new_rank}**!"
-        elif new_rank is None:
-            msg = f"⚔️ {tag} has dropped out of the Top {top_n} (was #{old_rank})."
+        # ⭐ DISPLAY NAME PRIORITY ⭐
+        if user:
+            display_name = (
+                user.get("display_name")
+                or user.get("username")
+                or f"User{uid}"
+            )
         else:
-            # Movement inside the leaderboard
+            display_name = f"User{uid}"
+
+        name = display_name  # simplified alias
+
+        # Build announcement message
+        if old_rank is None and new_rank is not None:
+            msg = f"🔥 *NEW ENTRY!* {name} enters the Top {top_n} at **#{new_rank}**!"
+        elif new_rank is None:
+            msg = f"⚔️ {name} has dropped out of the Top {top_n} (was #{old_rank})."
+        else:
             if new_rank < old_rank:
                 if new_rank == 1:
-                    msg = f"👑 *NEW #1!* {tag} is now **Rank #1**!"
+                    msg = f"👑 *NEW #1!* {name} is now **Rank #1**!"
                 else:
-                    msg = f"🚀 *RANK UP!* {tag} climbed from **#{old_rank}** → **#{new_rank}**!"
+                    msg = f"🚀 *RANK UP!* {name} climbed from **#{old_rank}** → **#{new_rank}**!"
             else:
-                msg = f"🔻 *RANK DOWN!* {tag} dropped from **#{old_rank}** → **#{new_rank}**."
+                msg = f"🔻 *RANK DOWN!* {name} dropped from **#{old_rank}** → **#{new_rank}**."
 
         # Send to public channel
         try:
             bot.send_message(int(LEADERBOARD_CHANNEL_ID), msg, parse_mode="Markdown")
             announcements.append(msg)
-        except:
+        except Exception:
             pass
 
-    # Save snapshot
+    # Persist snapshot
     _save_cache(new_snap)
 
     return announcements
