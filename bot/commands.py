@@ -198,21 +198,22 @@ def register_handlers(bot: TeleBot):
     @bot.message_handler(commands=["profile"])
     def _profile(message):
         try:
-            from bot.images import generate_profile_image
+            # Import the real profile generator from bot.profile_image
+            from bot.profile_image import generate_profile_image
         except Exception:
             return bot.reply_to(message, "Profile generator missing.")
 
         user_id = message.from_user.id
         user = get_user(user_id)
 
-        # ⭐ Use display name when available
+        # ⭐ Use display name when available (commands.py already computed this earlier in our flow)
         display_name = user.get("display_name") or message.from_user.first_name
         if not display_name:
             display_name = f"User{user_id}"
 
         data = {
             "user_id": user_id,
-            "display_name": display_name,     # ⭐ NEW FIELD
+            "display_name": display_name,     # display_name used by the profile generator
             "username": user.get("username"),
             "level": user["level"],
             "wins": user["wins"],
