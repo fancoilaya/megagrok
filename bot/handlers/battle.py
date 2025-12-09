@@ -252,23 +252,22 @@ def setup(bot: TeleBot):
         player_stats = fight_session.build_player_stats_from_user(user, username_fallback=username)
         mob_stats = fight_session.build_mob_stats_from_mob(mob)
 
-        # Intro text
+        # Intro
         intro_text = mob.get("intro")
         if intro_text:
             bot.send_message(chat_id, intro_text)
 
-        # Show mob GIF if exists
+        # Mob GIF
         mob_gif = mob.get("gif")
         if mob_gif and os.path.exists(mob_gif):
             safe_send_gif(bot, chat_id, mob_gif)
         else:
             safe_send_gif(bot, chat_id, GIF_INTRO)
 
-        # Delay needed so keyboard doesn't get dropped after GIF
+        # Delay fixes keyboard-loss issue after GIF
         time.sleep(0.15)
 
         sess = fight_session.manager.create_session(owner_id, player_stats, mob_stats)
-
         _refresh_ui(bot, sess, chat_id)
 
     # ------------------------------------------------------
@@ -279,7 +278,6 @@ def setup(bot: TeleBot):
         chat_id = call.message.chat.id
 
         _start_battle_for_tier(bot, owner_id, chat_id, tier)
-
         bot.answer_callback_query(call.id, f"Starting Tier {tier} battle.")
 
     # ------------------------------------------------------
@@ -307,6 +305,7 @@ def setup(bot: TeleBot):
         if action == "surrender":
             sess.ended = True
             sess.winner = "mob"
+            sess.last_action_by_user = "surrender"
             fight_session.manager.save_session(sess)
 
             _refresh_ui(bot, sess, chat_id)
@@ -348,6 +347,7 @@ def setup(bot: TeleBot):
             bot.answer_callback_query(call.id, "Invalid action.")
             return
 
+        sess.last_action_by_user = action
         sess.resolve_player_action(ACTIONS[action])
         fight_session.manager.save_session(sess)
 
@@ -368,7 +368,7 @@ def setup(bot: TeleBot):
 
 
 # =========================================================
-# FINALIZE BATTLE
+# FINALIZE BATTLE (WITH XP FIX)
 # =========================================================
 
 def _finalize(bot: TeleBot, sess: fight_session.FightSession, chat_id: int):
@@ -376,13 +376,30 @@ def _finalize(bot: TeleBot, sess: fight_session.FightSession, chat_id: int):
     user = get_user(user_id)
     mob = sess.mob
 
+    # Raw XP generation
     base_xp = random.randint(mob.get("min_xp", 10), mob.get("max_xp", 25))
     lvl = user["level"]
+
     evo_mult = evolutions.get_xp_multiplier_for_level(lvl) * float(user.get("evolution_multiplier", 1.0))
     effective_xp = int(base_xp * evo_mult)
 
-    xp_total = user["xp_total"] + effective_xp
-    cur = user["xp_current"] + effective_xp
+    # --------------------------
+    # XP REWARD LOGIC (FIXED)
+    # --------------------------
+    xp_reward = 0
+
+    if sess.winner == "player":
+        xp_reward = effective_xp  # full XP
+
+    elif sess.winner == "mob":
+        xp_reward = int(effective_xp * 0.25)  # reduced XP for defeat
+
+    if sess.last_action_by_user == "surrender":
+        xp_reward = 0  # surrender = 0 XP
+
+    # Apply XP
+    xp_total = user["xp_total"] + xp_reward
+    cur = user["xp_current"] + xp_reward
     xp_to_next = user["xp_to_next_level"]
     curve = user["level_curve_factor"]
 
@@ -409,6 +426,7 @@ def _finalize(bot: TeleBot, sess: fight_session.FightSession, chat_id: int):
     except:
         pass
 
+    # Cooldown
     try:
         cd = _get_user_cooldowns(user_id)
         cd["battle"] = int(time.time())
@@ -416,14 +434,14 @@ def _finalize(bot: TeleBot, sess: fight_session.FightSession, chat_id: int):
     except:
         pass
 
-    # Delete UI
+    # Delete old UI
     try:
         last = sess.to_dict().get("_last_sent_message", {})
         bot.delete_message(last.get("chat_id"), last.get("message_id"))
     except:
         pass
 
-    # Show ending GIF
+    # Ending GIF
     try:
         if sess.winner == "player":
             if os.path.exists(GIF_VICTORY):
@@ -434,16 +452,19 @@ def _finalize(bot: TeleBot, sess: fight_session.FightSession, chat_id: int):
     except:
         pass
 
+    # Final summary
     msg = []
 
     if sess.winner == "player":
         msg.append(f"🎉 *{mob.get('win_text', 'VICTORY!')}*")
+
     elif sess.winner == "mob":
         msg.append(f"☠️ *{mob.get('lose_text', 'DEFEAT!')}*")
+
     else:
         msg.append("⚔️ *DRAW!*")
 
-    msg.append(f"🎁 XP gained: +{effective_xp}")
+    msg.append(f"🎁 XP gained: +{xp_reward}")
 
     if leveled:
         msg.append("🎉 *LEVEL UP!* Your MegaGrok grows stronger!")
