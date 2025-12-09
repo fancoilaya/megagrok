@@ -42,7 +42,7 @@ def _build_action_keyboard(session: fight_session.FightSession):
     kb.add(
         types.InlineKeyboardButton("🗡 Attack", callback_data=f"battle:act:attack:{uid}"),
         types.InlineKeyboardButton("🛡 Block",  callback_data=f"battle:act:block:{uid}"),
-        types.InlineInlineKeyboardButton("💨 Dodge",  callback_data=f"battle:act:dodge:{uid}"),
+        types.InlineKeyboardButton("💨 Dodge",  callback_data=f"battle:act:dodge:{uid}"),
         types.InlineKeyboardButton("⚡ Charge", callback_data=f"battle:act:charge:{uid}")
     )
 
@@ -235,7 +235,7 @@ def setup(bot: TeleBot):
 
         bot.send_message(message.chat.id, "Choose your opponent tier:", reply_markup=_tier_selection_keyboard())
 
-    # ---- REWRITTEN safer battle start ----
+    # ---- SAFE battle start ----
 
     def _start_battle_for_tier(bot, owner_id: int, chat_id: int, tier: int):
         user = get_user(owner_id)
@@ -252,17 +252,20 @@ def setup(bot: TeleBot):
         player_stats = fight_session.build_player_stats_from_user(user, username_fallback=username)
         mob_stats = fight_session.build_mob_stats_from_mob(mob)
 
-        # Mob intro text
+        # Intro text
         intro_text = mob.get("intro")
         if intro_text:
             bot.send_message(chat_id, intro_text)
 
-        # Mob GIF if available
+        # Show mob GIF if exists
         mob_gif = mob.get("gif")
         if mob_gif and os.path.exists(mob_gif):
             safe_send_gif(bot, chat_id, mob_gif)
         else:
             safe_send_gif(bot, chat_id, GIF_INTRO)
+
+        # Delay needed so keyboard doesn't get dropped after GIF
+        time.sleep(0.15)
 
         sess = fight_session.manager.create_session(owner_id, player_stats, mob_stats)
 
@@ -271,12 +274,12 @@ def setup(bot: TeleBot):
     # ------------------------------------------------------
     @bot.callback_query_handler(func=lambda c: c.data and c.data.startswith("battle:choose_tier:"))
     def choose_tier_handler(call: types.CallbackQuery):
-        parts = call.data.split(":")
-        tier = int(parts[2])
-        owner_id = call.from_user.id  # FIX: correct owner id
+        tier = int(call.data.split(":")[2])
+        owner_id = call.from_user.id
         chat_id = call.message.chat.id
 
         _start_battle_for_tier(bot, owner_id, chat_id, tier)
+
         bot.answer_callback_query(call.id, f"Starting Tier {tier} battle.")
 
     # ------------------------------------------------------
@@ -291,14 +294,13 @@ def setup(bot: TeleBot):
             bot.answer_callback_query(call.id, "Invalid owner.", show_alert=True)
             return
 
-        # FIX: prevent other users pressing buttons
         if call.from_user.id != owner:
             bot.answer_callback_query(call.id, "Not your battle!", show_alert=True)
             return
 
         sess = fight_session.manager.load_session(owner)
         if not sess:
-            bot.answer_callback_query(call.id, "Battle expired. Start /battle again.", show_alert=True)
+            bot.answer_callback_query(call.id, "Battle expired.", show_alert=True)
             return
 
         # ---------- SURRENDER ----------
@@ -320,7 +322,6 @@ def setup(bot: TeleBot):
             bot.answer_callback_query(call.id, "Auto toggled.")
 
             if sess.auto_mode:
-                # Burst turns
                 for _ in range(AUTO_BURST_TURNS):
                     if sess.ended:
                         break
@@ -332,6 +333,7 @@ def setup(bot: TeleBot):
             if sess.ended:
                 _finalize(bot, sess, chat_id)
                 fight_session.manager.end_session(owner)
+
             return
 
         # ---------- NORMAL ACTION ----------
@@ -396,6 +398,7 @@ def _finalize(bot: TeleBot, sess: fight_session.FightSession, chat_id: int):
         {"xp_total": xp_total, "xp_current": cur, "xp_to_next_level": xp_to_next, "level": lvl}
     )
 
+    # Leaderboard
     try:
         announce_leaderboard_if_changed(bot)
     except:
@@ -413,14 +416,14 @@ def _finalize(bot: TeleBot, sess: fight_session.FightSession, chat_id: int):
     except:
         pass
 
-    # Delete final UI
+    # Delete UI
     try:
         last = sess.to_dict().get("_last_sent_message", {})
         bot.delete_message(last.get("chat_id"), last.get("message_id"))
     except:
         pass
 
-    # Show victory/defeat GIF
+    # Show ending GIF
     try:
         if sess.winner == "player":
             if os.path.exists(GIF_VICTORY):
@@ -431,7 +434,6 @@ def _finalize(bot: TeleBot, sess: fight_session.FightSession, chat_id: int):
     except:
         pass
 
-    # Text summary
     msg = []
 
     if sess.winner == "player":
