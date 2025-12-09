@@ -1,3 +1,4 @@
+# bot/battle.py
 import os
 import random
 import time
@@ -26,6 +27,9 @@ GIF_DEFEAT = os.path.join(ASSETS_BASE, "defeat.gif")
 
 # Cooldown: 12 hours
 BATTLE_COOLDOWN_SECONDS = 12 * 3600
+
+# Auto burst: how many turns we progress per auto callback to avoid long blocking loops.
+AUTO_BURST_TURNS = 4
 
 
 # =========================================================
@@ -63,6 +67,35 @@ def _hp_bar_with_numbers(current, maximum, width=18):
     return f"{bar} {current} / {maximum}"
 
 
+def _format_event_line(ev: dict) -> str:
+    actor = ev.get("actor", "")
+    action = ev.get("action", "")
+    dmg = ev.get("damage", 0)
+    dodged = ev.get("dodged", False)
+    crit = ev.get("crit", False)
+    note = ev.get("note", "")
+    if action == "attack":
+        if dodged:
+            return f"⚔️ {actor} attacked — *dodged*"
+        else:
+            s = f"⚔️ {actor} attacked for {dmg} dmg"
+            if crit:
+                s += " (CRIT!)"
+            if note:
+                s += f" — {note}"
+            return s
+    elif action == "charge":
+        return f"⚡ {actor} charged. {note or ''}".strip()
+    elif action == "block":
+        return f"🛡 {actor} defended. {note or ''}".strip()
+    elif action == "dodge":
+        if dmg and dmg > 0:
+            return f"💨 {actor} dodged and countered for {dmg} dmg"
+        return f"💨 {actor} attempted dodge. {note or ''}".strip()
+    else:
+        return f"{actor} did {action}. {note or ''}".strip()
+
+
 def _build_caption(session: fight_session.FightSession):
     username = session.player.get("username", f"User{session.user_id}")
     mobname = session.mob.get("name", "Mob")
@@ -70,12 +103,22 @@ def _build_caption(session: fight_session.FightSession):
     p_max = int(session.player.get("current_hp", session.player.get("hp", 100)))
     m_max = int(session.mob.get("hp", session.mob.get("max_hp", 100)))
 
-    return (
-        f"⚔️ *Battle — {username} vs {mobname}*\n\n"
-        f"{username}: {_hp_bar_with_numbers(session.player_hp, p_max)}\n"
-        f"{mobname}:   {_hp_bar_with_numbers(session.mob_hp, m_max)}\n\n"
-        f"Turn: {session.turn}"
-    )
+    lines = [
+        f"⚔️ *Battle — {username} vs {mobname}*",
+        "",
+        f"{username}: {_hp_bar_with_numbers(session.player_hp, p_max)}",
+        f"{mobname}:   {_hp_bar_with_numbers(session.mob_hp, m_max)}",
+        "",
+        f"Turn: {session.turn}",
+        ""
+    ]
+
+    if session.events:
+        lines.append("*Last actions:*")
+        for ev in session.events[:4]:
+            lines.append(_format_event_line(ev))
+
+    return "\n".join(lines)
 
 
 # =========================================================
@@ -161,6 +204,26 @@ def _refresh_ui(bot: TeleBot, sess: fight_session.FightSession, chat_id: int):
 
 
 # =========================================================
+# TIER SELECTION UI
+# =========================================================
+
+def _tier_selection_keyboard():
+    kb = types.InlineKeyboardMarkup(row_width=2)
+    kb.add(
+        types.InlineKeyboardButton("🐀 Tier 1 — Common", callback_data="battle:choose_tier:1"),
+        types.InlineKeyboardButton("⚔️ Tier 2 — Uncommon", callback_data="battle:choose_tier:2"),
+    )
+    kb.add(
+        types.InlineKeyboardButton("🔥 Tier 3 — Rare", callback_data="battle:choose_tier:3"),
+        types.InlineKeyboardButton("👑 Tier 4 — Epic", callback_data="battle:choose_tier:4"),
+    )
+    kb.add(
+        types.InlineKeyboardButton("🐉 Tier 5 — Legendary", callback_data="battle:choose_tier:5"),
+    )
+    return kb
+
+
+# =========================================================
 # MAIN HANDLER SETUP
 # =========================================================
 
@@ -180,47 +243,82 @@ def setup(bot: TeleBot):
             bot.reply_to(message, f"⏳ Next /battle in: {remain//3600}h {(remain%3600)//60}m")
             return
 
+        # Ask for tier choice
+        try:
+            bot.send_message(message.chat.id, "Choose opponent tier:", reply_markup=_tier_selection_keyboard())
+        except Exception:
+            # fallback: start normal if messaging fails
+            _start_battle_for_tier(bot, message, 2)
+
+    def _start_battle_for_tier(bot, message_or_chat, tier, from_callback=False):
+        user_id = message_or_chat.from_user.id if hasattr(message_or_chat, "from_user") else None
+        chat_id = message_or_chat.chat.id if hasattr(message_or_chat, "chat") else message_or_chat
+
+        if user_id is None:
+            bot.send_message(chat_id, "Unable to determine user.")
+            return
+
         # Build player + mob
         user = get_user(user_id)
 
-        # Use unified mob getter (returns a full mob dict)
-        mob = get_random_mob()
+        # Use mob getter with tier support
+        mob = get_random_mob(tier=tier)
         if not mob:
-            bot.reply_to(message, "⚠️ No mobs available.")
+            bot.reply_to(message_or_chat, "⚠️ No mobs available.")
             return
 
-        username = (message.from_user.username and f"@{message.from_user.username}") or f"User{user_id}"
+        username = (message_or_chat.from_user.username and f"@{message_or_chat.from_user.username}") or f"User{user_id}"
 
         player_stats = fight_session.build_player_stats_from_user(user, username_fallback=username)
         player_stats["username"] = username  # enforce TG username
 
         mob_stats = fight_session.build_mob_stats_from_mob(mob)
 
-        # Play intro
+        # Play intro (use mob intro text if present)
         try:
-            safe_send_gif(bot, message.chat.id, GIF_INTRO)
+            intro_text = mob.get("intro")
+            if intro_text:
+                bot.send_message(chat_id, intro_text)
+        except Exception:
+            pass
+
+        try:
+            safe_send_gif(bot, chat_id, GIF_INTRO)
         except Exception:
             try:
-                bot.send_message(message.chat.id, "⚔️ The battle begins!")
+                bot.send_message(chat_id, "⚔️ The battle begins!")
             except Exception:
                 pass
 
         sess = fight_session.manager.create_session(user_id, player_stats, mob_stats)
 
         # Initial UI
-        _refresh_ui(bot, sess, message.chat.id)
+        _refresh_ui(bot, sess, chat_id)
 
     # ------------------------------------------------------
+    @bot.callback_query_handler(func=lambda c: c.data and c.data.startswith("battle:choose_tier:"))
+    def battle_choose_tier(call: types.CallbackQuery):
+        parts = call.data.split(":")
+        if len(parts) < 3:
+            bot.answer_callback_query(call.id, "Malformed.", show_alert=True)
+            return
+        _, _, tier = parts
+        try:
+            tier = int(tier)
+        except Exception:
+            tier = 2
+        _start_battle_for_tier(bot, call.message, tier, from_callback=True)
+        bot.answer_callback_query(call.id, f"Starting tier {tier} battle.")
 
+    # ------------------------------------------------------
     @bot.callback_query_handler(func=lambda c: c.data and c.data.startswith("battle:"))
     def battle_callback(call: types.CallbackQuery):
         parts = call.data.split(":")
-        # expected format: battle:act:<action>:<owner>
         if len(parts) < 4:
             bot.answer_callback_query(call.id, "Malformed callback.", show_alert=True)
             return
 
-        _, _, action, owner = parts[:4]
+        _, tp, action, owner = parts[:4]
         try:
             owner = int(owner)
         except Exception:
@@ -259,9 +357,11 @@ def setup(bot: TeleBot):
             bot.answer_callback_query(call.id, "Auto toggled.")
 
             if sess.auto_mode:
-                # run a single auto turn immediately
-                sess.resolve_auto_turn()
-                fight_session.manager.save_session(sess)
+                progressed = 0
+                while sess.auto_mode and not sess.ended and progressed < AUTO_BURST_TURNS:
+                    sess.resolve_auto_turn()
+                    fight_session.manager.save_session(sess)
+                    progressed += 1
 
             _refresh_ui(bot, sess, chat_id)
 
@@ -282,18 +382,25 @@ def setup(bot: TeleBot):
             bot.answer_callback_query(call.id, "Invalid action.")
             return
 
-        # resolve the player action
         try:
             sess.resolve_player_action(ACTIONS[action])
             fight_session.manager.save_session(sess)
         except Exception as e:
-            # defensive: report and abort gracefully
             fight_session.manager.save_session(sess)
             bot.answer_callback_query(call.id, f"Action failed: {e}", show_alert=True)
             return
 
         _refresh_ui(bot, sess, chat_id)
         bot.answer_callback_query(call.id, "Action performed")
+
+        # If auto-mode is on, advance a small burst of auto turns
+        if sess.auto_mode and not sess.ended:
+            progressed = 0
+            while sess.auto_mode and not sess.ended and progressed < AUTO_BURST_TURNS:
+                sess.resolve_auto_turn()
+                fight_session.manager.save_session(sess)
+                progressed += 1
+            _refresh_ui(bot, sess, chat_id)
 
         if sess.ended:
             _finalize(bot, sess, chat_id)
@@ -380,9 +487,11 @@ def _finalize(bot: TeleBot, sess: fight_session.FightSession, chat_id: int):
     msg = []
 
     if sess.winner == "player":
-        msg.append("🎉 *VICTORY!*")
+        win_text = mob.get("win_text", "VICTORY!")
+        msg.append(f"🎉 *{win_text}*")
     elif sess.winner == "mob":
-        msg.append("☠️ *DEFEAT!*")
+        lose_text = mob.get("lose_text", "DEFEAT!")
+        msg.append(f"☠️ *{lose_text}*")
     else:
         msg.append("⚔️ *DRAW!*")
 
