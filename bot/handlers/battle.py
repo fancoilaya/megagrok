@@ -1,10 +1,11 @@
 # bot/handlers/battle.py
-# Corrected PvE battle handler using fight_session_battle module.
+# MegaGrok — PvE Battle Handler (Final Corrected Version)
+# Fully compatible with fight_session_battle.py and mobs.py (Tier 1–5)
 
 import time
 from telebot import TeleBot, types
 
-# Correct PvE engine imports
+# PvE Engine
 from services.fight_session_battle import (
     manager as battle_manager,
     BattleSession,
@@ -22,62 +23,71 @@ import bot.db as db
 import bot.mobs as mobs
 
 
-
 # ============================================================
-# REGISTER HANDLER
+# MAIN SETUP
 # ============================================================
 def setup(bot: TeleBot):
 
     # ------------------------------------------------------------
-    # /battle → show tier selector
+    # /battle — show Tier selection
     # ------------------------------------------------------------
     @bot.message_handler(commands=["battle"])
     def cmd_battle(message):
-        kb = types.InlineKeyboardMarkup()
-        kb.add(types.InlineKeyboardButton("Tier 1", callback_data="battle:choose_tier:1"))
-        kb.add(types.InlineKeyboardButton("Tier 2", callback_data="battle:choose_tier:2"))
-        kb.add(types.InlineKeyboardButton("Tier 3", callback_data="battle:choose_tier:3"))
-        kb.add(types.InlineKeyboardButton("Tier 4", callback_data="battle:choose_tier:4"))
+
+        kb = types.InlineKeyboardMarkup(row_width=2)
+
+        # Match your screenshot UI layout:
+        kb.add(
+            types.InlineKeyboardButton("🐀 Tier 1 — Common", callback_data="battle:choose_tier:1"),
+            types.InlineKeyboardButton("⚔️ Tier 2 — Uncommon", callback_data="battle:choose_tier:2"),
+        )
+        kb.add(
+            types.InlineKeyboardButton("🔥 Tier 3 — Rare", callback_data="battle:choose_tier:3"),
+            types.InlineKeyboardButton("👑 Tier 4 — Epic", callback_data="battle:choose_tier:4"),
+        )
+        kb.add(
+            types.InlineKeyboardButton("🐉 Tier 5 — Legendary", callback_data="battle:choose_tier:5")
+        )
 
         bot.reply_to(
             message,
-            "⚔️ *Choose your battle tier:*",
+            "⚔️ *Choose your opponent tier:*",
             reply_markup=kb,
             parse_mode="Markdown",
         )
 
     # ------------------------------------------------------------
-    # TIER PICK CALLBACK
+    # TIER SELECT CALLBACK
     # ------------------------------------------------------------
     @bot.callback_query_handler(func=lambda c: c.data.startswith("battle:choose_tier"))
     def cb_choose_tier(call):
+
         try:
             _, _, tier_str = call.data.split(":")
             tier = int(tier_str)
         except:
-            bot.answer_callback_query(call.id, "Invalid tier.")
-            return
+            return bot.answer_callback_query(call.id, "Invalid tier.")
 
-        user_id = call.from_user.id
-        user = db.get_user(user_id)
+        uid = call.from_user.id
+        user = db.get_user(uid)
         if not user:
-            bot.answer_callback_query(call.id, "User not registered.")
-            return
+            return bot.answer_callback_query(call.id, "User not found.")
 
-        # Pick mob from your mobs.py system
-        mob = mobs.get_random_mob_from_tier(tier)
+        # ✔ Use your real mobs.py function
+        mob = mobs.get_random_mob(tier)
+        if not mob:
+            return bot.answer_callback_query(call.id, "No mobs in this tier.")
+
         mob_stats = build_mob_stats_from_mob(mob)
-
-        # Player stats
         player_stats = build_player_stats_from_user(user)
 
         # Create session
-        sess = battle_manager.create_session(user_id, player_stats, mob_stats)
+        sess = battle_manager.create_session(uid, player_stats, mob_stats)
         sess._last_msg = {"chat": call.message.chat.id, "msg": call.message.message_id}
         battle_manager.save_session(sess)
 
-        caption = _build_battle_caption(sess)
-        kb = _build_action_keyboard(sess)
+        caption = _build_caption(sess)
+        kb = _build_keyboard(sess)
 
         try:
             bot.edit_message_text(
@@ -85,15 +95,10 @@ def setup(bot: TeleBot):
                 call.message.chat.id,
                 call.message.message_id,
                 reply_markup=kb,
-                parse_mode="Markdown"
+                parse_mode="Markdown",
             )
         except:
-            bot.send_message(
-                call.message.chat.id,
-                caption,
-                reply_markup=kb,
-                parse_mode="Markdown"
-            )
+            bot.send_message(call.message.chat.id, caption, reply_markup=kb, parse_mode="Markdown")
 
         bot.answer_callback_query(call.id)
 
@@ -102,21 +107,19 @@ def setup(bot: TeleBot):
     # ------------------------------------------------------------
     @bot.callback_query_handler(func=lambda c: c.data.startswith("battle:act"))
     def cb_action(call):
+
         try:
             _, _, action, uid_str = call.data.split(":")
             uid = int(uid_str)
         except:
-            bot.answer_callback_query(call.id, "Invalid action.")
-            return
+            return bot.answer_callback_query(call.id, "Invalid action.")
 
         if call.from_user.id != uid:
-            bot.answer_callback_query(call.id, "Not your battle.", show_alert=True)
-            return
+            return bot.answer_callback_query(call.id, "Not your battle!", show_alert=True)
 
         sess = battle_manager.load_session(uid)
-        if not sess or sess.ended:
-            bot.answer_callback_query(call.id, "Battle ended or missing.")
-            return
+        if not sess:
+            return bot.answer_callback_query(call.id, "Session missing.")
 
         chat_id = sess._last_msg["chat"]
         msg_id = sess._last_msg["msg"]
@@ -126,10 +129,10 @@ def setup(bot: TeleBot):
             sess.ended = True
             sess.winner = "mob"
             battle_manager.save_session(sess)
+
             _finalize(bot, sess, chat_id)
             battle_manager.end_session(uid)
-            bot.answer_callback_query(call.id, "You surrendered.")
-            return
+            return bot.answer_callback_query(call.id, "You surrendered.")
 
         # AUTO MODE
         if action == ACTION_AUTO:
@@ -147,12 +150,11 @@ def setup(bot: TeleBot):
                 _finalize(bot, sess, chat_id)
                 battle_manager.end_session(uid)
             else:
-                caption = _build_battle_caption(sess)
-                kb = _build_action_keyboard(sess)
+                caption = _build_caption(sess)
+                kb = _build_keyboard(sess)
                 _safe_edit(bot, chat_id, msg_id, caption, kb)
 
-            bot.answer_callback_query(call.id)
-            return
+            return bot.answer_callback_query(call.id)
 
         # NORMAL ACTION
         sess.resolve_player_action(action)
@@ -162,36 +164,39 @@ def setup(bot: TeleBot):
             _finalize(bot, sess, chat_id)
             battle_manager.end_session(uid)
         else:
-            caption = _build_battle_caption(sess)
-            kb = _build_action_keyboard(sess)
+            caption = _build_caption(sess)
+            kb = _build_keyboard(sess)
             _safe_edit(bot, chat_id, msg_id, caption, kb)
 
         bot.answer_callback_query(call.id)
 
 
 # ============================================================
-# UI BUILDERS
+# UI BUILDER FUNCTIONS
 # ============================================================
 
-def _build_battle_caption(sess: BattleSession) -> str:
-    hp_player = max(0, sess.player_hp)
-    hp_mob = max(0, sess.mob_hp)
+def _build_caption(sess: BattleSession):
+    hp_p = max(0, sess.player_hp)
+    hp_m = max(0, sess.mob_hp)
 
-    bar_player = _hp_bar(hp_player, sess.player.get("hp", 100))
-    bar_mob = _hp_bar(hp_mob, sess.mob.get("hp", 100))
+    max_p = sess.player.get("hp", 100)
+    max_m = sess.mob.get("hp", 100)
+
+    bar_p = _hp_bar(hp_p, max_p)
+    bar_m = _hp_bar(hp_m, max_m)
 
     lines = [
         f"⚔️ *Battle vs {sess.mob.get('name','Mob')}*",
         "",
-        f"🧍 You:   {bar_player}  {hp_player}/{sess.player.get('hp',100)}",
-        f"👹 Enemy: {bar_mob}  {hp_mob}/{sess.mob.get('hp',100)}",
+        f"🧍 You:   {bar_p} {hp_p}/{max_p}",
+        f"👹 Enemy: {bar_m} {hp_m}/{max_m}",
         "",
         f"Turn: {sess.turn}",
         "",
     ]
 
     if sess.events:
-        lines.append("*Last actions:*")
+        lines.append("*Recent actions:*")
         for ev in sess.events[:5]:
             actor = "You" if ev["actor"] == "player" else sess.mob.get("name", "Mob")
             if ev["action"] == "attack":
@@ -202,51 +207,59 @@ def _build_battle_caption(sess: BattleSession) -> str:
     return "\n".join(lines)
 
 
-def _build_action_keyboard(sess: BattleSession):
+def _build_keyboard(sess: BattleSession):
+    uid = sess.user_id
     kb = types.InlineKeyboardMarkup()
 
     kb.add(
-        types.InlineKeyboardButton("🗡 Attack", callback_data=f"battle:act:{ACTION_ATTACK}:{sess.user_id}"),
-        types.InlineKeyboardButton("🛡 Block", callback_data=f"battle:act:{ACTION_BLOCK}:{sess.user_id}"),
+        types.InlineKeyboardButton("🗡 Attack", callback_data=f"battle:act:{ACTION_ATTACK}:{uid}"),
+        types.InlineKeyboardButton("🛡 Block", callback_data=f"battle:act:{ACTION_BLOCK}:{uid}"),
     )
     kb.add(
-        types.InlineKeyboardButton("💨 Dodge", callback_data=f"battle:act:{ACTION_DODGE}:{sess.user_id}"),
-        types.InlineKeyboardButton("⚡ Charge", callback_data=f"battle:act:{ACTION_CHARGE}:{sess.user_id}"),
+        types.InlineKeyboardButton("💨 Dodge", callback_data=f"battle:act:{ACTION_DODGE}:{uid}"),
+        types.InlineKeyboardButton("⚡ Charge", callback_data=f"battle:act:{ACTION_CHARGE}:{uid}"),
     )
     kb.add(
-        types.InlineKeyboardButton("▶ Auto" if not sess.auto_mode else "⏸ Auto",
-                                   callback_data=f"battle:act:{ACTION_AUTO}:{sess.user_id}"),
-        types.InlineKeyboardButton("❌ Surrender", callback_data=f"battle:act:{ACTION_SURRENDER}:{sess.user_id}")
+        types.InlineKeyboardButton(
+            "▶ Auto" if not sess.auto_mode else "⏸ Auto",
+            callback_data=f"battle:act:{ACTION_AUTO}:{uid}"
+        ),
+        types.InlineKeyboardButton("❌ Surrender", callback_data=f"battle:act:{ACTION_SURRENDER}:{uid}"),
     )
 
     return kb
 
 
-# ============================================================
-# FINAL SUMMARY MESSAGE
-# ============================================================
-
-def _finalize(bot: TeleBot, sess: BattleSession, chat_id: int):
-    if sess.winner == "player":
-        bot.send_message(chat_id, "🏆 *Victory!* You defeated the enemy.", parse_mode="Markdown")
-    else:
-        bot.send_message(chat_id, "💀 *Defeat!* The enemy has overpowered you.", parse_mode="Markdown")
-
-
-# ============================================================
-# UTILITIES
-# ============================================================
-
-def _hp_bar(cur, maxhp, width=20):
+def _hp_bar(cur, maxhp, width=22):
     ratio = cur / maxhp if maxhp else 0
     full = int(ratio * width)
     return "▓" * full + "░" * (width - full)
 
 
-def _safe_edit(bot: TeleBot, chat_id: int, msg_id: int, text: str, kb):
+def _safe_edit(bot, chat_id, msg_id, text, kb):
     try:
         bot.edit_message_text(text, chat_id, msg_id, reply_markup=kb, parse_mode="Markdown")
     except Exception as e:
-        if "message is not modified" in str(e):
+        if "message is not modified" in str(e).lower():
             return
         bot.send_message(chat_id, text, reply_markup=kb, parse_mode="Markdown")
+
+
+# ============================================================
+# FINAL SUMMARY
+# ============================================================
+
+def _finalize(bot, sess: BattleSession, chat_id: int):
+
+    if sess.winner == "player":
+        bot.send_message(
+            chat_id,
+            "🏆 *VICTORY!*\nYou defeated the enemy!",
+            parse_mode="Markdown",
+        )
+    else:
+        bot.send_message(
+            chat_id,
+            "💀 *DEFEAT!*\nThe enemy has overpowered you.",
+            parse_mode="Markdown",
+        )
