@@ -8,7 +8,7 @@ import random
 from telebot import TeleBot, types
 
 # CORRECT imports for your structure:
-from bot import db
+import bot.db as db
 from services import fight_session
 
 # safe GIF loader (fallback if missing)
