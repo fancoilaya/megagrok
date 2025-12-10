@@ -1,50 +1,36 @@
 # bot/handlers/pvp.py
-# MegaGrok PvP Raid System (Final Corrected Version)
-# Works with: services/fight_session_pvp.py + services/fight_session_battle (stat builder)
-# Fully separated from PvE battle system.
+# PvP handler — turn-by-turn, rate-limited (anti-429) edition
+# Uses services.fight_session_pvp for engine and services.fight_session_battle for stat building.
 
 import time
 import random
 from telebot import TeleBot, types
 
-# ✔ PvP engine
+# PvP engine manager & classes
 import services.fight_session_pvp as fight_session
-
-# ✔ Use SHARED stat builder from PvE engine (Option B)
+# Shared stat builder from PvE module
 from services.fight_session_battle import build_player_stats_from_user
 
-# Database
 import bot.db as db
 
-try:
-    from bot.utils import safe_send_gif
-except:
-    def safe_send_gif(bot, chat_id, x): pass
 
-
-# ============================================================
 # CONFIG
-# ============================================================
-
-PVP_FREE_MODE = True  # placeholder, replace with VIP toggle later
+PVP_FREE_MODE = True
 PVP_ELO_K = 32
 PVP_MIN_STEAL_PERCENT = 0.07
 PVP_MIN_STEAL_ABS = 20
-RESULT_BAR_WIDTH = 18
 PVP_SHIELD_SECONDS = 3 * 3600
+UI_EDIT_THROTTLE_SECONDS = 1.0  # <= 1 second between edits per session
 
 
-# ============================================================
-# HELPERS
-# ============================================================
-
+# Helpers
 def get_display_name(user):
     if not user:
         return "Unknown"
     if user.get("display_name"):
         return user["display_name"]
     if user.get("username"):
-        return user["username"]
+        return "@" + user["username"]
     return f"User{user.get('user_id')}"
 
 
@@ -56,32 +42,55 @@ def hp_bar(cur, maxhp, width=20):
     return "▓" * full + "░" * (width - full)
 
 
-def safe_edit(bot, chat_id, msg_id, text, kb):
+def safe_edit(bot, sess, chat_id, msg_id, text, kb):
+    """
+    Edit the message but respect per-session throttle and avoid fallback spam on 429.
+    `sess` is the fight session object (PvP).
+    """
+    now = time.time()
+    last = getattr(sess, "_last_ui_edit", 0)
+    if now - last < UI_EDIT_THROTTLE_SECONDS:
+        # skip edit to avoid hitting Telegram rate limits
+        return
+
     try:
         bot.edit_message_text(
-            text,
-            chat_id,
-            msg_id,
-            parse_mode="Markdown",
-            reply_markup=kb,
+            text, chat_id, msg_id, parse_mode="Markdown", reply_markup=kb
         )
+        sess._last_ui_edit = time.time()
+        fight_session.manager.save_session(sess)
+        return
     except Exception as e:
-        if "not modified" in str(e).lower():
+        s = str(e).lower()
+        # if not modified — fine
+        if "message is not modified" in s:
             return
-        bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=kb)
+        # if rate-limited — do not fallback to send_message (would cause more rate limits)
+        if "too many requests" in s or "retry after" in s:
+            # record last edit time to prevent retries for a bit
+            sess._last_ui_edit = time.time()
+            fight_session.manager.save_session(sess)
+            return
+        # fallback once when safe (other errors)
+        try:
+            bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=kb)
+            sess._last_ui_edit = time.time()
+            fight_session.manager.save_session(sess)
+        except Exception:
+            # if even send fails, give up silently
+            sess._last_ui_edit = time.time()
+            fight_session.manager.save_session(sess)
+            return
 
 
 def calc_xp_steal(def_xp):
     return max(int(def_xp * PVP_MIN_STEAL_PERCENT), PVP_MIN_STEAL_ABS)
 
 
-# ============================================================
-# CAPTION BUILDER
-# ============================================================
-
+# caption + keyboard builders
 def build_caption(sess):
-    a = sess.pvp_attacker
-    d = sess.pvp_defender
+    a = sess.pvp_attacker or {}
+    d = sess.pvp_defender or {}
 
     a_name = get_display_name(a)
     d_name = get_display_name(d)
@@ -96,7 +105,7 @@ def build_caption(sess):
         f"{d_name}: {hp_bar(sess.defender_hp, d_max, 20)} {sess.defender_hp}/{d_max}",
         "",
         f"Turn: {sess.turn}",
-        ""
+        "",
     ]
 
     if sess.events:
@@ -107,14 +116,12 @@ def build_caption(sess):
                 lines.append(f"• {actor} dealt {ev['damage']} dmg {ev.get('note','')}")
             else:
                 lines.append(f"• {actor}: {ev['action']} {ev.get('note','')}")
-
     return "\n".join(lines)
 
 
 def action_keyboard(sess):
     uid = sess.attacker_id
     kb = types.InlineKeyboardMarkup()
-
     kb.add(
         types.InlineKeyboardButton("🗡 Attack", callback_data=f"pvp:act:attack:{uid}"),
         types.InlineKeyboardButton("🛡 Block", callback_data=f"pvp:act:block:{uid}"),
@@ -123,39 +130,30 @@ def action_keyboard(sess):
         types.InlineKeyboardButton("💨 Dodge", callback_data=f"pvp:act:dodge:{uid}"),
         types.InlineKeyboardButton("⚡ Charge", callback_data=f"pvp:act:charge:{uid}"),
     )
+    # NOTE: Auto is turn-by-turn: pressing it executes *one* auto attacker turn.
     kb.add(
-        types.InlineKeyboardButton(
-            "▶ Auto" if not sess.auto_mode else "⏸ Auto",
-            callback_data=f"pvp:act:auto:{uid}"
-        ),
-        types.InlineKeyboardButton("❌ Forfeit", callback_data=f"pvp:act:forfeit:{uid}")
+        types.InlineKeyboardButton("▶ Auto", callback_data=f"pvp:act:auto:{uid}"),
+        types.InlineKeyboardButton("❌ Forfeit", callback_data=f"pvp:act:forfeit:{uid}"),
     )
-
     return kb
 
-
-# ============================================================
-# FINALIZE / RESULTS
-# ============================================================
 
 def finalize_pvp(bot, sess):
     atk_id = sess.attacker_id
     dfd_id = sess.defender_id
 
-    attacker = db.get_user(atk_id)
-    defender = db.get_user(dfd_id)
+    attacker = db.get_user(atk_id) or {}
+    defender = db.get_user(dfd_id) or {}
 
     atk_xp = attacker.get("xp_total", 0)
     dfd_xp = defender.get("xp_total", 0)
 
     attacker_won = sess.winner == "attacker"
-
     xp_stolen = 0
 
-    # Highlights
     best = {"attacker": {"damage": 0}, "defender": {"damage": 0}}
     for ev in sess.events:
-        if ev["action"] == "attack" and ev["damage"] > 0:
+        if ev["action"] == "attack" and ev.get("damage", 0) > 0:
             if ev["actor"] == "attacker" and ev["damage"] > best["attacker"]["damage"]:
                 best["attacker"] = {"damage": ev["damage"], "turn": ev["turn"]}
             if ev["actor"] == "defender" and ev["damage"] > best["defender"]["damage"]:
@@ -163,37 +161,50 @@ def finalize_pvp(bot, sess):
 
     if attacker_won:
         xp_stolen = calc_xp_steal(dfd_xp)
+        try:
+            db.cursor.execute(
+                "UPDATE users SET xp_total = xp_total - ?, xp_current = xp_current - ? WHERE user_id = ?",
+                (xp_stolen, xp_stolen, dfd_id),
+            )
+            db.cursor.execute(
+                "UPDATE users SET xp_total = xp_total + ?, xp_current = xp_current + ? WHERE user_id = ?",
+                (xp_stolen, xp_stolen, atk_id),
+            )
+            db.conn.commit()
+        except Exception:
+            pass
 
-        db.cursor.execute(
-            "UPDATE users SET xp_total=xp_total-?, xp_current=xp_current-? WHERE user_id=?",
-            (xp_stolen, xp_stolen, dfd_id)
-        )
-        db.cursor.execute(
-            "UPDATE users SET xp_total=xp_total+?, xp_current=xp_current+? WHERE user_id=?",
-            (xp_stolen, xp_stolen, atk_id)
-        )
+        try:
+            db.increment_pvp_field(atk_id, "pvp_wins")
+            db.increment_pvp_field(dfd_id, "pvp_losses")
+        except:
+            pass
 
-        db.increment_pvp_field(atk_id, "pvp_wins")
-        db.increment_pvp_field(dfd_id, "pvp_losses")
-
-        db.set_pvp_shield(dfd_id, int(time.time()) + PVP_SHIELD_SECONDS)
+        try:
+            db.set_pvp_shield(dfd_id, int(time.time()) + PVP_SHIELD_SECONDS)
+        except:
+            pass
 
     else:
         penalty = max(1, int(atk_xp * 0.05))
+        try:
+            db.cursor.execute(
+                "UPDATE users SET xp_total = xp_total - ?, xp_current = xp_current - ? WHERE user_id = ?",
+                (penalty, penalty, atk_id),
+            )
+            db.cursor.execute(
+                "UPDATE users SET xp_total = xp_total + ?, xp_current = xp_current + ? WHERE user_id = ?",
+                (penalty, penalty, dfd_id),
+            )
+            db.conn.commit()
+        except:
+            pass
 
-        db.cursor.execute(
-            "UPDATE users SET xp_total=xp_total-?, xp_current=xp_current-? WHERE user_id=?",
-            (penalty, penalty, atk_id)
-        )
-        db.cursor.execute(
-            "UPDATE users SET xp_total=xp_total+?, xp_current=xp_current+? WHERE user_id=?",
-            (penalty, penalty, dfd_id)
-        )
-
-        db.increment_pvp_field(atk_id, "pvp_losses")
-        db.increment_pvp_field(dfd_id, "pvp_wins")
-
-    db.conn.commit()
+        try:
+            db.increment_pvp_field(atk_id, "pvp_losses")
+            db.increment_pvp_field(dfd_id, "pvp_wins")
+        except:
+            pass
 
     # ELO update
     atk_elo = attacker.get("elo_pvp", 1000)
@@ -210,25 +221,32 @@ def finalize_pvp(bot, sess):
         new_atk = atk_elo + int(PVP_ELO_K * (0 - E))
         new_dfd = dfd_elo - int(PVP_ELO_K * (0 - E))
 
-    db.update_elo(atk_id, new_atk)
-    db.update_elo(dfd_id, new_dfd)
+    try:
+        db.update_elo(atk_id, new_atk)
+        db.update_elo(dfd_id, new_dfd)
+    except:
+        pass
 
-    # Notify defender
+    # Notify defender (best-effort)
     atk_name = get_display_name(attacker)
     if attacker_won:
         notify_msg = (
             f"⚠️ You were raided by *{atk_name}*!\n"
             f"XP stolen: {xp_stolen}\n"
             f"ELO change: {new_dfd - dfd_elo}\n"
-            f"🛡 Shield active."
         )
     else:
         notify_msg = (
             f"🛡 Your AI defender repelled *{atk_name}*!\n"
-            f"ELO change: {new_dfd - dfd_elo}"
+            f"ELO change: {new_dfd - dfd_elo}\n"
         )
 
-    _notify(bot, dfd_id, notify_msg)
+    try:
+        bot = globals().get("bot_instance_for_pvp")
+        if bot:
+            bot.send_message(dfd_id, notify_msg, parse_mode="Markdown")
+    except:
+        pass
 
     return {
         "xp_stolen": xp_stolen,
@@ -239,20 +257,9 @@ def finalize_pvp(bot, sess):
     }
 
 
-def _notify(bot, uid, text):
-    try:
-        bot.send_message(uid, text, parse_mode="Markdown")
-    except:
-        pass
-
-
-# ============================================================
-# RESULT CARD
-# ============================================================
-
 def send_result_card(bot, sess, summary):
-    attacker = db.get_user(sess.attacker_id)
-    defender = db.get_user(sess.defender_id)
+    attacker = db.get_user(sess.attacker_id) or {}
+    defender = db.get_user(sess.defender_id) or {}
 
     a_name = get_display_name(attacker)
     d_name = get_display_name(defender)
@@ -297,12 +304,11 @@ def send_result_card(bot, sess, summary):
     if best["defender"]["damage"]:
         card.append(f"💢 Enemy best hit: {best['defender']['damage']} dmg")
 
-    bot.send_message(chat_id, "\n".join(card), parse_mode="Markdown")
+    try:
+        bot.send_message(chat_id, "\n".join(card), parse_mode="Markdown")
+    except:
+        pass
 
-
-# ============================================================
-# PVP ACCESS
-# ============================================================
 
 def has_pvp_access(uid):
     if PVP_FREE_MODE:
@@ -313,51 +319,37 @@ def has_pvp_access(uid):
         return True
 
 
-# ============================================================
-# MAIN SETUP
-# ============================================================
-
+# Setup handler
 def setup(bot: TeleBot):
+    # store bot in module globals for notifications
+    globals()["bot_instance_for_pvp"] = bot
 
-    # ------------------------------------------------------------
-    # /attack
-    # ------------------------------------------------------------
     @bot.message_handler(commands=["attack"])
     def cmd_attack(message):
         attacker_id = message.from_user.id
-
         if not has_pvp_access(attacker_id):
             bot.reply_to(message, "🔒 PvP requires VIP.")
             return
 
+        # determine defender
         defender_id = None
-
-        # reply target
         if message.reply_to_message:
             defender_id = message.reply_to_message.from_user.id
-
         else:
             parts = message.text.split()
             if len(parts) == 1:
-                return bot.reply_to(
-                    message,
-                    "Reply to someone or use `/attack <name>`",
-                    parse_mode="Markdown",
-                )
-
+                return bot.reply_to(message, "Reply to someone or use `/attack <name>`", parse_mode="Markdown")
             q = parts[1].strip()
-
             if q.startswith("@"):
                 row = db.get_user_by_username(q)
                 if not row:
-                    bot.reply_to(message, "User not found.")
-                    return
+                    return bot.reply_to(message, "User not found.")
+                # db.get_user_by_username may return a row; normalize
                 defender_id = row[0] if isinstance(row, (list, tuple)) else row
             else:
                 matches = db.search_users_by_name(q)
                 if not matches:
-                    bot.reply_to(message, "No matching users.")
-                    return
+                    return bot.reply_to(message, "No matching users.")
                 if len(matches) == 1:
                     defender_id = matches[0][0]
                 else:
@@ -369,19 +361,14 @@ def setup(bot: TeleBot):
                     return
 
         if defender_id is None:
-            bot.reply_to(message, "Could not identify target.")
-            return
-
+            return bot.reply_to(message, "Could not identify target.")
         if defender_id == attacker_id:
-            bot.reply_to(message, "You cannot attack yourself.")
-            return
-
+            return bot.reply_to(message, "You cannot attack yourself.")
         if db.is_pvp_shielded(defender_id):
-            bot.reply_to(message, "🛡 User is shielded.")
-            return
+            return bot.reply_to(message, "🛡 User is shielded.")
 
-        attacker = db.get_user(attacker_id)
-        defender = db.get_user(defender_id)
+        attacker = db.get_user(attacker_id) or {}
+        defender = db.get_user(defender_id) or {}
 
         a_stats = build_player_stats_from_user(attacker)
         d_stats = build_player_stats_from_user(defender)
@@ -390,46 +377,39 @@ def setup(bot: TeleBot):
 
         caption = build_caption(sess)
         kb = action_keyboard(sess)
-
         m = bot.send_message(message.chat.id, caption, parse_mode="Markdown", reply_markup=kb)
         sess._last_msg = {"chat": message.chat.id, "msg": m.message_id}
+        sess._last_ui_edit = 0
         fight_session.manager.save_session(sess)
 
-        db.increment_pvp_field(attacker_id, "pvp_fights_started")
-        db.increment_pvp_field(defender_id, "pvp_challenges_received")
+        try:
+            db.increment_pvp_field(attacker_id, "pvp_fights_started")
+            db.increment_pvp_field(defender_id, "pvp_challenges_received")
+        except:
+            pass
 
-    # ------------------------------------------------------------
-    # name selection callback
-    # ------------------------------------------------------------
     @bot.callback_query_handler(func=lambda c: c.data.startswith("pvp_select"))
     def cb_pvp_select(call):
         _, att, dfd = call.data.split(":")
-        attacker_id = int(att)
-        defender_id = int(dfd)
-
-        attacker = db.get_user(attacker_id)
-        defender = db.get_user(defender_id)
-
+        attacker_id = int(att); defender_id = int(dfd)
+        attacker = db.get_user(attacker_id) or {}
+        defender = db.get_user(defender_id) or {}
         a_stats = build_player_stats_from_user(attacker)
         d_stats = build_player_stats_from_user(defender)
-
         sess = fight_session.manager.create_pvp_session(attacker_id, a_stats, defender_id, d_stats)
-
         caption = build_caption(sess)
         kb = action_keyboard(sess)
-
         m = bot.send_message(call.message.chat.id, caption, parse_mode="Markdown", reply_markup=kb)
         sess._last_msg = {"chat": call.message.chat.id, "msg": m.message_id}
+        sess._last_ui_edit = 0
         fight_session.manager.save_session(sess)
-
-        db.increment_pvp_field(attacker_id, "pvp_fights_started")
-        db.increment_pvp_field(defender_id, "pvp_challenges_received")
-
+        try:
+            db.increment_pvp_field(attacker_id, "pvp_fights_started")
+            db.increment_pvp_field(defender_id, "pvp_challenges_received")
+        except:
+            pass
         bot.answer_callback_query(call.id, "Raid started!")
 
-    # ------------------------------------------------------------
-    # action callback
-    # ------------------------------------------------------------
     @bot.callback_query_handler(func=lambda c: c.data.startswith("pvp:act"))
     def cb_pvp_action(call):
         try:
@@ -448,30 +428,20 @@ def setup(bot: TeleBot):
         chat_id = sess._last_msg["chat"]
         msg_id = sess._last_msg["msg"]
 
-        # FORFEIT
+        # Forfeit
         if action == "forfeit":
             sess.ended = True
             sess.winner = "defender"
             fight_session.manager.save_session(sess)
-
             summary = finalize_pvp(bot, sess)
             send_result_card(bot, sess, summary)
-
             fight_session.manager.end_session(attacker_id)
-            bot.answer_callback_query(call.id, "You forfeited.")
-            return
+            return bot.answer_callback_query(call.id, "You forfeited.")
 
-        # AUTO
+        # AUTO — now turn-by-turn: perform ONE automatic attacker turn
         if action == "auto":
-            sess.auto_mode = not sess.auto_mode
+            sess.resolve_auto_attacker_turn()
             fight_session.manager.save_session(sess)
-
-            if sess.auto_mode:
-                for _ in range(4):
-                    if sess.ended:
-                        break
-                    sess.resolve_auto_attacker_turn()
-                    fight_session.manager.save_session(sess)
 
             if sess.ended:
                 summary = finalize_pvp(bot, sess)
@@ -480,10 +450,9 @@ def setup(bot: TeleBot):
             else:
                 caption = build_caption(sess)
                 kb = action_keyboard(sess)
-                safe_edit(bot, chat_id, msg_id, caption, kb)
+                safe_edit(bot, sess, chat_id, msg_id, caption, kb)
 
-            bot.answer_callback_query(call.id)
-            return
+            return bot.answer_callback_query(call.id)
 
         # STANDARD ACTION
         sess.resolve_attacker_action(action)
@@ -496,6 +465,7 @@ def setup(bot: TeleBot):
         else:
             caption = build_caption(sess)
             kb = action_keyboard(sess)
-            safe_edit(bot, chat_id, msg_id, caption, kb)
+            safe_edit(bot, sess, chat_id, msg_id, caption, kb)
 
         bot.answer_callback_query(call.id)
+
