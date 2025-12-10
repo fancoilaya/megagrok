@@ -46,6 +46,7 @@ class PvPFightSession:
         if self.ended: return
         d = self.pvp_defender_stats; a = self.pvp_attacker_stats
         r = random.random()
+        note = ""   # <-- fixed: ensure `note` always defined
         if r < 0.65:
             base = int(d["attack"])
             if random.random() < float(d.get("crit_chance", 0)): base = int(base * 1.8); note="(CRIT!)"
