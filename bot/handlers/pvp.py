@@ -8,7 +8,7 @@ import random
 from telebot import TeleBot, types
 
 import bot.db as db
-import services.fight_session as fight_session
+import services.fight_session_pvp as fight_session
 
 
 # ============================================================
