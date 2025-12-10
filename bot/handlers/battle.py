@@ -19,7 +19,8 @@ from services.fight_session_battle import (
 )
 
 import bot.db as db
-import mobs
+import bot.mobs as mobs
+
 
 
 # ============================================================
