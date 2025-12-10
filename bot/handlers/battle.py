@@ -6,7 +6,7 @@ import json
 from telebot import types
 from telebot import TeleBot
 
-from services import fight_session
+import services.fight_session_battle as fight_session
 from bot.mobs import get_random_mob
 from bot.db import (
     get_user,
