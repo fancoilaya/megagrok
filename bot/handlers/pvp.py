@@ -1,4 +1,3 @@
-# bot/handlers/pvp.py
 # MegaGrok Async PvP System — v3 Cinematic Result Card
 # Place in: bot/handlers/pvp.py
 # Requires: bot/db.py, services/fight_session.py
