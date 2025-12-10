@@ -192,7 +192,7 @@ def finalize_pvp(bot, sess):
     dfd_elo = dfd.get("elo_pvp", 1000)
 
     def expected(a, b):
-        return 1 / (1 + 10 ** ((b - a) / 400)))
+        return 1 / (1 + 10 ** ((b - a) / 400))
 
     E = expected(atk_elo, dfd_elo)
 
