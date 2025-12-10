@@ -1,36 +1,37 @@
 # bot/handlers/battle.py
-# Corrected to work with services.fight_session_battle
-# Fully compatible with your existing UI and mob tier system.
+# Corrected PvE battle handler using fight_session_battle module.
 
 import time
 from telebot import TeleBot, types
 
-# ✔ Correct imports for new PvE engine
+# Correct PvE engine imports
 from services.fight_session_battle import (
     manager as battle_manager,
     BattleSession,
+    build_player_stats_from_user,
+    build_mob_stats_from_mob,
     ACTION_ATTACK,
     ACTION_BLOCK,
     ACTION_DODGE,
     ACTION_CHARGE,
     ACTION_AUTO,
     ACTION_SURRENDER,
-    build_player_stats_from_user,
-    build_mob_stats_from_mob,
 )
 
 import bot.db as db
 import mobs
 
 
+# ============================================================
+# REGISTER HANDLER
+# ============================================================
 def setup(bot: TeleBot):
-    # ============================
-    # /battle command
-    # ============================
+
+    # ------------------------------------------------------------
+    # /battle → show tier selector
+    # ------------------------------------------------------------
     @bot.message_handler(commands=["battle"])
     def cmd_battle(message):
-        uid = message.from_user.id
-
         kb = types.InlineKeyboardMarkup()
         kb.add(types.InlineKeyboardButton("Tier 1", callback_data="battle:choose_tier:1"))
         kb.add(types.InlineKeyboardButton("Tier 2", callback_data="battle:choose_tier:2"))
@@ -44,9 +45,9 @@ def setup(bot: TeleBot):
             parse_mode="Markdown",
         )
 
-    # ============================
-    # Tier selection callback
-    # ============================
+    # ------------------------------------------------------------
+    # TIER PICK CALLBACK
+    # ------------------------------------------------------------
     @bot.callback_query_handler(func=lambda c: c.data.startswith("battle:choose_tier"))
     def cb_choose_tier(call):
         try:
@@ -59,22 +60,21 @@ def setup(bot: TeleBot):
         user_id = call.from_user.id
         user = db.get_user(user_id)
         if not user:
-            bot.answer_callback_query(call.id, "User not found in DB.")
+            bot.answer_callback_query(call.id, "User not registered.")
             return
 
-        # choose mob from mobs.py
+        # Pick mob from your mobs.py system
         mob = mobs.get_random_mob_from_tier(tier)
         mob_stats = build_mob_stats_from_mob(mob)
 
-        # build player stats
+        # Player stats
         player_stats = build_player_stats_from_user(user)
 
-        # create PvE session
+        # Create session
         sess = battle_manager.create_session(user_id, player_stats, mob_stats)
         sess._last_msg = {"chat": call.message.chat.id, "msg": call.message.message_id}
         battle_manager.save_session(sess)
 
-        # send battle UI
         caption = _build_battle_caption(sess)
         kb = _build_action_keyboard(sess)
 
@@ -84,21 +84,21 @@ def setup(bot: TeleBot):
                 call.message.chat.id,
                 call.message.message_id,
                 reply_markup=kb,
-                parse_mode="Markdown",
+                parse_mode="Markdown"
             )
         except:
             bot.send_message(
                 call.message.chat.id,
                 caption,
                 reply_markup=kb,
-                parse_mode="Markdown",
+                parse_mode="Markdown"
             )
 
         bot.answer_callback_query(call.id)
 
-    # ============================
-    # Action callbacks
-    # ============================
+    # ------------------------------------------------------------
+    # ACTION CALLBACKS
+    # ------------------------------------------------------------
     @bot.callback_query_handler(func=lambda c: c.data.startswith("battle:act"))
     def cb_action(call):
         try:
@@ -120,7 +120,7 @@ def setup(bot: TeleBot):
         chat_id = sess._last_msg["chat"]
         msg_id = sess._last_msg["msg"]
 
-        # Surrender
+        # SURRENDER
         if action == ACTION_SURRENDER:
             sess.ended = True
             sess.winner = "mob"
@@ -130,13 +130,12 @@ def setup(bot: TeleBot):
             bot.answer_callback_query(call.id, "You surrendered.")
             return
 
-        # Auto toggle
+        # AUTO MODE
         if action == ACTION_AUTO:
             sess.auto_mode = not sess.auto_mode
             battle_manager.save_session(sess)
 
             if sess.auto_mode:
-                # Run immediate rounds for snappy feel
                 for _ in range(4):
                     if sess.ended:
                         break
@@ -154,7 +153,7 @@ def setup(bot: TeleBot):
             bot.answer_callback_query(call.id)
             return
 
-        # Normal actions
+        # NORMAL ACTION
         sess.resolve_player_action(action)
         battle_manager.save_session(sess)
 
@@ -168,9 +167,10 @@ def setup(bot: TeleBot):
 
         bot.answer_callback_query(call.id)
 
-# ============================================================================
-# UI HELPERS
-# ============================================================================
+
+# ============================================================
+# UI BUILDERS
+# ============================================================
 
 def _build_battle_caption(sess: BattleSession) -> str:
     hp_player = max(0, sess.player_hp)
@@ -203,24 +203,27 @@ def _build_battle_caption(sess: BattleSession) -> str:
 
 def _build_action_keyboard(sess: BattleSession):
     kb = types.InlineKeyboardMarkup()
-    row1 = [
+
+    kb.add(
         types.InlineKeyboardButton("🗡 Attack", callback_data=f"battle:act:{ACTION_ATTACK}:{sess.user_id}"),
-        types.InlineKeyboardButton("🛡 Block",  callback_data=f"battle:act:{ACTION_BLOCK}:{sess.user_id}"),
-    ]
-    row2 = [
+        types.InlineKeyboardButton("🛡 Block", callback_data=f"battle:act:{ACTION_BLOCK}:{sess.user_id}"),
+    )
+    kb.add(
         types.InlineKeyboardButton("💨 Dodge", callback_data=f"battle:act:{ACTION_DODGE}:{sess.user_id}"),
         types.InlineKeyboardButton("⚡ Charge", callback_data=f"battle:act:{ACTION_CHARGE}:{sess.user_id}"),
-    ]
-    row3 = [
+    )
+    kb.add(
         types.InlineKeyboardButton("▶ Auto" if not sess.auto_mode else "⏸ Auto",
                                    callback_data=f"battle:act:{ACTION_AUTO}:{sess.user_id}"),
         types.InlineKeyboardButton("❌ Surrender", callback_data=f"battle:act:{ACTION_SURRENDER}:{sess.user_id}")
-    ]
-    kb.add(*row1)
-    kb.add(*row2)
-    kb.add(*row3)
+    )
+
     return kb
 
+
+# ============================================================
+# FINAL SUMMARY MESSAGE
+# ============================================================
 
 def _finalize(bot: TeleBot, sess: BattleSession, chat_id: int):
     if sess.winner == "player":
@@ -229,7 +232,11 @@ def _finalize(bot: TeleBot, sess: BattleSession, chat_id: int):
         bot.send_message(chat_id, "💀 *Defeat!* The enemy has overpowered you.", parse_mode="Markdown")
 
 
-def _hp_bar(cur, maxhp, width: int = 20):
+# ============================================================
+# UTILITIES
+# ============================================================
+
+def _hp_bar(cur, maxhp, width=20):
     ratio = cur / maxhp if maxhp else 0
     full = int(ratio * width)
     return "▓" * full + "░" * (width - full)
