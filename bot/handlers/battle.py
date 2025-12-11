@@ -1,7 +1,6 @@
-# bot/handlers/battle.py (v8)
-# Uses session_id-based callback_data; single final message output
-# Awards XP in mob's min/max range, updates DB (xp_total, xp_current, level, xp_to_next_level),
-# increments mobs_defeated, and prints milestone flair for kill counts.
+# bot/handlers/battle.py (v8.2)
+# Uses session_id-based callback_data; single final message output with evolution-enhanced stats.
+# Battle UI shows only the last 2 events for clarity.
 
 import time
 import random
@@ -50,7 +49,6 @@ def _safe_edit(bot: TeleBot, chat_id: int, msg_id: Optional[int], text: str, kb:
             pass
 
 def _progress_line(user: dict) -> str:
-    # Create progress line like /growmygrok screenshot
     level = user.get("level", 1)
     xp_current = user.get("xp_current", 0)
     xp_to = user.get("xp_to_next_level", 100)
@@ -60,7 +58,6 @@ def _progress_line(user: dict) -> str:
     bar = "▓" * full + "░" * (bar_width - full)
     return f"🧬 Level {level} — {bar} {pct}% ({xp_current}/{xp_to})\n➡ XP needed to next level: {max(0, xp_to - xp_current)}"
 
-# Milestone flair for kills
 def _kill_milestone_flair(kills: int) -> Optional[str]:
     if kills and kills % 100 == 0:
         return f"🏆 {kills} kills milestone!"
@@ -161,7 +158,6 @@ def setup(bot: TeleBot):
         if not sess:
             return bot.answer_callback_query(call.id, "Session missing or expired.", show_alert=True)
 
-        # owner-only PvE
         if call.from_user.id != sess.user_id:
             return bot.answer_callback_query(call.id, "❌ This is not your battle.", show_alert=True)
 
@@ -231,9 +227,10 @@ def _build_caption(sess: BattleSession) -> str:
         f"Turn: {sess.turn}",
         "",
     ]
+    # only include the last 2 recent events for clarity
     if sess.events:
         lines.append("*Recent actions:*")
-        for ev in sess.events[:5]:
+        for ev in sess.events[:2]:
             actor = "You" if ev["actor"] == "player" else mob_name
             if ev["action"] == "attack":
                 lines.append(f"• {actor} dealt {ev['damage']} dmg {ev.get('note','')}")
@@ -265,24 +262,19 @@ def _build_keyboard(sess: BattleSession) -> types.InlineKeyboardMarkup:
 # Finalize: single final message with XP/level update + drops + highlights
 # -------------------------
 def _finalize_single_message(bot: TeleBot, sess: BattleSession, chat_id: int):
-    # Get full mob metadata
     mob = sess.mob_full or {}
     mob_name = mob.get("name", sess.mob.get("name", "Mob"))
-    min_xp = int(mob.get("min_xp", mob.get("min_xp", 10) or 10))
-    max_xp = int(mob.get("max_xp", mob.get("max_xp", min_xp + 10) or (min_xp + 10)))
+    min_xp = int(mob.get("min_xp", 10))
+    max_xp = int(mob.get("max_xp", min_xp + 10))
     drops = mob.get("drops", [])
 
-    # compute xp gain
     xp_gain = random.randint(min_xp, max_xp)
 
-    # Update DB: xp_total, xp_current, level, xp_to_next_level; increment mobs_defeated
     uid = sess.user_id
     user = db.get_user(uid)
     if not user:
-        # fallback message
-        text = f"🏆 Result: { 'VICTORY' if sess.winner == 'player' else 'DEFEAT' } vs {mob_name}"
-        bot.send_message(chat_id, text, parse_mode="Markdown")
-        # cleanup session
+        final_text = f"🏆 Result: {'VICTORY' if sess.winner == 'player' else 'DEFEAT'} vs {mob_name}"
+        bot.send_message(chat_id, final_text, parse_mode="Markdown")
         sid = getattr(sess, "session_id", None)
         if sid:
             battle_manager.end_session_by_sid(sid)
@@ -290,7 +282,7 @@ def _finalize_single_message(bot: TeleBot, sess: BattleSession, chat_id: int):
             battle_manager.end_session(sess.user_id)
         return
 
-    # apply xp and level logic (loop to support multiple level-ups)
+    # XP/level logic
     xp_current = int(user.get("xp_current", 0)) + xp_gain
     xp_total = int(user.get("xp_total", 0)) + xp_gain
     xp_to_next = int(user.get("xp_to_next_level", 100))
@@ -302,15 +294,13 @@ def _finalize_single_message(bot: TeleBot, sess: BattleSession, chat_id: int):
         xp_current -= xp_to_next
         level += 1
         leveled += 1
-        # increase next level cost (round to int)
         xp_to_next = int(xp_to_next * curve)
 
-    # increment mobs_defeated (only for victories)
+    # increment mobs_defeated only on victory
     mobs_defeated = int(user.get("mobs_defeated", 0))
     if sess.winner == "player":
         mobs_defeated += 1
 
-    # persist updates
     db.update_user_xp(uid, {
         "xp_total": xp_total,
         "xp_current": xp_current,
@@ -319,11 +309,11 @@ def _finalize_single_message(bot: TeleBot, sess: BattleSession, chat_id: int):
         "mobs_defeated": mobs_defeated
     })
 
-    # build final message matching /growmygrok style
+    # build message
     display_name = user.get("display_name") or user.get("username") or f"User{uid}"
     header = f"*{display_name}*\n/battle\n"
     result_line = "🏆 VICTORY!" if sess.winner == "player" else "💀 DEFEAT…"
-    title = f"{result_line} {'vs' if sess.winner else 'vs'} {mob_name}\n\n"
+    title = f"{result_line} vs {mob_name}\n\n"
 
     xp_line = f"📈 XP Gained: +{xp_gain}\n"
     if leveled:
@@ -331,7 +321,7 @@ def _finalize_single_message(bot: TeleBot, sess: BattleSession, chat_id: int):
 
     progress = _progress_line(db.get_user(uid))
 
-    # highlights
+    # highlights: last 2 events summarised into best hits
     best_player_hit = 0
     best_mob_hit = 0
     for ev in sess.events:
@@ -348,12 +338,10 @@ def _finalize_single_message(bot: TeleBot, sess: BattleSession, chat_id: int):
         f"• Turns: {sess.turn}",
     ]
 
-    # drops text
     drops_text = ""
     if drops:
         drops_text = "🎁 Drops: " + ", ".join(drops)
 
-    # milestone flair
     milestone = _kill_milestone_flair(mobs_defeated)
     milestone_text = f"\n\n{milestone}" if milestone else ""
 
@@ -370,21 +358,18 @@ def _finalize_single_message(bot: TeleBot, sess: BattleSession, chat_id: int):
     ]
     final_text = "\n".join([p for p in final_parts if p is not None and p != ""])
 
-    # send single result message (and remove old battle UI)
-    # try to delete or overwrite the original message first (best-effort)
+    # overwrite the original battle message (no buttons) or send the summary
     try:
         msg_id = sess._last_msg["msg"] if sess._last_msg else None
         chat = sess._last_msg["chat"] if sess._last_msg else chat_id
         if msg_id:
-            # edit original to the final_text (no keyboard)
             bot.edit_message_text(final_text, chat, msg_id, parse_mode="Markdown")
         else:
-            bot.send_message(chat_id, final_text, parse_mode="Markdown")
+            bot.send_message(chat, final_text, parse_mode="Markdown")
     except Exception:
         try:
             bot.send_message(chat_id, final_text, parse_mode="Markdown")
         except Exception:
-            # last resort: ensure player sees summary
             pass
 
     # cleanup session persistence
@@ -393,4 +378,3 @@ def _finalize_single_message(bot: TeleBot, sess: BattleSession, chat_id: int):
         battle_manager.end_session_by_sid(sid)
     else:
         battle_manager.end_session(sess.user_id)
-
