@@ -1,6 +1,9 @@
 # services/fight_session_battle.py
-# Migration: store full mob dict (mob_full) and session_id (minimal, backwards-compatible)
-# Keeps existing combat logic, adds mob_full persistence for accurate final messaging.
+# Finalized migration: session_id, mob_full, and evolution-driven player stats (reset per-battle).
+# Minimal, backwards-compatible persistence (legacy user key + sid:<session_id>).
+# Player stats derive from level + evolutions.get_fight_bonus (no DB changes required).
+#
+# NOTE: persistent HP is planned for the future (VIP/coin integration). For now HP resets every battle.
 
 import json
 import random
@@ -9,6 +12,7 @@ import secrets
 from typing import Optional, Dict, Any
 
 import bot.db as db
+import bot.evolutions as evolutions
 
 SESSIONS_FILE = "data/fight_sessions_battle.json"
 
@@ -28,16 +32,18 @@ class BattleSession:
                  mob_stats: Optional[Dict[str, Any]] = None, mob_full: Optional[Dict[str, Any]] = None,
                  session_id: Optional[str] = None):
         self.user_id = user_id
+        # combat-only player/mob stats (numbers used in resolution)
         self.player = player_stats or {"hp": 100, "attack": 10, "defense": 2, "crit_chance": 0.05}
-        # store combat-only mob stats (kept for runtime) and full mob metadata for final message
         self.mob = mob_stats or {"name": "Mob", "hp": 80, "attack": 8, "defense": 1}
-        self.mob_full = mob_full or {}  # NEW: contains canonical mob dict from mobs.py
+        # full mob metadata from mobs.py (name, min_xp, max_xp, drops, etc.)
+        self.mob_full = mob_full or {}
         self.turn = 1
         self.ended = False
         self.winner: Optional[str] = None
-        self.events = []
+        self.events = []  # newest-first list of event dicts
         self.auto_mode = False
 
+        # runtime HP values (player_hp is reset at session creation using derived stats)
         self.player_hp = int(self.player.get("hp", 100))
         self.mob_hp = int(self.mob.get("hp", self.mob.get("hp_max", 100)))
 
@@ -60,7 +66,7 @@ class BattleSession:
             "user_id": self.user_id,
             "player": self.player,
             "mob": self.mob,
-            "mob_full": self.mob_full,        # NEW persisted field
+            "mob_full": self.mob_full,
             "turn": self.turn,
             "ended": self.ended,
             "winner": self.winner,
@@ -103,12 +109,13 @@ class BattleSession:
         sess._last_msg = data.get("_last_msg")
         return sess
 
-    # ---------- logging + combat resolution ----------
     def log(self, who: str, action: str, dmg: Optional[int] = None, note: str = ""):
-        self.events.insert(0, {"actor": who, "action": action, "damage": dmg, "note": note, "turn": self.turn})
+        self.events.insert(0, {"actor": who, "action": action, "damage": dmg, "note": note, "turn": self.turn, "ts": int(time.time())})
+        # keep a bounded log
         if len(self.events) > 40:
             self.events = self.events[:40]
 
+    # Combat resolution (unchanged logic)
     def resolve_player_action(self, action: str):
         if self.ended:
             return
@@ -197,7 +204,20 @@ class BattleSessionManager:
 
     # Create session and persist under legacy user key AND sid key
     def create_session(self, user_id: int, player_stats: Dict[str, Any], mob_stats: Dict[str, Any], mob_full: Dict[str, Any]) -> BattleSession:
-        sess = BattleSession(user_id, player_stats, mob_stats, mob_full)
+        # Derive player stats (hp/attack/defense) from user's level + evolutions fight_bonus
+        user = db.get_user(user_id)
+        level = int(user.get("level", 1))
+        fight_bonus = evolutions.get_fight_bonus(level)
+
+        # Derived stats (Option B)
+        derived = {
+            "hp": max(20, int(120 + level * 8 + fight_bonus * 15)),
+            "attack": max(1, int(10 + level * 2 + fight_bonus * 2)),
+            "defense": max(0, int(4 + level * 1 + fight_bonus * 1)),
+            "crit_chance": round(0.05 + level * 0.001, 3)
+        }
+        sess = BattleSession(user_id, derived, mob_stats, mob_full)
+        # persist both legacy and sid keys
         self._sessions[str(user_id)] = sess.to_dict()
         self._sessions[f"sid:{sess.session_id}"] = sess.to_dict()
         self.save()
@@ -217,7 +237,7 @@ class BattleSessionManager:
         sess._last_msg = data.get("_last_msg")
         return sess
 
-    # NEW: load by session id (sid)
+    # load by sid
     def load_session_by_sid(self, sid: str) -> Optional[BattleSession]:
         data = self._sessions.get(f"sid:{sid}")
         if not data:
@@ -226,7 +246,6 @@ class BattleSessionManager:
         sess._last_msg = data.get("_last_msg")
         return sess
 
-    # remove by legacy user_id
     def end_session(self, user_id: int):
         k = str(user_id)
         to_delete = []
@@ -242,7 +261,6 @@ class BattleSessionManager:
             del self._sessions[k]
         self.save()
 
-    # NEW: end by sid
     def end_session_by_sid(self, sid: str):
         key = f"sid:{sid}"
         data = self._sessions.get(key)
@@ -255,23 +273,27 @@ class BattleSessionManager:
 manager = BattleSessionManager()
 
 # -----------------------
-# Utilities: stat builders
+# Utilities: stat builders (kept for external use)
 # -----------------------
 def build_player_stats_from_user(user: Optional[Dict[str, Any]], username_fallback: str = None) -> Dict[str, Any]:
+    """
+    Derive combat stats from the user's level and evolution fight bonus.
+    Player HP is NOT persisted (reset per-battle). For persistent HP later, store 'hp_current' in DB.
+    """
     if not user:
-        return {"hp": 100, "attack": 10, "defense": 1, "crit_chance": 0.05}
+        return {"hp": 120, "attack": 10, "defense": 4, "crit_chance": 0.05}
+    level = int(user.get("level", 1))
+    fight_bonus = evolutions.get_fight_bonus(level)
     return {
-        "hp": int(user.get("xp_to_next_level", 100)),  # placeholder; keep as configured
-        "attack": int(user.get("attack", user.get("atk", 10)) if user else 10),
-        "defense": int(user.get("defense", user.get("armor", 1)) if user else 1),
-        "crit_chance": float(user.get("crit_chance", 0.05) if user else 0.05),
-        "_charge_stacks": int(user.get("_charge_stacks", 0) if user else 0)
+        "hp": max(20, int(120 + level * 8 + fight_bonus * 15)),
+        "attack": max(1, int(10 + level * 2 + fight_bonus * 2)),
+        "defense": max(0, int(4 + level * 1 + fight_bonus * 1)),
+        "crit_chance": round(0.05 + level * 0.001, 3)
     }
 
 def build_mob_stats_from_mob(mob: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     if not mob:
         return {"hp": 80, "attack": 8, "defense": 1, "crit_chance": 0.03}
-    # Use the computed auto_stats in mob dict (see mobs.py), but keep minimal keys here
     return {
         "hp": int(mob.get("hp", mob.get("hp_max", 80))),
         "attack": int(mob.get("attack", mob.get("atk", 8))),
