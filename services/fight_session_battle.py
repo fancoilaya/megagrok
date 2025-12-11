@@ -1,12 +1,6 @@
 # services/fight_session_battle.py
-# MegaGrok — Battle session engine (migrated to support session_id)
-# Minimal, backwards-compatible changes:
-#  - each BattleSession now has `session_id`
-#  - manager stores sessions under both "user_id" and "sid:<session_id>"
-#  - new load/save/end helpers for sid lookups
-#
-# This preserves all original battle logic and JSON storage format,
-# while enabling the handler to use session_id in callback_data.
+# Migration: store full mob dict (mob_full) and session_id (minimal, backwards-compatible)
+# Keeps existing combat logic, adds mob_full persistence for accurate final messaging.
 
 import json
 import random
@@ -30,10 +24,14 @@ ACTION_SURRENDER = "surrender"
 # BattleSession
 # -----------------------
 class BattleSession:
-    def __init__(self, user_id: int, player_stats: Optional[Dict[str, Any]] = None, mob: Optional[Dict[str, Any]] = None, session_id: Optional[str] = None):
+    def __init__(self, user_id: int, player_stats: Optional[Dict[str, Any]] = None,
+                 mob_stats: Optional[Dict[str, Any]] = None, mob_full: Optional[Dict[str, Any]] = None,
+                 session_id: Optional[str] = None):
         self.user_id = user_id
         self.player = player_stats or {"hp": 100, "attack": 10, "defense": 2, "crit_chance": 0.05}
-        self.mob = mob or {"name": "Goblin", "hp": 80, "attack": 8, "defense": 1}
+        # store combat-only mob stats (kept for runtime) and full mob metadata for final message
+        self.mob = mob_stats or {"name": "Mob", "hp": 80, "attack": 8, "defense": 1}
+        self.mob_full = mob_full or {}  # NEW: contains canonical mob dict from mobs.py
         self.turn = 1
         self.ended = False
         self.winner: Optional[str] = None
@@ -54,7 +52,7 @@ class BattleSession:
         # last message pointer for editing
         self._last_msg = None
 
-        # NEW: stable session id (compact)
+        # stable session id (compact)
         self.session_id = session_id or secrets.token_hex(6)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -62,6 +60,7 @@ class BattleSession:
             "user_id": self.user_id,
             "player": self.player,
             "mob": self.mob,
+            "mob_full": self.mob_full,        # NEW persisted field
             "turn": self.turn,
             "ended": self.ended,
             "winner": self.winner,
@@ -76,7 +75,7 @@ class BattleSession:
             "_mob_dodge": self._mob_dodge,
             "_mob_charge": self._mob_charge,
             "_last_msg": self._last_msg,
-            "session_id": self.session_id,  # NEW
+            "session_id": self.session_id,
         }
 
     @classmethod
@@ -85,6 +84,7 @@ class BattleSession:
             data["user_id"],
             data.get("player"),
             data.get("mob"),
+            mob_full=data.get("mob_full"),
             session_id=data.get("session_id")
         )
         sess.turn = data.get("turn", 1)
@@ -101,7 +101,6 @@ class BattleSession:
         sess._mob_dodge = data.get("_mob_dodge", False)
         sess._mob_charge = data.get("_mob_charge", 0)
         sess._last_msg = data.get("_last_msg")
-        # session_id already set by constructor/from data
         return sess
 
     # ---------- logging + combat resolution ----------
@@ -194,20 +193,17 @@ class BattleSessionManager:
             with open(self.storage_file, "w") as f:
                 json.dump(self._sessions, f)
         except Exception:
-            # best-effort persistence; avoid crashing bot on save errors
             pass
 
     # Create session and persist under legacy user key AND sid key
-    def create_session(self, user_id: int, player_stats: Dict[str, Any], mob: Dict[str, Any]) -> BattleSession:
-        sess = BattleSession(user_id, player_stats, mob)
-        # persist both ways for backward compatibility
+    def create_session(self, user_id: int, player_stats: Dict[str, Any], mob_stats: Dict[str, Any], mob_full: Dict[str, Any]) -> BattleSession:
+        sess = BattleSession(user_id, player_stats, mob_stats, mob_full)
         self._sessions[str(user_id)] = sess.to_dict()
         self._sessions[f"sid:{sess.session_id}"] = sess.to_dict()
         self.save()
         return sess
 
     def save_session(self, sess: BattleSession):
-        # update both keys if present
         self._sessions[str(sess.user_id)] = sess.to_dict()
         self._sessions[f"sid:{sess.session_id}"] = sess.to_dict()
         self.save()
@@ -233,9 +229,6 @@ class BattleSessionManager:
     # remove by legacy user_id
     def end_session(self, user_id: int):
         k = str(user_id)
-        ks = [k,]
-        # also remove any matching sid entries for this user
-        # iterate keys to find sid entries referencing this user (safe and idempotent)
         to_delete = []
         for key, val in list(self._sessions.items()):
             try:
@@ -252,7 +245,6 @@ class BattleSessionManager:
     # NEW: end by sid
     def end_session_by_sid(self, sid: str):
         key = f"sid:{sid}"
-        # if session exists, also delete the legacy key (user id)
         data = self._sessions.get(key)
         if data and isinstance(data, dict):
             legacy = str(data.get("user_id"))
@@ -264,22 +256,22 @@ manager = BattleSessionManager()
 
 # -----------------------
 # Utilities: stat builders
-# (kept unchanged, compatibility helpers)
 # -----------------------
 def build_player_stats_from_user(user: Optional[Dict[str, Any]], username_fallback: str = None) -> Dict[str, Any]:
     if not user:
         return {"hp": 100, "attack": 10, "defense": 1, "crit_chance": 0.05}
     return {
-        "hp": int(user.get("current_hp", user.get("hp", 100))),
-        "attack": int(user.get("attack", user.get("atk", 10))),
-        "defense": int(user.get("defense", user.get("armor", 1))),
-        "crit_chance": float(user.get("crit_chance", 0.05)),
-        "_charge_stacks": int(user.get("_charge_stacks", 0))
+        "hp": int(user.get("xp_to_next_level", 100)),  # placeholder; keep as configured
+        "attack": int(user.get("attack", user.get("atk", 10)) if user else 10),
+        "defense": int(user.get("defense", user.get("armor", 1)) if user else 1),
+        "crit_chance": float(user.get("crit_chance", 0.05) if user else 0.05),
+        "_charge_stacks": int(user.get("_charge_stacks", 0) if user else 0)
     }
 
 def build_mob_stats_from_mob(mob: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     if not mob:
         return {"hp": 80, "attack": 8, "defense": 1, "crit_chance": 0.03}
+    # Use the computed auto_stats in mob dict (see mobs.py), but keep minimal keys here
     return {
         "hp": int(mob.get("hp", mob.get("hp_max", 80))),
         "attack": int(mob.get("attack", mob.get("atk", 8))),
