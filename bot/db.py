@@ -455,6 +455,20 @@ def get_recent_active_users(limit: int = 200) -> List[Dict[str, Any]]:
         out.append({desc[i]: r[i] for i in range(len(desc))})
     return out
 
+def get_all_users() -> List[Dict[str, Any]]:
+    """
+    Return all user rows as list of dicts (keys from cursor.description).
+    Used by services/pvp_targets.py for recommended-target selection.
+    """
+    cursor.execute("SELECT * FROM users")
+    rows = cursor.fetchall()
+    desc = [d[0] for d in cursor.description]
+    out = []
+    for r in rows:
+        out.append({desc[i]: r[i] for i in range(len(desc))})
+    return out
+
+
 # ---------------------------
 # VIP placeholder helper
 # ---------------------------
