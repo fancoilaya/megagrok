@@ -16,11 +16,13 @@ import sqlite3
 import json
 import time
 from typing import Dict, Any, List, Tuple, Optional
+import os
 
 # ---------------------------
 # Config
 # ---------------------------
 DB_PATH = "/var/data/megagrok.db"
+os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 
 # ---------------------------
 # DB CONNECTION
@@ -90,6 +92,25 @@ _add_column_if_missing("pvp_successful_defenses", "INTEGER DEFAULT 0")
 _add_column_if_missing("pvp_failed_defenses", "INTEGER DEFAULT 0")
 _add_column_if_missing("pvp_challenges_received", "INTEGER DEFAULT 0")
 _add_column_if_missing("pvp_shield_until", "INTEGER DEFAULT 0")
+
+# Ensure last_active column (for recent activity / recommended targets)
+_add_column_if_missing("last_active", "INTEGER DEFAULT 0")
+
+# ---------------------------
+# PvP Attack Log Table (for Revenge system)
+# (Idempotent — will not recreate if exists)
+# ---------------------------
+cursor.execute("""
+    CREATE TABLE IF NOT EXISTS pvp_attack_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        attacker_id INTEGER,
+        defender_id INTEGER,
+        ts INTEGER,
+        xp_stolen INTEGER,
+        result TEXT
+    )
+""")
+conn.commit()
 
 # ---------------------------
 # GET OR CREATE USER
@@ -353,6 +374,85 @@ def get_top_pvp(limit: int = 10) -> List[Dict[str, Any]]:
             "losses": losses or 0
         })
         rank += 1
+    return out
+
+# ---------------------------
+# PvP Attack Log (Revenge system)
+# ---------------------------
+def log_pvp_attack(attacker_id: int, defender_id: int, xp_stolen: int, result: str):
+    """
+    Record a PvP attack event for revenge tracking.
+    result: "win" or "fail" etc.
+    """
+    try:
+        cursor.execute("""
+            INSERT INTO pvp_attack_log (attacker_id, defender_id, ts, xp_stolen, result)
+            VALUES (?, ?, ?, ?, ?)
+        """, (attacker_id, defender_id, int(time.time()), int(xp_stolen), str(result)))
+        conn.commit()
+    except Exception:
+        # fail silently to avoid breaking fights if DB logging fails
+        try:
+            conn.rollback()
+        except:
+            pass
+
+def get_users_who_attacked_you(user_id: int, limit: int = 10) -> List[Dict[str, Any]]:
+    """
+    Returns recent attacker records against the given defender_id.
+    Each record: { attacker_id, ts, xp_stolen, result }
+    """
+    cursor.execute("""
+        SELECT attacker_id, ts, xp_stolen, result
+        FROM pvp_attack_log
+        WHERE defender_id=?
+        ORDER BY ts DESC
+        LIMIT ?
+    """, (user_id, limit))
+    rows = cursor.fetchall()
+    out = []
+    for r in rows:
+        out.append({
+            "attacker_id": r[0],
+            "ts": r[1],
+            "xp_stolen": r[2],
+            "result": r[3]
+        })
+    return out
+
+# ---------------------------
+# last_active support (recommended targets)
+# ---------------------------
+def touch_last_active(user_id: int):
+    """
+    Update the last_active column for a user to current timestamp.
+    Call this from message handlers when the user interacts.
+    """
+    try:
+        cursor.execute("UPDATE users SET last_active=? WHERE user_id=?", (int(time.time()), user_id))
+        conn.commit()
+    except Exception:
+        try:
+            conn.rollback()
+        except:
+            pass
+
+def get_recent_active_users(limit: int = 200) -> List[Dict[str, Any]]:
+    """
+    Return recent users ordered by last_active desc.
+    Each entry is a dict of the user row (keys from cursor.description).
+    """
+    cursor.execute("""
+        SELECT *
+        FROM users
+        ORDER BY coalesce(last_active,0) DESC
+        LIMIT ?
+    """, (limit,))
+    rows = cursor.fetchall()
+    desc = [d[0] for d in cursor.description]
+    out = []
+    for r in rows:
+        out.append({desc[i]: r[i] for i in range(len(desc))})
     return out
 
 # ---------------------------
