@@ -1,7 +1,8 @@
 # bot/handlers/pvp.py
-# PvP Menu handler for MegaGrokbot
-# - /pvp main menu (Revenge, Recommended, Shielded, Browse (alphabetical), Help)
+# PvP Menu handler for MegaGrokbot (extended with Stats & Leaderboards)
+# - /pvp main menu (Revenge, Recommended, Shielded, Browse (alphabetical), Help, Stats)
 # - Browse is alphabetical, paginated (5 players / page)
+# - Stats: Your PvP Stats, Top PvP Players (Top 10), Win/Loss Rankings (Top 10), Rank Tier Info
 # - Uses services.pvp_targets, services.pvp_stats, services.fight_session_pvp
 # - Integrates with safe finalize fallback if your project has finalize_pvp
 #
@@ -23,7 +24,7 @@ from bot.handlers import pvp_ranking as ranking_module
 # -------------------------
 # Config
 # -------------------------
-BROWSE_PAGE_SIZE = 5  # user requested: option A (5 per page)
+BROWSE_PAGE_SIZE = 5  # user requested: 5 per page
 PVP_SHIELD_SECONDS = 3 * 3600
 UI_EDIT_THROTTLE_SECONDS = 1.0
 PVP_ELO_K = 32
@@ -119,10 +120,6 @@ def build_caption(sess) -> str:
 # PvP finalize fallback (safe)
 # -------------------------
 def finalize_pvp_local(attacker_id: int, defender_id: int, sess) -> Dict[str, Any]:
-    """
-    Safe fallback: update XP/ELO and log pvp attack if your codebase
-    doesn't provide finalize_pvp. Non-invasive and tolerant.
-    """
     attacker = db.get_user(attacker_id) or {}
     defender = db.get_user(defender_id) or {}
 
@@ -153,7 +150,6 @@ def finalize_pvp_local(attacker_id: int, defender_id: int, sess) -> Dict[str, An
         db.set_pvp_shield(defender_id, int(time.time()) + PVP_SHIELD_SECONDS)
         db.log_pvp_attack(attacker_id, defender_id, xp_stolen, "win")
     else:
-        # small penalty to attacker on loss
         atk_xp = int(attacker.get("xp_total", 0) or 0)
         penalty = max(1, int(atk_xp * 0.05))
         try:
@@ -176,13 +172,11 @@ def finalize_pvp_local(attacker_id: int, defender_id: int, sess) -> Dict[str, An
         db.increment_pvp_field(defender_id, "pvp_wins")
         db.log_pvp_attack(attacker_id, defender_id, 0, "fail")
 
-    # ELO update (simple)
+    # ELO update
     atk_elo = int(attacker.get("elo_pvp", 1000) or 1000)
     dfd_elo = int(defender.get("elo_pvp", 1000) or 1000)
-
     def expected(a, b):
         return 1 / (1 + 10 ** ((b - a) / 400))
-
     E = expected(atk_elo, dfd_elo)
     if attacker_won:
         new_atk = atk_elo + int(PVP_ELO_K * (1 - E))
@@ -190,11 +184,9 @@ def finalize_pvp_local(attacker_id: int, defender_id: int, sess) -> Dict[str, An
     else:
         new_atk = atk_elo + int(PVP_ELO_K * (0 - E))
         new_dfd = dfd_elo - int(PVP_ELO_K * (0 - E))
-
     db.update_elo(attacker_id, new_atk)
     db.update_elo(defender_id, new_dfd)
 
-    # best hits summary
     best = {"attacker": {"damage": 0}, "defender": {"damage": 0}}
     for ev in getattr(sess, "events", []) or []:
         if ev.get("action") == "attack":
@@ -270,7 +262,10 @@ def menu_main_markup(user_id: int) -> types.InlineKeyboardMarkup:
         types.InlineKeyboardButton("🛡 Shielded", callback_data=f"pvp:menu:shielded:{user_id}"),
         types.InlineKeyboardButton("📜 Browse Players", callback_data=f"pvp:menu:browse:1:{user_id}"),
     )
-    kb.add(types.InlineKeyboardButton("❓ PvP Help", callback_data=f"pvp:menu:help:{user_id}"))
+    kb.add(
+        types.InlineKeyboardButton("❓ PvP Help", callback_data=f"pvp:menu:help:{user_id}"),
+        types.InlineKeyboardButton("📊 Stats", callback_data=f"pvp:menu:stats:{user_id}")
+    )
     return kb
 
 def markup_back(user_id: int) -> types.InlineKeyboardMarkup:
@@ -296,7 +291,6 @@ def build_browse_kb(page_users: List[Dict[str, Any]], page: int, pages: int, use
         name = get_display_name_from_row(u)
         power = pvp_targets.calculate_power({"hp": u.get("hp", 100), "attack": u.get("attack", 10), "defense": u.get("defense", 5)})
         kb.add(types.InlineKeyboardButton(f"Attack {name} (Power {power})", callback_data=f"pvp:rec:{user_id}:{uid}"))
-    # navigation
     nav_row = []
     if page > 1:
         nav_row.append(types.InlineKeyboardButton("⏮ Prev", callback_data=f"pvp:menu:browse:{page-1}:{user_id}"))
@@ -306,6 +300,73 @@ def build_browse_kb(page_users: List[Dict[str, Any]], page: int, pages: int, use
         kb.add(*nav_row)
     kb.add(types.InlineKeyboardButton("⬅ Back", callback_data=f"pvp:menu:main:{user_id}"))
     return kb
+
+# -------------------------
+# Stats helpers
+# -------------------------
+def stats_menu_markup(user_id: int) -> types.InlineKeyboardMarkup:
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    kb.add(types.InlineKeyboardButton("📈 Your PvP Stats", callback_data=f"pvp:stats:me:{user_id}"))
+    kb.add(types.InlineKeyboardButton("🏆 Top PvP Players (Top 10)", callback_data=f"pvp:stats:top:{user_id}"))
+    kb.add(types.InlineKeyboardButton("🥇 Win/Loss Rankings (Top 10)", callback_data=f"pvp:stats:wins:{user_id}"))
+    kb.add(types.InlineKeyboardButton("🎖 Rank Tier Info", callback_data=f"pvp:stats:ranks:{user_id}"))
+    kb.add(types.InlineKeyboardButton("⬅ Back", callback_data=f"pvp:menu:main:{user_id}"))
+    return kb
+
+def build_user_stats_text(user_id: int) -> str:
+    u = db.get_user(user_id) or {}
+    p = db.get_pvp_stats(user_id)
+    rank_name, rank_data = ranking_module.elo_to_rank(int(u.get("elo_pvp", 1000)))
+    lines = [
+        f"📈 *Your PvP Stats* — {get_display_name_from_row(u)}",
+        "",
+        f"🏅 Rank: *{rank_name}* — ELO: *{int(u.get('elo_pvp',1000))}*",
+        f"🏆 Wins: {int(p.get('wins',0))}   📉 Losses: {int(p.get('losses',0))}",
+        f"🛡 Successful defenses: {int(p.get('successful_def',0))}   ❌ Failed defenses: {int(p.get('failed_def',0))}",
+        f"🎯 Challenges received: {int(p.get('challenges',0))}   ⚔️ Fights started: {int(p.get('started',0))}",
+    ]
+    return "\n".join(lines)
+
+def build_top_pvp_text(limit: int = 10) -> str:
+    rows = db.get_top_pvp(limit) or []
+    lines = [f"🏆 *PvP Leaderboard — Top {limit}*",""]
+    rank = 1
+    for r in rows[:limit]:
+        lines.append(f"{rank}. {r.get('name')} — ELO {r.get('elo')}")
+        rank += 1
+    return "\n".join(lines)
+
+def build_wins_ranking_text(limit: int = 10) -> str:
+    # pull all users and sort by wins
+    all_users = safe_call(db.get_all_users) or []
+    sorted_by_wins = sorted(all_users, key=lambda u: int(u.get("pvp_wins", 0) or 0), reverse=True)
+    lines = [f"🥇 *Win/Loss Rankings — Top {limit}*",""]
+    idx = 1
+    for u in sorted_by_wins[:limit]:
+        name = get_display_name_from_row(u)
+        wins = int(u.get("pvp_wins", 0) or 0)
+        losses = int(u.get("pvp_losses", 0) or 0)
+        lines.append(f"{idx}. {name} — {wins}W / {losses}L")
+        idx += 1
+    return "\n".join(lines)
+
+def build_rank_info_text(user_id: int) -> str:
+    u = db.get_user(user_id) or {}
+    elo = int(u.get("elo_pvp", 1000))
+    # adapt to your ranking thresholds as used by ranking_module.elo_to_rank
+    # We'll show a helpful table and the user's tier
+    rank_name, rank_data = ranking_module.elo_to_rank(elo)
+    lines = [
+        "🎖 *Rank Tier Information*",
+        "",
+        "🥉 Bronze:     0 — 999 ELO",
+        "🥈 Silver: 1000 — 1299 ELO",
+        "🥇 Gold:   1300 — 1499 ELO",
+        "💎 Diamond: 1500+",
+        "",
+        f"Your tier: *{rank_name}* — ELO: *{elo}*"
+    ]
+    return "\n".join(lines)
 
 # -------------------------
 # Setup - register handlers
@@ -322,7 +383,6 @@ def setup(bot: TeleBot):
         except Exception:
             pass
 
-        # Build main menu
         me = db.get_user(user_id) or {}
         elo = int(me.get("elo_pvp", 1000))
         rank_name, _ = ranking_module.elo_to_rank(elo)
@@ -334,21 +394,17 @@ def setup(bot: TeleBot):
     @bot.callback_query_handler(func=lambda c: c.data.startswith("pvp:menu"))
     def cb_pvp_menu(call):
         parts = call.data.split(":")
-        # format: pvp:menu:<sub>:<arg1>:<arg2?>
         if len(parts) < 4:
             return bot.answer_callback_query(call.id, "Invalid menu.")
         _, _, sub = parts[:3]
-        # last part is always the user_id who initiated
         try:
             target_user_id = int(parts[-1])
         except:
             return bot.answer_callback_query(call.id, "Invalid menu user.")
-        # ensure only owner can trigger their menu actions
         if call.from_user.id != target_user_id:
             return bot.answer_callback_query(call.id, "Not your PvP menu.", show_alert=True)
 
         if sub == "main":
-            # show main menu
             me = db.get_user(target_user_id) or {}
             elo = int(me.get("elo_pvp", 1000))
             rank_name, _ = ranking_module.elo_to_rank(elo)
@@ -398,7 +454,6 @@ def setup(bot: TeleBot):
             return bot.answer_callback_query(call.id)
 
         elif sub == "shielded":
-            # pull all users and filter shielded
             all_users = safe_call(db.get_all_users) or []
             now = int(time.time())
             shielded = []
@@ -422,7 +477,6 @@ def setup(bot: TeleBot):
             return bot.answer_callback_query(call.id)
 
         elif sub == "browse":
-            # format: pvp:menu:browse:<page>:<user_id>
             if len(parts) < 5:
                 return bot.answer_callback_query(call.id, "Invalid browse.")
             try:
@@ -430,13 +484,11 @@ def setup(bot: TeleBot):
             except:
                 page = 1
             all_users = safe_call(db.get_all_users) or []
-            # sort alphabetically by display_name or username
             def sort_key(u):
                 name = (u.get("display_name") or u.get("username") or f"User{u.get('user_id')}").lower()
                 return name
             all_users_sorted = sorted(all_users, key=sort_key)
             page_users, page, pages = browse_page_from_all(all_users_sorted, page, BROWSE_PAGE_SIZE)
-            # build text
             lines = [f"📜 *Browse Players (A–Z)*", f"Page {page}/{pages}", ""]
             for u in page_users:
                 name = get_display_name_from_row(u)
@@ -456,6 +508,12 @@ def setup(bot: TeleBot):
             kb.add(types.InlineKeyboardButton("🎓 PvP Tutorial", callback_data=f"pvp:help:tutorial:{target_user_id}"))
             kb.add(types.InlineKeyboardButton("⬅ Back", callback_data=f"pvp:menu:main:{target_user_id}"))
             bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="Markdown", reply_markup=kb)
+            return bot.answer_callback_query(call.id)
+
+        elif sub == "stats":
+            # open stats menu
+            text = "📊 *PvP Stats & Leaderboards*\n\nChoose a category:"
+            bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="Markdown", reply_markup=stats_menu_markup(target_user_id))
             return bot.answer_callback_query(call.id)
 
         else:
@@ -491,7 +549,6 @@ def setup(bot: TeleBot):
             bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="Markdown", reply_markup=kb)
             return bot.answer_callback_query(call.id)
         if topic == "tutorial":
-            # call your tutorial handler if present (safe attempt)
             try:
                 from bot.handlers import pvp_tutorial
                 return pvp_tutorial.show_tutorial_for_user(bot, call.message, user_id)
@@ -502,11 +559,47 @@ def setup(bot: TeleBot):
                 return bot.answer_callback_query(call.id)
         return bot.answer_callback_query(call.id, "Unknown help topic.")
 
+    # Stats callbacks
+    @bot.callback_query_handler(func=lambda c: c.data.startswith("pvp:stats"))
+    def cb_pvp_stats(call):
+        parts = call.data.split(":")
+        # pvp:stats:<type>:<user_id>
+        if len(parts) < 4:
+            return bot.answer_callback_query(call.id, "Invalid stats action.")
+        _, _, typ, uid_str = parts
+        try:
+            user_id = int(uid_str)
+        except:
+            return bot.answer_callback_query(call.id, "Invalid user.")
+        if call.from_user.id != user_id:
+            return bot.answer_callback_query(call.id, "Not your stats menu.", show_alert=True)
+
+        if typ == "me":
+            text = build_user_stats_text(user_id)
+            bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="Markdown", reply_markup=markup_back(user_id))
+            return bot.answer_callback_query(call.id)
+
+        if typ == "top":
+            text = build_top_pvp_text(10)  # Top 10
+            bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="Markdown", reply_markup=markup_back(user_id))
+            return bot.answer_callback_query(call.id)
+
+        if typ == "wins":
+            text = build_wins_ranking_text(10)
+            bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="Markdown", reply_markup=markup_back(user_id))
+            return bot.answer_callback_query(call.id)
+
+        if typ == "ranks":
+            text = build_rank_info_text(user_id)
+            bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="Markdown", reply_markup=markup_back(user_id))
+            return bot.answer_callback_query(call.id)
+
+        return bot.answer_callback_query(call.id, "Unknown stats action.")
+
     # Attack/recommendation callbacks (start duel)
     @bot.callback_query_handler(func=lambda c: c.data.startswith("pvp:rec") or c.data.startswith("pvp:rev") or c.data.startswith("pvp:find"))
     def cb_start_duel(call):
         parts = call.data.split(":")
-        # pvp:rec:<attacker_id>:<defender_id>
         if len(parts) < 4:
             return bot.answer_callback_query(call.id, "Invalid action.")
         typ = parts[1]
@@ -567,7 +660,6 @@ def setup(bot: TeleBot):
         if action == "forfeit":
             sess.ended = True; sess.winner = "defender"
             fight_session.manager.save_session(sess)
-            # try external finalize
             try:
                 from bot.handlers.pvp import finalize_pvp as ext_finalize
                 summary = ext_finalize(attacker_id, sess.defender_id, sess)
@@ -582,7 +674,6 @@ def setup(bot: TeleBot):
         fight_session.manager.save_session(sess)
 
         if sess.ended:
-            # finalize
             try:
                 from bot.handlers.pvp import finalize_pvp as ext_finalize
                 summary = ext_finalize(attacker_id, sess.defender_id, sess)
@@ -591,9 +682,7 @@ def setup(bot: TeleBot):
             send_result_card(bot, sess, summary)
             fight_session.manager.end_session_by_sid(getattr(sess, "session_id", ""))
         else:
-            # update UI
             try:
-                # throttle edits to avoid hitting API limits
                 now = time.time()
                 last = getattr(sess, "_last_ui_edit", 0)
                 if now - last >= UI_EDIT_THROTTLE_SECONDS:
@@ -601,7 +690,6 @@ def setup(bot: TeleBot):
                     sess._last_ui_edit = time.time()
                     fight_session.manager.save_session(sess)
             except Exception:
-                # fallback: send a fresh message
                 try:
                     bot.send_message(chat_id, build_caption(sess), parse_mode="Markdown", reply_markup=action_keyboard(sess))
                 except:
