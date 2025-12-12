@@ -273,8 +273,8 @@ def send_result_card(bot, sess, summary):
 def setup(bot: TeleBot):
     globals()["bot_instance"] = bot
 
-    @bot.message_handler(commands=["attack"])
-    def cmd_attack(message):
+    @bot.message_handler(commands=["pvp"])
+    def cmd_pvp(message):
         attacker_id = message.from_user.id
         # mark active (optional)
         try:
