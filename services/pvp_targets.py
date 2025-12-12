@@ -1,124 +1,161 @@
 # services/pvp_targets.py
-# Helpers: recommended targets, revenge targets, power calculation
+# -------------------------------------------
+# Recommended Targets + Revenge Targets
+# MegaGrok PvP Targeting & Ranking Helper
+#
+# This version:
+#   ✔ DOES NOT use last_active
+#   ✔ Filters ONLY by level range & shield
+#   ✔ Supports revenge feed via db.get_users_who_attacked_you()
+#   ✔ Uses your ranking module (elo_to_rank)
+#   ✔ Computes power score for fair match suggestions
+# -------------------------------------------
 
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any
 import time
+
 import bot.db as db
-import bot.handlers.pvp_ranking as ranking_module  # your uploaded ranking helper. :contentReference[oaicite:3]{index=3}
+import bot.handlers.pvp_ranking as ranking_module  # your ranking system
 
-# config
-MAX_RECOMMENDED = 6
-RECENT_ACTIVE_SECONDS = 48 * 3600  # 48 hours
-LEVEL_DELTA = 4
 
+# -------------------------------------------
+# Power Score Calculation
+# -------------------------------------------
 def calculate_power(stats: Dict[str, Any]) -> int:
-    # Power = HP * 0.4 + Attack * 1.2 + Defense * 1.0  (rounded)
+    """
+    Simple, readable power score formula:
+        Power = HP * 0.4 + ATK * 1.2 + DEF * 1.0
+    """
     hp = int(stats.get("hp", 100))
     atk = int(stats.get("attack", 10))
     dfs = int(stats.get("defense", 5))
-    power = int(round(hp * 0.4 + atk * 1.2 + dfs * 1.0))
-    return power
 
-def _user_minimal(u: Dict[str, Any]) -> Dict[str, Any]:
-    # Normalize db user row to minimal display dict
+    return int(round(hp * 0.4 + atk * 1.2 + dfs * 1.0))
+
+
+# -------------------------------------------
+# Internal helper: normalize user record
+# -------------------------------------------
+def _normalize_user_dict(u: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Takes a DB user row from db.get_all_users() and standardizes keys for UI.
+    """
+    uid = u.get("user_id")
+    username = u.get("username")
+    display_name = u.get("display_name") or username or f"User{uid}"
+
     return {
-        "user_id": u.get("user_id"),
-        "username": u.get("username"),
-        "display_name": u.get("display_name") or u.get("username"),
+        "user_id": uid,
+        "username": username,
+        "display_name": display_name,
         "level": int(u.get("level", 1)),
         "elo_pvp": int(u.get("elo_pvp", 1000)),
-        "last_active": int(u.get("last_active", 0)),
         "shield_until": int(u.get("pvp_shield_until", 0)),
-        # include current combat stats if stored (fallback to balanced builder in pvp)
-        "hp": int(u.get("current_hp", u.get("hp", 100))),
+
+        # Stats for power calculation (fallback capability)
+        "hp": int(u.get("hp", 100)),
         "attack": int(u.get("attack", 10)),
         "defense": int(u.get("defense", 5)),
     }
 
+
+# -------------------------------------------
+# Revenge Targets
+# -------------------------------------------
 def get_revenge_targets(user_id: int) -> List[Dict[str, Any]]:
     """
-    Returns list of recent attackers against user_id, sorted by most recent.
-    Assumes DB function `get_users_who_attacked_you(defender_id, limit)` exists.
-    If not, replace with your table query.
+    Returns a list of players who recently attacked user_id.
+    Pulls from the db.pvp_attack_log table.
     """
-    try:
-        rows = db.get_users_who_attacked_you(user_id, limit=10)  # should return list of (attacker_id, ts, xp_stolen, result)
-    except Exception:
-        # fallback: empty
-        rows = []
-
-    results = []
+    rows = db.get_users_who_attacked_you(user_id, limit=10)
     now = int(time.time())
+    revenge_list = []
+
     for r in rows:
-        attacker_id = r.get("attacker_id") if isinstance(r, dict) else r[0]
-        ts = r.get("ts", now) if isinstance(r, dict) else r[1]
-        xp = r.get("xp_stolen", 0) if isinstance(r, dict) else r[2] if len(r) > 2 else 0
-        result = r.get("result", "") if isinstance(r, dict) else (r[3] if len(r) > 3 else "")
+        attacker_id = r["attacker_id"]
+        attacker_row = db.get_user(attacker_id)
 
-        u = db.get_user(attacker_id) or {"user_id": attacker_id}
-        mu = _user_minimal(u)
-        mu["since"] = now - int(ts)
-        mu["xp_stolen"] = int(xp)
-        mu["result"] = result
-        results.append(mu)
+        if not attacker_row:
+            continue
 
-    return results
+        attacker = _normalize_user_dict(attacker_row)
+        attacker["since"] = now - int(r["ts"])
+        attacker["xp_stolen"] = int(r["xp_stolen"])
+        attacker["result"] = r["result"]
 
+        revenge_list.append(attacker)
+
+    return revenge_list
+
+
+# -------------------------------------------
+# Recommended PvP Targets
+# -------------------------------------------
 def get_recommended_targets(user_id: int) -> List[Dict[str, Any]]:
     """
-    Returns recommended targets near user's level/power and not shielded.
-    Uses db.get_recent_active_users(limit) or falls back to db.search_users_by_activity
+    Produces a list of recommended PvP targets based on:
+        ✔ Level proximity (±4 levels)
+        ✔ Not shielded
+        ✔ Power-score similarity
+    Does NOT use last_active filtering.
     """
-    me = db.get_user(user_id) or {}
-    me_level = int(me.get("level", 1))
-    candidates = []
-    try:
-        rows = db.get_recent_active_users(limit=200)  # if you have this function
-    except Exception:
-        # fallback: all users (be careful)
-        rows = db.get_all_users() if hasattr(db, "get_all_users") else []
+    me = db.get_user(user_id)
+    if not me:
+        return []
 
+    me_level = int(me.get("level", 1))
+
+    # Get all users from database
+    all_users = db.get_all_users()
     now = int(time.time())
-    for u in rows:
-        if not u:
-            continue
-        uid = u.get("user_id", u.get("id") or None)
-        if uid is None or uid == user_id:
-            continue
+
+    candidates = []
+
+    # Compute my power for sorting later
+    my_stats = {
+        "hp": int(me.get("hp", 100)),
+        "attack": int(me.get("attack", 10)),
+        "defense": int(me.get("defense", 5)),
+    }
+    my_power = calculate_power(my_stats)
+
+    for u in all_users:
+        uid = u.get("user_id")
+        if not uid or uid == user_id:
+            continue  # skip myself
+
         shield = int(u.get("pvp_shield_until", 0))
-        if shield and shield > now:
-            continue
-        last_active = int(u.get("last_active", 0))
-        # skip very inactive
-        if now - last_active > RECENT_ACTIVE_SECONDS:
-            continue
+        if shield > now:
+            continue  # skip shielded players
+
         level = int(u.get("level", 1))
-        if abs(level - me_level) > LEVEL_DELTA:
-            continue
-        # compute power using stored stats (if any) else use db fields
+        if abs(level - me_level) > 4:
+            continue  # level too far
+
+        normalized = _normalize_user_dict(u)
+
         stats = {
-            "hp": int(u.get("current_hp", u.get("hp", 100))),
-            "attack": int(u.get("attack", 10)),
-            "defense": int(u.get("defense", 5))
+            "hp": normalized["hp"],
+            "attack": normalized["attack"],
+            "defense": normalized["defense"],
         }
         power = calculate_power(stats)
-        candidates.append((uid, u, power))
 
-    # sort by closeness of power to player
-    my_stats = {"hp": int(me.get("current_hp", me.get("hp", 100))), "attack": int(me.get("attack", 10)), "defense": int(me.get("defense", 5))}
-    my_power = calculate_power(my_stats)
-    candidates.sort(key=lambda t: abs(t[2] - my_power))
+        normalized["power"] = power
+        candidates.append(normalized)
 
-    # produce top-N minimal dicts
+    # Sort by closeness to player's power
+    candidates.sort(key=lambda c: abs(c["power"] - my_power))
+
+    # Add rank label from your ranking system
     results = []
-    for uid, u, power in candidates[:MAX_RECOMMENDED]:
-        mu = _user_minimal(u)
-        mu["power"] = power
-        # compute rank label using ranking helper
+    for c in candidates[:6]:  # top 6 recommended
         try:
-            rank_name, _ = ranking_module.elo_to_rank(int(mu.get("elo_pvp", 1000)))
-        except Exception:
-            rank_name = "Unknown"
-        mu["rank"] = rank_name
-        results.append(mu)
+            rank_label, _ = ranking_module.elo_to_rank(c["elo_pvp"])
+        except:
+            rank_label = "Unknown"
+
+        c["rank"] = rank_label
+        results.append(c)
+
     return results
