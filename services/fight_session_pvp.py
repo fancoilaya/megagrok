@@ -1,15 +1,10 @@
 # services/fight_session_pvp.py
-# PvP session manager + smart fight engine
+# PvP session manager + tuned fight engine (medium variance)
 # - session_id support (sid:<hex>) and legacy attacker-key compatibility
 # - stores full attacker/defender dicts (identity + stats)
-# - smart dynamic damage: variability, crits, dodge, block, charge, counter
+# - dynamic damage: variability (0.70-1.30 attacker), crits (2.0x), dodge, block, charge
+# - defender AI: sometimes block/dodge/charge, 70% counter chance, softened damage
 # - auto-turn helper
-#
-# Usage:
-#   from services.fight_session_pvp import manager
-#   sess = manager.create_pvp_session(attacker_id, defender_id, attacker_dict, defender_dict)
-#   sess.resolve_attacker_action("attack")  # or "block","dodge","charge"
-#   manager.save_session(sess)
 #
 # File persistence: data/fight_sessions_pvp.json
 
@@ -29,10 +24,6 @@ ACTION_CHARGE = "charge"
 ACTION_AUTO = "auto"
 ACTION_FORFEIT = "forfeit"
 
-# Minimal RNG helper
-def _randf(a=0.0, b=1.0):
-    return random.uniform(a, b)
-
 # -----------------------
 # PvP Fight Session
 # -----------------------
@@ -45,16 +36,14 @@ class PvPFightSession:
                  session_id: Optional[str] = None):
         """
         attacker_stats / defender_stats are dicts that MUST contain:
-          - hp, attack, defense, crit_chance
-        They can also include identity fields:
+          - hp, attack, defense, crit_chance (optional)
+        They should also include identity fields:
           - user_id, username, display_name
-        This object keeps in-memory runtime fields and logs events.
         """
         self.attacker_id = int(attacker_id)
         self.defender_id = int(defender_id)
 
-        # attacker & defender dicts (store identity + combat stats)
-        # clone to avoid external mutation
+        # clone dicts
         self.attacker = dict(attacker_stats or {})
         self.defender = dict(defender_stats or {})
 
@@ -64,16 +53,15 @@ class PvPFightSession:
         if "user_id" not in self.defender:
             self.defender["user_id"] = self.defender_id
 
-        # runtime hp stored inside dicts for convenience
+        # runtime hp stored inside dicts
         self.attacker.setdefault("hp", int(self.attacker.get("hp", 100)))
         self.defender.setdefault("hp", int(self.defender.get("hp", 100)))
 
-        # support optional short runtime state flags inside dicts:
-        # attacker["charged"], attacker["block_active"], attacker["dodge_active"]
+        # runtime flags: charged, block_active, dodge_active can be stored in attacker dict
         self.turn = 1
         self.ended = False
         self.winner: Optional[str] = None
-        self.events = []  # newest-first events
+        self.events = []  # newest-first
         self._last_msg = None
         self._last_ui_edit = 0.0
 
@@ -112,20 +100,19 @@ class PvPFightSession:
         sess._last_ui_edit = data.get("_last_ui_edit", 0.0)
         return sess
 
-    # Logging helper (newest-first)
     def log(self, who: str, action: str, dmg: Optional[int] = None, note: str = ""):
+        """Insert newest-first event."""
         self.events.insert(0, {"actor": who, "action": action, "damage": dmg, "note": note, "turn": self.turn, "ts": int(time.time())})
         if len(self.events) > 80:
             self.events = self.events[:80]
 
     # -----------------------
-    # Smart dynamic attacker action resolution
+    # Smart dynamic attacker action resolution (medium variance tuning)
     # -----------------------
     def resolve_attacker_action(self, action: str):
         """
-        Runs one attacker action and a defender counter (turn-based).
+        Runs one attacker action and a defender response (turn-based).
         Supported actions: "attack", "block", "dodge", "charge"
-        Sets self.ended and self.winner when match finishes.
         """
         if self.ended:
             return
@@ -133,7 +120,7 @@ class PvPFightSession:
         a = self.attacker
         d = self.defender
 
-        # ensure numeric fields
+        # Ensure numeric fields
         a["hp"] = int(a.get("hp", 100))
         d["hp"] = int(d.get("hp", 100))
         a_atk = float(a.get("attack", 10))
@@ -142,127 +129,161 @@ class PvPFightSession:
 
         d_atk = float(d.get("attack", 8))
         d_def = float(d.get("defense", 1))
-        d_crit = float(d.get("crit_chance", 0.03))
+        d_crit = float(d.get("crit_chance", 0.01))  # defender lower crit by default
 
-        # read previous states
+        # attacker charged state (one-turn)
         charged = bool(a.get("charged", False))
-        # reset charged (one-turn effect)
         a["charged"] = False
 
-        # prepare note
         note = ""
-
         dmg_to_def = 0
 
+        # ---------- ATTACKER ACTION ----------
         if action == ACTION_ATTACK:
-            # base randomness ±15%
-            raw = a_atk * random.uniform(0.85, 1.15)
+            # Attacker variance: 0.70 - 1.30 (medium variance)
+            raw = a_atk * random.uniform(0.70, 1.30)
 
             if charged:
                 raw *= 1.5
                 note += "Charged! "
 
-            # defense mitigates 70% of its value
+            # Defense mitigates 70% of its value
             dmg = raw - d_def * 0.7
             dmg = max(1.0, dmg)
 
-            # crit check
+            # Crit check (attacker)
             if random.random() < a_crit:
-                dmg *= 1.75
+                dmg *= 2.0
                 note += "CRIT! "
 
-            dmg_to_def = int(dmg)
+            dmg_to_def = int(round(dmg))
 
             if dmg_to_def > 0:
-                d["hp"] = d["hp"] - dmg_to_def
+                d["hp"] -= dmg_to_def
                 self.log("attacker", "attack", dmg_to_def, note)
 
         elif action == ACTION_BLOCK:
-            # set a temporary flag that will reduce incoming damage this turn
             a["block_active"] = True
             self.log("attacker", "block", None, "prepares to block")
 
         elif action == ACTION_DODGE:
             a["dodge_active"] = True
-            self.log("attacker", "dodge", None, "attempts to dodge")
+            self.log("attacker", "dodge", None, "tries to dodge")
 
         elif action == ACTION_CHARGE:
             a["charged"] = True
-            self.log("attacker", "charge", None, "powers up for next attack")
+            self.log("attacker", "charge", None, "powers up for next hit")
 
         else:
-            # unknown action: treat as light attack
-            raw = a_atk * random.uniform(0.9, 1.05)
+            # unknown actions treated as light attack
+            raw = a_atk * random.uniform(0.85, 1.05)
             dmg = max(1.0, raw - d_def * 0.7)
             if random.random() < a_crit:
-                dmg *= 1.5
-            dmg_to_def = int(dmg)
+                dmg *= 1.75
+            dmg_to_def = int(round(dmg))
             if dmg_to_def > 0:
-                d["hp"] = d["hp"] - dmg_to_def
+                d["hp"] -= dmg_to_def
                 self.log("attacker", "attack", dmg_to_def, "light")
 
-        # check defender death
+        # Check defender death after attack
         if d["hp"] <= 0:
+            d["hp"] = max(0, d["hp"])
             self.ended = True
             self.winner = "attacker"
-            # ensure hp not negative
-            d["hp"] = max(0, d["hp"])
             return
 
-        # -----------------------
-        # Defender counter / retaliation
-        # -----------------------
-        # defender's raw counter attack varies ±15%
-        counter_raw = d_atk * random.uniform(0.85, 1.15)
-        # mitigated by attacker's defense (70% mitigation weighting)
-        counter = counter_raw - a_def * 0.7
-        counter = max(0.0, counter)
+        # ---------- DEFENDER AI DECISION ----------
+        # Defender chooses an action probabilistically:
+        # 75% -> normal counter-attempt
+        # 10% -> block
+        # 10% -> dodge
+        # 5%  -> charge
+        ai_roll = random.random()
+        defender_action = "attack"
+        if ai_roll < 0.05:
+            defender_action = ACTION_CHARGE
+        elif ai_roll < 0.15:
+            defender_action = ACTION_DODGE
+        elif ai_roll < 0.25:
+            defender_action = ACTION_BLOCK
+        else:
+            defender_action = ACTION_ATTACK
+
+        # Defender may skip counter entirely with 30% chance (counter chance = 70%)
+        will_counter = random.random() < 0.70
 
         counter_note = ""
+        counter_dmg = 0
 
-        # defender crit check (lower than attacker by default)
-        if random.random() < d_crit:
-            counter *= 1.6
-            counter_note += "CRIT! "
+        if not will_counter:
+            # Defender does nothing this turn
+            self.log("defender", "idle", None, "no counter")
+        else:
+            # If defender decided to block/dodge/charge, set flags & possibly not hit
+            if defender_action == ACTION_BLOCK:
+                d["block_active"] = True
+                self.log("defender", "block", None, "defender prepares to block")
+            elif defender_action == ACTION_DODGE:
+                d["dodge_active"] = True
+                self.log("defender", "dodge", None, "defender tries to dodge")
+            elif defender_action == ACTION_CHARGE:
+                d["charged"] = True
+                self.log("defender", "charge", None, "defender charges power")
+            else:
+                # Normal counter attempt: defender variance 0.70 - 1.10 and softened damage
+                raw_c = d_atk * random.uniform(0.70, 1.10)
+                # Soften defender damage by multiplier (weakened)
+                raw_c *= 0.85
+                # Mitigate by attacker's defense weight
+                counter_val = raw_c - a_def * 0.7
+                counter_val = max(0.0, counter_val)
 
-        # if attacker blocked: reduce counter damage
-        if a.get("block_active", False):
-            counter *= 0.65
-            counter_note += "(blocked) "
-            a["block_active"] = False  # consumed
+                # Defender crit chance lower (d_crit)
+                if random.random() < d_crit:
+                    counter_val *= 1.6
+                    counter_note += "CRIT! "
 
-        # if attacker dodged: chance to fully evade
-        if a.get("dodge_active", False):
-            if random.random() < 0.40:
-                # full evade
-                counter = 0.0
-                counter_note = "Dodged! "
-            a["dodge_active"] = False  # consumed
+                # If attacker blocked: reduce incoming counter damage
+                if a.get("block_active", False):
+                    counter_val *= 0.65
+                    counter_note += "(blocked) "
+                    a["block_active"] = False  # consumed
 
-        # small 10% chance defender does stronger hit
-        if random.random() < 0.10:
-            counter *= 1.15
+                # If attacker dodged: chance (40%) to fully evade counter
+                if a.get("dodge_active", False):
+                    if random.random() < 0.40:
+                        counter_val = 0.0
+                        counter_note = "Dodged!"
+                    a["dodge_active"] = False
 
-        counter_dmg = int(max(0, round(counter)))
-        if counter_dmg > 0:
-            a["hp"] = a["hp"] - counter_dmg
-            self.log("defender", "attack", counter_dmg, counter_note)
+                counter_dmg = int(round(max(0, counter_val)))
+                if counter_dmg > 0:
+                    a["hp"] -= counter_dmg
+                    self.log("defender", "attack", counter_dmg, counter_note)
 
+        # Check attacker death
         if a["hp"] <= 0:
+            a["hp"] = max(0, a["hp"])
             self.ended = True
             self.winner = "defender"
-            a["hp"] = max(0, a["hp"])
+
+        # consume any defender block/dodge flags (they applied when set)
+        if d.get("block_active", False):
+            d["block_active"] = False
+        if d.get("dodge_active", False):
+            d["dodge_active"] = False
 
         # increment turn
         self.turn = int(self.turn) + 1
 
-    # convenience auto-turn used by handlers
     def resolve_auto_attacker_turn(self):
+        """AI/auto chooses an action for attacker when Auto is used."""
         if self.ended:
             return
+        # Weighted choices: prefer attack, occasionally charge/block/dodge
         choice = random.choices(
             population=[ACTION_ATTACK, ACTION_ATTACK, ACTION_CHARGE, ACTION_BLOCK, ACTION_DODGE],
-            weights=[0.45, 0.25, 0.15, 0.1, 0.05],
+            weights=[0.45, 0.25, 0.15, 0.10, 0.05],
             k=1
         )[0]
         self.resolve_attacker_action(choice)
