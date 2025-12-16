@@ -5,7 +5,7 @@ from telebot import TeleBot
 
 def setup(bot: TeleBot):
 
-    @bot.message_handler(commands=["pvp_help"])
+    @bot.message_handler(commands=["pvphelp"])
     def pvp_help(message):
 
         text = (
@@ -16,10 +16,7 @@ def setup(bot: TeleBot):
             "━━━━━━━━━━━━━━━━━━\n"
             "🎯 *HOW TO START A RAID*\n"
             "━━━━━━━━━━━━━━━━━━\n"
-            "• Reply to a user's message → `/attack`\n"
-            "• Or: `/attack @username`\n"
-            "• Or: `/attack name` (fuzzy name search)\n"
-            "• Or: use `/pvp_top` and press *Attack*\n\n"
+            "Start journey with `/pvp`\n"
 
             "━━━━━━━━━━━━━━━━━━\n"
             "⚔️ *ATTACKER ACTIONS*\n"
@@ -28,7 +25,7 @@ def setup(bot: TeleBot):
             "🛡 *Block* — Reduce the next hit\n"
             "💨 *Dodge* — 25% chance to evade + counterattack\n"
             "⚡ *Charge* — Boost next attack (stacks up to 3)\n"
-            "▶️ *Auto Mode* — Let the bot fight for you\n"
+            "▶️ *Heal* — Heals 20% of your max HP\n"
             "✖ *Forfeit* — Give up the raid\n\n"
 
             "━━━━━━━━━━━━━━━━━━\n"
@@ -68,7 +65,7 @@ def setup(bot: TeleBot):
             "• Later: Requires holding MegaGrok tokens\n"
             "• Wallet verification handled by MegaForge VIP system\n\n"
 
-            "Use `/pvp_help` anytime to review the rules."
+            "Use `/pvphelp` anytime to review the rules."
         )
 
         bot.reply_to(message, text, parse_mode="Markdown")
