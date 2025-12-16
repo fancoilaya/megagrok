@@ -1,189 +1,193 @@
 # bot/handlers/pvp_tutorial.py
-# MEGAGROK PvP Tutorial — Improved UI + Progress Indicators
+# MegaGrok PvP Tutorial — Paginated Version (SAFE + SELF-CONTAINED)
 
 from telebot import TeleBot, types
 
-# -------------------------------------------------
-# PROGRESS BAR BUILDER
-# -------------------------------------------------
-def build_progress(current, total):
-    filled = "● " * current
-    empty = "○ " * (total - current)
-    return f"*Progress:* {filled}{empty}".strip()
+# ----------------------------------------
+# TUTORIAL STEPS (edit freely)
+# ----------------------------------------
+TUTORIAL_STEPS = [
+    {
+        "title": "Welcome to the PvP Tutorial",
+        "text": (
+            "🔥 *Welcome to MegaGrok PvP!*\n\n"
+            "In this tutorial, you will learn:\n"
+            "• How raids work\n"
+            "• How actions affect combat\n"
+            "• How ELO & ranks function\n"
+            "• How to improve your win rate\n\n"
+            "Press *Next ▶* to begin."
+        )
+    },
+    {
+        "title": "How Raids Work",
+        "text": (
+            "⚔️ *Raids Explained*\n\n"
+            "• You attack another player.\n"
+            "• Combat is turn-based.\n"
+            "• You choose an action each turn.\n"
+            "• Battle ends when one side reaches 0 HP.\n\n"
+            "Your goal: *win efficiently*."
+        )
+    },
+    {
+        "title": "Combat Actions",
+        "text": (
+            "🛡 *Actions Overview*\n\n"
+            "• 🗡 *Attack* — Deal damage.\n"
+            "• 🛡 *Block* — Reduce incoming damage.\n"
+            "• 💨 *Dodge* — Chance to avoid next hit.\n"
+            "• ⚡ *Charge* — Boost your next attack.\n"
+            "• 💉 *Heal* — Restore 20% max HP.\n"
+            "• ❌ *Forfeit* — End immediately.\n\n"
+            "Master these to control every fight."
+        )
+    },
+    {
+        "title": "ELO & Ranks",
+        "text": (
+            "🏅 *Rank System*\n\n"
+            "You earn or lose ELO after each PvP match.\n\n"
+            "Higher ranks give better rewards.\n\n"
+            "Tiers include:\n"
+            "🥉 Bronze → 🥈 Silver → 🥇 Gold → 💎 Diamond → 🔥 Master → 💠 Grandmaster → 👑 Legend"
+        )
+    },
+    {
+        "title": "Revenge & Shields",
+        "text": (
+            "🛡 *Revenge / Shield Mechanics*\n\n"
+            "• You can take *revenge* on attackers.\n"
+            "• Victims get an automatic *Shield* after losing.\n"
+            "• Shield prevents further raids temporarily.\n"
+            "• Revenge clears the attacker from your log.\n\n"
+            "Use this for strategic counter-raids."
+        )
+    },
+    {
+        "title": "Recommended Targets",
+        "text": (
+            "🎯 *Recommended Targets*\n\n"
+            "The system suggests fair fights based on:\n"
+            "• Level\n"
+            "• Power\n"
+            "• Recent activity\n\n"
+            "Use this menu to farm ELO safely."
+        )
+    },
+    {
+        "title": "Advanced Tips",
+        "text": (
+            "🎓 *Pro Tips*\n\n"
+            "• Dodge right before enemy attacks.\n"
+            "• Charge for huge burst damage.\n"
+            "• Block to survive low HP moments.\n"
+            "• Focus on favorable matchups.\n\n"
+            "Winning is *information + timing*."
+        )
+    },
+    {
+        "title": "Tutorial Complete",
+        "text": (
+            "🎉 *You've completed the PvP Tutorial!*\n\n"
+            "You now understand:\n"
+            "• Raids\n"
+            "• Actions\n"
+            "• Ranks\n"
+            "• Strategy\n\n"
+            "You are ready for the arena. ⚔️"
+        )
+    },
+]
+
+TOTAL_STEPS = len(TUTORIAL_STEPS)
 
 
-# -------------------------------------------------
-# REGISTER TUTORIAL HANDLERS
-# -------------------------------------------------
+# ----------------------------------------
+# BUILD STEP MESSAGE
+# ----------------------------------------
+def build_step_message(step: int):
+    data = TUTORIAL_STEPS[step]
+    title = data["title"]
+    text = data["text"]
+    progress = f"*Step {step+1}/{TOTAL_STEPS} — {title}*\n\n"
+    return progress + text
+
+
+# ----------------------------------------
+# KEYBOARD BUILDER
+# ----------------------------------------
+def tutorial_keyboard(step: int):
+    kb = types.InlineKeyboardMarkup(row_width=2)
+    buttons = []
+
+    if step > 0:
+        buttons.append(
+            types.InlineKeyboardButton("◀️ Prev", callback_data=f"pvp_tutorial:step:{step-1}")
+        )
+    if step < TOTAL_STEPS - 1:
+        buttons.append(
+            types.InlineKeyboardButton("Next ▶️", callback_data=f"pvp_tutorial:step:{step+1}")
+        )
+
+    if buttons:
+        kb.add(*buttons)
+
+    kb.add(
+        types.InlineKeyboardButton("🔙 Exit Tutorial", callback_data="pvp_tutorial:exit")
+    )
+    return kb
+
+
+# ----------------------------------------
+# EXPORTED FUNCTION (Fixes your crash)
+# ----------------------------------------
+def show_tutorial_for_user(bot: TeleBot, chat_id: int, start_step: int = 0):
+    """
+    SAFE ENTRY POINT called from pvp.py
+    """
+    step = max(0, min(start_step, TOTAL_STEPS - 1))
+    msg = build_step_message(step)
+    kb = tutorial_keyboard(step)
+
+    bot.send_message(chat_id, msg, parse_mode="Markdown", reply_markup=kb)
+
+
+# ----------------------------------------
+# SETUP (Callbacks)
+# ----------------------------------------
 def setup(bot: TeleBot):
 
-    TOTAL_STEPS = 5  # Attack, Block, Dodge, Charge, Heal
-
-    # -------------------------------------------------
-    # START COMMAND
-    # -------------------------------------------------
+    # Command handler
     @bot.message_handler(commands=["pvp_tutorial"])
-    def start_tutorial_cmd(message):
-        show_tutorial_intro(bot, message)
+    def cmd_pvp_tutorial(message):
+        show_tutorial_for_user(bot, message.chat.id, 0)
 
-    # -------------------------------------------------
-    # MAIN INTRO (called from /pvp or menu)
-    # -------------------------------------------------
-    def show_tutorial_intro(bot, message):
-        kb = types.InlineKeyboardMarkup()
-        kb.add(types.InlineKeyboardButton("▶ Begin Lesson 1", callback_data="pvp_tut:step1"))
+    # Pagination handler
+    @bot.callback_query_handler(func=lambda c: c.data.startswith("pvp_tutorial:step"))
+    def cb_step(call):
+        _, _, step_str = call.data.split(":")
+        step = int(step_str)
 
-        bot.send_message(
-            message.chat.id,
-            "🎓 *MEGAGROK PvP ACADEMY*\n\n"
-            "Welcome, warrior! This training will teach you how PvP raids work:\n"
-            "• 🗡 Attacking\n"
-            "• 🛡 Blocking\n"
-            "• 💨 Dodging\n"
-            "• ⚡ Charging\n"
-            "• 💉 Healing\n\n"
-            "Tap below to begin your journey!",
-            parse_mode="Markdown",
-            reply_markup=kb
-        )
-
-    # -------------------------------------------------
-    # LESSON 1 — ATTACK
-    # -------------------------------------------------
-    @bot.callback_query_handler(func=lambda c: c.data == "pvp_tut:step1")
-    def tut_step1(call):
-        progress = build_progress(1, TOTAL_STEPS)
-
-        kb = types.InlineKeyboardMarkup()
-        kb.add(types.InlineKeyboardButton("➡ Next: Blocking", callback_data="pvp_tut:step2"))
+        msg = build_step_message(step)
+        kb = tutorial_keyboard(step)
 
         bot.edit_message_text(
-            "🗡 *Lesson 1 — Attacking*\n\n"
-            "Attacking deals direct damage to your opponent.\n\n"
-            "• Stronger attack = higher damage\n"
-            "• Critical hits happen randomly\n"
-            "• Power difference increases impact\n\n"
-            f"{progress}",
+            msg,
             call.message.chat.id,
             call.message.message_id,
             parse_mode="Markdown",
             reply_markup=kb
         )
+        bot.answer_callback_query(call.id)
 
-    # -------------------------------------------------
-    # LESSON 2 — BLOCK
-    # -------------------------------------------------
-    @bot.callback_query_handler(func=lambda c: c.data == "pvp_tut:step2")
-    def tut_step2(call):
-        progress = build_progress(2, TOTAL_STEPS)
-
-        kb = types.InlineKeyboardMarkup()
-        kb.add(types.InlineKeyboardButton("⬅ Back", callback_data="pvp_tut:step1"))
-        kb.add(types.InlineKeyboardButton("➡ Next: Dodging", callback_data="pvp_tut:step3"))
-
+    # Exit handler
+    @bot.callback_query_handler(func=lambda c: c.data == "pvp_tutorial:exit")
+    def cb_exit(call):
         bot.edit_message_text(
-            "🛡 *Lesson 2 — Blocking*\n\n"
-            "Blocking reduces incoming damage drastically.\n\n"
-            "• Perfect vs ⚡ Charge\n"
-            "• Weak vs 💨 Dodge\n"
-            "• Use when predicting heavy attacks\n\n"
-            f"{progress}",
+            "📘 *Exited the PvP Tutorial.*",
             call.message.chat.id,
             call.message.message_id,
-            parse_mode="Markdown",
-            reply_markup=kb
+            parse_mode="Markdown"
         )
-
-    # -------------------------------------------------
-    # LESSON 3 — DODGE
-    # -------------------------------------------------
-    @bot.callback_query_handler(func=lambda c: c.data == "pvp_tut:step3")
-    def tut_step3(call):
-        progress = build_progress(3, TOTAL_STEPS)
-
-        kb = types.InlineKeyboardMarkup()
-        kb.add(types.InlineKeyboardButton("⬅ Back", callback_data="pvp_tut:step2"))
-        kb.add(types.InlineKeyboardButton("➡ Next: Charge", callback_data="pvp_tut:step4"))
-
-        bot.edit_message_text(
-            "💨 *Lesson 3 — Dodging*\n\n"
-            "Dodging avoids all incoming damage if timed right.\n\n"
-            "• Perfect counter to 🗡 Attack\n"
-            "• Weak vs ⚡ Charge\n"
-            "• Sets up guaranteed crits next turn\n\n"
-            f"{progress}",
-            call.message.chat.id,
-            call.message.message_id,
-            parse_mode="Markdown",
-            reply_markup=kb
-        )
-
-    # -------------------------------------------------
-    # LESSON 4 — CHARGE
-    # -------------------------------------------------
-    @bot.callback_query_handler(func=lambda c: c.data == "pvp_tut:step4")
-    def tut_step4(call):
-        progress = build_progress(4, TOTAL_STEPS)
-
-        kb = types.InlineKeyboardMarkup()
-        kb.add(types.InlineKeyboardButton("⬅ Back", callback_data="pvp_tut:step3"))
-        kb.add(types.InlineKeyboardButton("➡ Next: Healing", callback_data="pvp_tut:step5"))
-
-        bot.edit_message_text(
-            "⚡ *Lesson 4 — Charge*\n\n"
-            "Charge stores energy to boost your next attack dramatically.\n\n"
-            "• Perfect when predicting defensive moves\n"
-            "• Counters 💨 Dodge\n"
-            "• But loses to 🛡 Block\n\n"
-            f"{progress}",
-            call.message.chat.id,
-            call.message.message_id,
-            parse_mode="Markdown",
-            reply_markup=kb
-        )
-
-    # -------------------------------------------------
-    # LESSON 5 — HEAL
-    # -------------------------------------------------
-    @bot.callback_query_handler(func=lambda c: c.data == "pvp_tut:step5")
-    def tut_step5(call):
-        progress = build_progress(5, TOTAL_STEPS)
-
-        kb = types.InlineKeyboardMarkup()
-        kb.add(types.InlineKeyboardButton("⬅ Back", callback_data="pvp_tut:step4"))
-        kb.add(types.InlineKeyboardButton("🏁 Finish Tutorial", callback_data="pvp_tut:finish"))
-
-        bot.edit_message_text(
-            "💉 *Lesson 5 — Healing*\n\n"
-            "Healing restores **20% of max HP**.\n\n"
-            "• Useful when behind on HP\n"
-            "• Strong when predicting a defensive enemy\n"
-            "• Helps reset momentum\n\n"
-            f"{progress}",
-            call.message.chat.id,
-            call.message.message_id,
-            parse_mode="Markdown",
-            reply_markup=kb
-        )
-
-    # -------------------------------------------------
-    # FINISH SCREEN
-    # -------------------------------------------------
-    @bot.callback_query_handler(func=lambda c: c.data == "pvp_tut:finish")
-    def tut_finish(call):
-        kb = types.InlineKeyboardMarkup()
-        kb.add(types.InlineKeyboardButton(
-            "⬅ Back to PvP Menu",
-            callback_data=f"pvp:menu:main:{call.from_user.id}"
-        ))
-
-        bot.edit_message_text(
-            "🎉 *Tutorial Complete!*\n\n"
-            "You've mastered the basics of MEGAGROK PvP combat.\n"
-            "Now enter the arena and dominate your foes! ⚔️🔥",
-            call.message.chat.id,
-            call.message.message_id,
-            parse_mode="Markdown",
-            reply_markup=kb
-        )
-
+        bot.answer_callback_query(call.id, "Closed.")
