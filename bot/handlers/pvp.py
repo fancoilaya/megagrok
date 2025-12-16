@@ -578,10 +578,17 @@ def setup(bot: TeleBot):
 
         # LEADERBOARD LINK
         if sub == "lb":
-            txt = "🏆 Use /pvp_leaderboard to view the ranked ladder."
-            return bot.edit_message_text(
-                txt, call.message.chat.id, call.message.message_id,
-                parse_mode="Markdown", reply_markup=stats_menu(user_id)
+            from bot.handlers import pvp_leaderboard
+            
+            # Reuse existing leaderboard generator
+            text = pvp_leaderboard.build_leaderboard_text(limit=10)
+
+            # Send as NEW message (do NOT edit menu)
+            bot.send_message(
+                call.message.chat.id,
+                text,
+                parse_mode="Markdown"
+                
             )
 
         return bot.answer_callback_query(call.id)
