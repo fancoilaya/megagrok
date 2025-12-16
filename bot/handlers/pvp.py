@@ -196,6 +196,64 @@ def send_result_card(bot, sess, summary):
         out.append(f"💢 Enemy best hit: {best['defender']['damage']}")
 
     bot.send_message(sess._last_msg["chat"], "\n".join(out), parse_mode="Markdown")
+
+# -------------------------
+# Menu builders
+# -------------------------
+def menu_main_markup(user_id: int) -> types.InlineKeyboardMarkup:
+    kb = types.InlineKeyboardMarkup(row_width=2)
+    kb.add(
+        types.InlineKeyboardButton("🔥 Revenge", callback_data=f"pvp:menu:revenge:{user_id}"),
+        types.InlineKeyboardButton("🎯 Recommended", callback_data=f"pvp:menu:recommended:{user_id}"),
+    )
+    kb.add(
+        types.InlineKeyboardButton("🛡 Shielded", callback_data=f"pvp:menu:shielded:{user_id}"),
+        types.InlineKeyboardButton("📜 Browse Players", callback_data=f"pvp:menu:browse:1:{user_id}"),
+    )
+    kb.add(
+        types.InlineKeyboardButton("❓ PvP Help", callback_data=f"pvp:menu:help:{user_id}"),
+        types.InlineKeyboardButton("📊 Stats", callback_data=f"pvp:menu:stats:{user_id}"),
+    )
+    return kb
+
+
+def markup_back(user_id: int) -> types.InlineKeyboardMarkup:
+    kb = types.InlineKeyboardMarkup()
+    kb.add(types.InlineKeyboardButton("⬅ Back", callback_data=f"pvp:menu:main:{user_id}"))
+    return kb
+
+
+# -------------------------
+# Browse helpers
+# -------------------------
+def browse_page_from_all(all_users: List[Dict[str, Any]], page: int, page_size: int = 5):
+    total = len(all_users)
+    pages = max(1, (total + page_size - 1) // page_size)
+    page = max(1, min(page, pages))
+    start = (page - 1) * page_size
+    end = start + page_size
+    return all_users[start:end], page, pages
+
+
+def build_browse_kb(page_users, page, pages, user_id):
+    kb = types.InlineKeyboardMarkup(row_width=1)
+
+    for u in page_users:
+        uid = u["user_id"]
+        name = get_display_name_from_row(u)
+        kb.add(types.InlineKeyboardButton(f"Attack {name}", callback_data=f"pvp:rec:{user_id}:{uid}"))
+
+    nav = []
+    if page > 1:
+        nav.append(types.InlineKeyboardButton("⏮ Prev", callback_data=f"pvp:menu:browse:{page-1}:{user_id}"))
+    if page < pages:
+        nav.append(types.InlineKeyboardButton("Next ⏭", callback_data=f"pvp:menu:browse:{page+1}:{user_id}"))
+    if nav:
+        kb.add(*nav)
+
+    kb.add(types.InlineKeyboardButton("⬅ Back", callback_data=f"pvp:menu:main:{user_id}"))
+    return kb
+
 # -------------------------
 # Setup - register handlers
 # -------------------------
