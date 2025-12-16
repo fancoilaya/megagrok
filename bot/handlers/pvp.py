@@ -1,8 +1,8 @@
 # bot/handlers/pvp.py
-# CLEAN PATCHED VERSION — keeps your system EXACTLY, adds new features
+# CLEAN PATCHED VERSION — stable, compatible with your old system + new PvP improvements
 
 import time
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from telebot import TeleBot, types
 
 # Services
@@ -21,20 +21,19 @@ PVP_SHIELD_SECONDS = 3 * 3600
 UI_EDIT_THROTTLE_SECONDS = 1.0
 PVP_ELO_K = 32
 
+
 # -------------------------
 # Utilities
 # -------------------------
 def get_display_name_from_row(u: Dict[str, Any]) -> str:
     if not u:
         return "Unknown"
-    disp = u.get("display_name")
-    uname = u.get("username")
-    if disp and str(disp).strip():
-        return str(disp)
-    if uname and str(uname).strip():
-        return str(uname)
-    uid = u.get("user_id") or u.get("id") or "?"
-    return f"User{uid}"
+    if u.get("display_name"):
+        return u["display_name"]
+    if u.get("username"):
+        return u["username"]
+    return f"User{u.get('user_id','?')}"
+
 
 def hp_bar(cur: int, maxhp: int, width: int = 20) -> str:
     cur = max(0, int(cur))
@@ -42,17 +41,20 @@ def hp_bar(cur: int, maxhp: int, width: int = 20) -> str:
     filled = int((cur / maxhp) * width)
     return "▓" * filled + "░" * (width - filled)
 
+
 def safe_call(fn, *a, **k):
     try:
         return fn(*a, **k)
     except Exception:
         return None
 
+
 # -------------------------
-# UI for actions
+# Action Keyboard
 # -------------------------
 def _action_cb(action: str, token: str) -> str:
     return f"pvp:act:{action}:{token}"
+
 
 def action_keyboard(sess) -> types.InlineKeyboardMarkup:
     sid = getattr(sess, "session_id") or str(sess.attacker_id)
@@ -71,14 +73,16 @@ def action_keyboard(sess) -> types.InlineKeyboardMarkup:
     )
     return kb
 
+
 # -------------------------
-# Caption builder
+# Caption Builder
 # -------------------------
 def build_caption(sess) -> str:
     a = sess.attacker
     d = sess.defender
     a_name = get_display_name_from_row(a)
     d_name = get_display_name_from_row(d)
+
     a_hp = int(a.get("hp", a.get("max_hp", 100)))
     d_hp = int(d.get("hp", d.get("max_hp", 100)))
     a_max = int(a.get("max_hp", 100))
@@ -94,21 +98,19 @@ def build_caption(sess) -> str:
         ""
     ]
 
-    evs = sess.events[:6]
-    if evs:
-        lines.append("*Recent actions:*")
-        for ev in evs:
-            who = a_name if ev["actor"] == "attacker" else d_name
-            if ev["action"] == "attack":
-                lines.append(f"• {who} dealt {ev['damage']} dmg {ev.get('note','')}".strip())
-            else:
-                note = f" {ev.get('note', '')}" if ev.get("note") else ""
-                lines.append(f"• {who}: {ev['action']}{note}")
+    for ev in sess.events[:6]:
+        actor = a_name if ev["actor"] == "attacker" else d_name
+        if ev["action"] == "attack":
+            lines.append(f"• {actor} dealt {ev['damage']} dmg {ev.get('note','')}".strip())
+        else:
+            note = f" {ev.get('note','')}" if ev.get("note") else ""
+            lines.append(f"• {actor}: {ev['action']}{note}")
 
     return "\n".join(lines)
 
+
 # -------------------------
-# Finalize fallback (unchanged)
+# Finalize PvP (fallback)
 # -------------------------
 def finalize_pvp_local(att_id, def_id, sess):
     attacker = db.get_user(att_id) or {}
@@ -130,8 +132,12 @@ def finalize_pvp_local(att_id, def_id, sess):
 
     atk_elo = int(attacker.get("elo_pvp", 1000))
     def_elo = int(defender.get("elo_pvp", 1000))
-    def expected(a, b): return 1 / (1 + 10 ** ((b - a) / 400))
+
+    def expected(a, b):
+        return 1 / (1 + 10 ** ((b - a) / 400))
+
     E = expected(atk_elo, def_elo)
+
     if attacker_won:
         new_atk = atk_elo + int(PVP_ELO_K * (1 - E))
         new_def = def_elo - int(PVP_ELO_K * (1 - E))
@@ -145,10 +151,8 @@ def finalize_pvp_local(att_id, def_id, sess):
     best = {"attacker": {"damage": 0}, "defender": {"damage": 0}}
     for ev in sess.events:
         if ev["action"] == "attack":
-            if ev["actor"] == "attacker":
-                best["attacker"]["damage"] = max(best["attacker"]["damage"], ev["damage"])
-            else:
-                best["defender"]["damage"] = max(best["defender"]["damage"], ev["damage"])
+            tgt = "attacker" if ev["actor"] == "attacker" else "defender"
+            best[tgt]["damage"] = max(best[tgt]["damage"], ev["damage"])
 
     return {
         "xp_stolen": xp_stolen,
@@ -158,8 +162,9 @@ def finalize_pvp_local(att_id, def_id, sess):
         "defender_hp": sess.defender.get("hp", 0),
     }
 
+
 # -------------------------
-# Result card
+# Result Card
 # -------------------------
 def send_result_card(bot, sess, summary):
     att = db.get_user(sess.attacker_id) or {}
@@ -167,13 +172,9 @@ def send_result_card(bot, sess, summary):
     a_name = get_display_name_from_row(att)
     d_name = get_display_name_from_row(dfd)
 
-    a_hp = summary["attacker_hp"]
-    d_hp = summary["defender_hp"]
-
-    win = sess.winner == "attacker"
-
     out = []
-    if win:
+
+    if sess.winner == "attacker":
         out.append("🏆 *VICTORY!*")
         out.append(f"You defeated *{d_name}*")
         out.append(f"🎁 XP Stolen: +{summary['xp_stolen']}")
@@ -184,12 +185,12 @@ def send_result_card(bot, sess, summary):
 
     out.append(f"🏅 ELO Change: {summary['elo_change']:+d}")
     out.append("")
-    out.append(f"❤️ {a_name}: {a_hp}")
-    out.append(f"💀 {d_name}: {d_hp}")
+    out.append(f"❤️ {a_name}: {summary['attacker_hp']}")
+    out.append(f"💀 {d_name}: {summary['defender_hp']}")
     out.append("")
+    out.append("*Highlights:*")
 
     best = summary["best_hits"]
-    out.append("*Highlights:*")
     if best["attacker"]["damage"]:
         out.append(f"💥 Your best hit: {best['attacker']['damage']}")
     if best["defender"]["damage"]:
@@ -197,10 +198,11 @@ def send_result_card(bot, sess, summary):
 
     bot.send_message(sess._last_msg["chat"], "\n".join(out), parse_mode="Markdown")
 
+
 # -------------------------
-# Menu builders
+# Menu Builders
 # -------------------------
-def menu_main_markup(user_id: int) -> types.InlineKeyboardMarkup:
+def menu_main_markup(user_id: int):
     kb = types.InlineKeyboardMarkup(row_width=2)
     kb.add(
         types.InlineKeyboardButton("🔥 Revenge", callback_data=f"pvp:menu:revenge:{user_id}"),
@@ -217,31 +219,28 @@ def menu_main_markup(user_id: int) -> types.InlineKeyboardMarkup:
     return kb
 
 
-def markup_back(user_id: int) -> types.InlineKeyboardMarkup:
+def markup_back(user_id: int):
     kb = types.InlineKeyboardMarkup()
     kb.add(types.InlineKeyboardButton("⬅ Back", callback_data=f"pvp:menu:main:{user_id}"))
     return kb
 
 
-# -------------------------
-# Browse helpers
-# -------------------------
-def browse_page_from_all(all_users: List[Dict[str, Any]], page: int, page_size: int = 5):
+def browse_page_from_all(all_users, page, size=5):
     total = len(all_users)
-    pages = max(1, (total + page_size - 1) // page_size)
+    pages = max(1, (total + size - 1) // size)
     page = max(1, min(page, pages))
-    start = (page - 1) * page_size
-    end = start + page_size
-    return all_users[start:end], page, pages
+    start = (page - 1) * size
+    return all_users[start:start + size], page, pages
 
 
 def build_browse_kb(page_users, page, pages, user_id):
     kb = types.InlineKeyboardMarkup(row_width=1)
 
     for u in page_users:
-        uid = u["user_id"]
-        name = get_display_name_from_row(u)
-        kb.add(types.InlineKeyboardButton(f"Attack {name}", callback_data=f"pvp:rec:{user_id}:{uid}"))
+        kb.add(types.InlineKeyboardButton(
+            f"Attack {get_display_name_from_row(u)}",
+            callback_data=f"pvp:rec:{user_id}:{u['user_id']}"
+        ))
 
     nav = []
     if page > 1:
@@ -254,128 +253,128 @@ def build_browse_kb(page_users, page, pages, user_id):
     kb.add(types.InlineKeyboardButton("⬅ Back", callback_data=f"pvp:menu:main:{user_id}"))
     return kb
 
+
 # -------------------------
-# Setup - register handlers
+# Setup
 # -------------------------
 def setup(bot: TeleBot):
     globals()["bot_instance"] = bot
 
-    # -------------------------
-    # /pvp menu
-    # -------------------------
+    # /pvp command
     @bot.message_handler(commands=["pvp"])
     def cmd_pvp(message):
         user_id = message.from_user.id
         me = db.get_user(user_id) or {}
-        elo = int(me.get("elo_pvp", 1000))
-        rank_name, _ = ranking_module.elo_to_rank(elo)
+        rank, _ = ranking_module.elo_to_rank(int(me.get("elo_pvp", 1000)))
 
         text = (
             "⚔️ *MEGAGROK PvP ARENA*\n\n"
             f"Welcome, {get_display_name_from_row(me)}!\n\n"
-            f"📈 Rank: *{rank_name}* — ELO: *{elo}*\n\n"
+            f"📈 Rank: *{rank}* — ELO: *{me.get('elo_pvp', 1000)}*\n\n"
             "Choose an option:"
         )
 
         bot.reply_to(message, text, parse_mode="Markdown",
                      reply_markup=menu_main_markup(user_id))
 
-    # -------------------------
-    # MENU callbacks
-    # -------------------------
+    # Panel callbacks
     @bot.callback_query_handler(func=lambda c: c.data.startswith("pvp:menu"))
     def cb_pvp_menu(call):
         parts = call.data.split(":")
         _, _, sub = parts[:3]
-        try:
-            user_id = int(parts[-1])
-        except:
-            return bot.answer_callback_query(call.id, "Invalid menu user.")
+        user_id = int(parts[-1])
 
         if call.from_user.id != user_id:
             return bot.answer_callback_query(call.id, "Not your menu.", show_alert=True)
 
         # MAIN
         if sub == "main":
-            me = db.get_user(user_id) or {}
-            elo = int(me.get("elo_pvp", 1000))
-            rank_name, _ = ranking_module.elo_to_rank(elo)
+            u = db.get_user(user_id) or {}
+            rank, _ = ranking_module.elo_to_rank(int(u.get("elo_pvp", 1000)))
+
             text = (
                 "⚔️ *MEGAGROK PvP ARENA*\n\n"
-                f"Welcome, {get_display_name_from_row(me)}!\n\n"
-                f"📈 Rank: *{rank_name}* — ELO: *{elo}*\n\n"
+                f"Welcome, {get_display_name_from_row(u)}!\n\n"
+                f"📈 Rank: *{rank}* — ELO: *{u.get('elo_pvp', 1000)}*\n\n"
                 "Choose an option:"
             )
-            bot.edit_message_text(text, call.message.chat.id, call.message.message_id,
-                                  parse_mode="Markdown", reply_markup=menu_main_markup(user_id))
+
+            bot.edit_message_text(
+                text, call.message.chat.id, call.message.message_id,
+                parse_mode="Markdown", reply_markup=menu_main_markup(user_id)
+            )
             return bot.answer_callback_query(call.id)
 
         # REVENGE
         elif sub == "revenge":
             revs = pvp_targets.get_revenge_targets(user_id)
             if not revs:
-                txt = "🔥 *Revenge Targets*\n\nNo recent attackers."
-                bot.edit_message_text(txt, call.message.chat.id, call.message.message_id,
-                                      parse_mode="Markdown", reply_markup=markup_back(user_id))
+                bot.edit_message_text(
+                    "🔥 *Revenge Targets*\n\nNo recent attackers.",
+                    call.message.chat.id, call.message.message_id,
+                    parse_mode="Markdown", reply_markup=markup_back(user_id)
+                )
                 return bot.answer_callback_query(call.id)
 
             lines = ["🔥 *Revenge Targets*",""]
             kb = types.InlineKeyboardMarkup(row_width=1)
 
             for r in revs:
-                lines.append(f"• {r['display_name']} | {r['time_ago']} | +{r['xp_stolen']} XP stolen")
-                kb.add(
-                    types.InlineKeyboardButton(
-                        f"Revenge {r['display_name']}",
-                        callback_data=f"pvp:rev:{user_id}:{r['user_id']}"
-                    )
-                )
+                lines.append(f"• {r['display_name']} | {r['time_ago']} | +{r['xp_stolen']} XP")
+                kb.add(types.InlineKeyboardButton(
+                    f"Revenge {r['display_name']}",
+                    callback_data=f"pvp:rev:{user_id}:{r['user_id']}"
+                ))
 
             kb.add(types.InlineKeyboardButton("⬅ Back", callback_data=f"pvp:menu:main:{user_id}"))
 
-            bot.edit_message_text("\n".join(lines), call.message.chat.id, call.message.message_id,
-                                  parse_mode="Markdown", reply_markup=kb)
+            bot.edit_message_text(
+                "\n".join(lines), call.message.chat.id, call.message.message_id,
+                parse_mode="Markdown", reply_markup=kb
+            )
             return bot.answer_callback_query(call.id)
 
         # RECOMMENDED
         elif sub == "recommended":
             recs = pvp_targets.get_recommended_targets(user_id)
             if not recs:
-                txt = "🎯 *Recommended Targets*\n\nNo recommended players."
-                bot.edit_message_text(txt, call.message.chat.id, call.message.message_id,
-                                      parse_mode="Markdown", reply_markup=markup_back(user_id))
+                bot.edit_message_text(
+                    "🎯 *Recommended Targets*\n\nNo recommended players.",
+                    call.message.chat.id, call.message.message_id,
+                    parse_mode="Markdown", reply_markup=markup_back(user_id)
+                )
                 return bot.answer_callback_query(call.id)
 
             lines = ["🎯 *Recommended Targets*",""]
             kb = types.InlineKeyboardMarkup(row_width=1)
 
             for r in recs:
-                lines.append(
-                    f"• {r['display_name']} — Level {r['level']} — Power {r['power']} — {r['rank']}"
-                )
-                kb.add(
-                    types.InlineKeyboardButton(
-                        f"Attack {r['display_name']} (Power {r['power']})",
-                        callback_data=f"pvp:rec:{user_id}:{r['user_id']}"
-                    )
-                )
+                lines.append(f"• {r['display_name']} — Level {r['level']} — Power {r['power']} — {r['rank']}")
+                kb.add(types.InlineKeyboardButton(
+                    f"Attack {r['display_name']} (Power {r['power']})",
+                    callback_data=f"pvp:rec:{user_id}:{r['user_id']}"
+                ))
 
             kb.add(types.InlineKeyboardButton("⬅ Back", callback_data=f"pvp:menu:main:{user_id}"))
-            bot.edit_message_text("\n".join(lines), call.message.chat.id, call.message.message_id,
-                                  parse_mode="Markdown", reply_markup=kb)
+
+            bot.edit_message_text(
+                "\n".join(lines), call.message.chat.id, call.message.message_id,
+                parse_mode="Markdown", reply_markup=kb
+            )
             return bot.answer_callback_query(call.id)
 
         # SHIELDED
         elif sub == "shielded":
             now = int(time.time())
-            all_users = safe_call(db.get_all_users) or []
-            shielded = [u for u in all_users if int(u.get("pvp_shield_until", 0)) > now]
+            allu = safe_call(db.get_all_users) or []
+            shielded = [u for u in allu if int(u.get("pvp_shield_until", 0)) > now]
 
             if not shielded:
-                txt = "🛡 *Shielded Players*\n\nNone are shielded."
-                bot.edit_message_text(txt, call.message.chat.id, call.message.message_id,
-                                      parse_mode="Markdown",
-                                      reply_markup=markup_back(user_id))
+                bot.edit_message_text(
+                    "🛡 *Shielded Players*\n\nNone are shielded.",
+                    call.message.chat.id, call.message.message_id,
+                    parse_mode="Markdown", reply_markup=markup_back(user_id)
+                )
                 return bot.answer_callback_query(call.id)
 
             lines = ["🛡 *Shielded Players*",""]
@@ -385,9 +384,10 @@ def setup(bot: TeleBot):
                 mm = (rem % 3600)//60
                 lines.append(f"• {get_display_name_from_row(u)} — {hh}h {mm}m")
 
-            bot.edit_message_text("\n".join(lines), call.message.chat.id, call.message.message_id,
-                                  parse_mode="Markdown",
-                                  reply_markup=markup_back(user_id))
+            bot.edit_message_text(
+                "\n".join(lines), call.message.chat.id, call.message.message_id,
+                parse_mode="Markdown", reply_markup=markup_back(user_id)
+            )
             return bot.answer_callback_query(call.id)
 
         # BROWSE
@@ -397,39 +397,43 @@ def setup(bot: TeleBot):
             all_users.sort(key=lambda u: get_display_name_from_row(u).lower())
 
             page_users, page, pages = browse_page_from_all(all_users, page)
-            lines = [f"📜 *Browse Players* {page}/{pages}",""]
 
+            lines = [f"📜 *Browse Players* {page}/{pages}", ""]
             for u in page_users:
-                power = pvp_targets.calculate_power({
+                pw = pvp_targets.calculate_power({
                     "hp": u.get("hp", 100),
                     "attack": u.get("attack", 10),
                     "defense": u.get("defense", 5)
                 })
-                lines.append(f"• {get_display_name_from_row(u)} — Level {u.get('level',1)} — Power {power}")
+                lines.append(f"• {get_display_name_from_row(u)} — Level {u.get('level',1)} — Power {pw}")
 
-            bot.edit_message_text("\n".join(lines), call.message.chat.id, call.message.message_id,
-                                  parse_mode="Markdown",
-                                  reply_markup=build_browse_kb(page_users, page, pages, user_id))
+            bot.edit_message_text(
+                "\n".join(lines), call.message.chat.id, call.message.message_id,
+                parse_mode="Markdown",
+                reply_markup=build_browse_kb(page_users, page, pages, user_id)
+            )
             return bot.answer_callback_query(call.id)
 
         # HELP
         elif sub == "help":
             text = (
                 "❓ *PvP Help*\n\n"
-                "• Recommended: Players close to your level & power\n"
-                "• Revenge: Fight back attackers\n"
-                "• Shielded: Players under protection\n"
-                "• Stats: Wins, losses, rank\n"
+                "• Recommended battles\n"
+                "• Revenge attackers\n"
+                "• Shielded players\n"
+                "• Stats overview\n"
             )
-            bot.edit_message_text(text, call.message.chat.id, call.message.message_id,
-                                  parse_mode="Markdown", reply_markup=markup_back(user_id))
+            bot.edit_message_text(
+                text, call.message.chat.id, call.message.message_id,
+                parse_mode="Markdown", reply_markup=markup_back(user_id)
+            )
             return bot.answer_callback_query(call.id)
 
         # STATS
-        # STATS
         elif sub == "stats":
-            u = db.get_user(user_id)
-            p = db.get_pvp_stats(user_id)
+            u = db.get_user(user_id) or {}
+            p = db.get_pvp_stats(user_id) or {}
+
             rank, _ = ranking_module.elo_to_rank(int(u.get("elo_pvp", 1000)))
 
             text = (
@@ -441,24 +445,20 @@ def setup(bot: TeleBot):
             )
 
             bot.edit_message_text(
-                text,
-                call.message.chat.id,
-                call.message.message_id,
-                parse_mode="Markdown",
-                reply_markup=markup_back(user_id)
+                text, call.message.chat.id, call.message.message_id,
+                parse_mode="Markdown", reply_markup=markup_back(user_id)
             )
-
             return bot.answer_callback_query(call.id)
-        )
+
         return bot.answer_callback_query(call.id)
 
     # -------------------------
-    # DUEL START (rec / rev)
+    # DUEL START
     # -------------------------
     @bot.callback_query_handler(func=lambda c: c.data.startswith("pvp:rec") or c.data.startswith("pvp:rev"))
     def cb_start_duel(call):
         parts = call.data.split(":")
-        typ = parts[1]          # rec or rev
+        typ = parts[1]
         attacker_id = int(parts[2])
         defender_id = int(parts[3])
 
@@ -467,7 +467,6 @@ def setup(bot: TeleBot):
         if db.is_pvp_shielded(defender_id):
             return bot.answer_callback_query(call.id, "Target is shielded.", show_alert=True)
 
-        # Collapse the menu UI
         try:
             bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=None)
         except:
@@ -475,29 +474,28 @@ def setup(bot: TeleBot):
 
         attacker = db.get_user(attacker_id)
         defender = db.get_user(defender_id)
+
         a_stats = pvp_stats.build_pvp_stats(attacker)
         d_stats = pvp_stats.build_pvp_stats(defender)
 
         is_revenge = (typ == "rev")
 
-        # Create session WITH fury flag
         sess = fight_session.manager.create_pvp_session(
             attacker_id,
             defender_id,
             a_stats,
             d_stats,
-            revenge_fury=is_revenge  # <--- new flag
+            revenge_fury=is_revenge
         )
 
         if is_revenge:
-            # Clear revenge logs once revenge begins
             pvp_targets.clear_revenge_for(attacker_id, defender_id)
 
         m = bot.send_message(
             call.message.chat.id,
             build_caption(sess),
             parse_mode="Markdown",
-            reply_markup=action_keyboard(sess),
+            reply_markup=action_keyboard(sess)
         )
 
         sess._last_msg = {"chat": m.chat.id, "msg": m.message_id}
@@ -507,10 +505,10 @@ def setup(bot: TeleBot):
         db.increment_pvp_field(attacker_id, "pvp_fights_started")
         db.increment_pvp_field(defender_id, "pvp_challenges_received")
 
-        return bot.answer_callback_query(call.id, "Raid started!")
+        return bot.answer_callback_query(call.id)
 
     # -------------------------
-    # ACTION handler
+    # ACTION HANDLER
     # -------------------------
     @bot.callback_query_handler(func=lambda c: c.data.startswith("pvp:act"))
     def cb_pvp_action(call):
@@ -549,18 +547,19 @@ def setup(bot: TeleBot):
 
             send_result_card(bot, sess, summary)
 
-            # Cleanup UI
-            try: bot.delete_message(chat_id, msg_id)
-            except: pass
+            try:
+                bot.delete_message(chat_id, msg_id)
+            except:
+                pass
 
             fight_session.manager.end_session_by_sid(sess.session_id)
             return bot.answer_callback_query(call.id)
 
-        # NORMAL TURN
+        # NORMAL ACTION
         sess.resolve_attacker_action(action)
         fight_session.manager.save_session(sess)
 
-        # END?
+        # FINISHED?
         if sess.ended:
             try:
                 from bot.handlers.pvp import finalize_pvp as ext_finalize
@@ -570,9 +569,10 @@ def setup(bot: TeleBot):
 
             send_result_card(bot, sess, summary)
 
-            # Cleanup UI
-            try: bot.delete_message(chat_id, msg_id)
-            except: pass
+            try:
+                bot.delete_message(chat_id, msg_id)
+            except:
+                pass
 
             fight_session.manager.end_session_by_sid(sess.session_id)
             return bot.answer_callback_query(call.id)
@@ -586,21 +586,22 @@ def setup(bot: TeleBot):
                     chat_id,
                     msg_id,
                     parse_mode="Markdown",
-                    reply_markup=action_keyboard(sess),
+                    reply_markup=action_keyboard(sess)
                 )
                 sess._last_ui_edit = now
                 fight_session.manager.save_session(sess)
-            except:
+
+            except Exception:
                 try:
                     bot.send_message(
                         chat_id,
                         build_caption(sess),
                         parse_mode="Markdown",
-                        reply_markup=action_keyboard(sess),
+                        reply_markup=action_keyboard(sess)
                     )
                 except:
                     pass
 
         return bot.answer_callback_query(call.id)
 
-# end of file
+# END OF FILE
