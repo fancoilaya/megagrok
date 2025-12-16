@@ -427,10 +427,26 @@ def setup(bot: TeleBot):
 
         # STATS
         elif sub == "stats":
-            txt = build_user_stats_text(user_id)
-            bot.edit_message_text(txt, call.message.chat.id, call.message.message_id,
-                                  parse_mode="Markdown", reply_markup=markup_back(user_id))
-            return bot.answer_callback_query(call.id)
+    u = db.get_user(user_id)
+    p = db.get_pvp_stats(user_id)
+    rank, _ = ranking_module.elo_to_rank(int(u.get("elo_pvp", 1000)))
+
+    text = (
+        f"📊 *Your PvP Stats* — {get_display_name_from_row(u)}\n\n"
+        f"🏅 Rank: {rank} — ELO {u.get('elo_pvp', 1000)}\n"
+        f"🏆 Wins: {p.get('wins',0)}   📉 Losses: {p.get('losses',0)}\n"
+        f"🛡 Successful Def: {p.get('successful_def',0)}\n"
+        f"⚔️ Fights Started: {p.get('started',0)}"
+    )
+
+    bot.edit_message_text(
+        text,
+        call.message.chat.id,
+        call.message.message_id,
+        parse_mode="Markdown",
+        reply_markup=markup_back(user_id)
+    )
+    return bot.answer_callback_query(call.id)
 
         return bot.answer_callback_query(call.id)
 
