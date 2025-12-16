@@ -500,9 +500,9 @@ def setup(bot: TeleBot):
             txt = (
                 "📜 *PvP Commands*\n\n"
                 "• /pvp — open PvP panel\n"
-                "• /pvp_stat — your stats\n"
-                "• /pvp_ranking — your rank\n"
-                "• /pvp_top — global ELO top\n"
+                "• /pvp\\_stat — your stats\n"
+                "• /pvp\\_ranking — your rank\n"
+                "• /pvp\\_top — global ELO top\n"
             )
             return bot.edit_message_text(
                 txt, call.message.chat.id, call.message.message_id,
