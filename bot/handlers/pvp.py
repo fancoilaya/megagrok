@@ -512,7 +512,7 @@ def setup(bot: TeleBot):
         # TUTORIAL LAUNCH
         if topic == "tutorial":
             from bot.handlers import pvp_tutorial
-            pvp_tutorial.start_tutorial(bot, call.message.chat.id, user_id)
+            pvp_tutorial.show_tutorial(bot, call.message.chat.id, user_id)
             return bot.answer_callback_query(call.id)
 
         return bot.answer_callback_query(call.id)
