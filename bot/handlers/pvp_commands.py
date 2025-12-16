@@ -6,7 +6,7 @@ from telebot import TeleBot
 
 def setup(bot: TeleBot):
 
-    @bot.message_handler(commands=["pvp_commands"])
+    @bot.message_handler(commands=["pvpcommands"])
     def cmd_pvp_commands(message):
 
         text = (
@@ -16,11 +16,10 @@ def setup(bot: TeleBot):
             "━━━━━━━━━━━━━━━━━━\n"
             "⚔️ *Basic Combat Commands*\n"
             "━━━━━━━━━━━━━━━━━━\n"
-            "• `/attack` — Start a PvP raid.\n"
-            "   Use by replying to a user or typing:\n"
-            "   `/attack @username`\n\n"
-            "• `/attack <name>` — Search users by display name.\n"
-            "   If multiple matches appear, choose from a list.\n\n"
+            "• `/pvp` — Start a PvP raid.\n"
+            "   This will start the PvP menu\n"
+            "   where you can engage in fights\n\n"
+
 
             "━━━━━━━━━━━━━━━━━━\n"
             "🛡 *Battle Actions*\n"
@@ -30,7 +29,7 @@ def setup(bot: TeleBot):
             "• 🛡 *Block* — Reduce next incoming damage.\n"
             "• 💨 *Dodge* — Chance to avoid the next hit.\n"
             "• ⚡ *Charge* — Increases next attack damage.\n"
-            "• ▶ *Auto* — Let AI play *one turn at a time*.\n"
+            "• ▶ *Heal* — Heals 20% of max HP*.\n"
             "• ❌ *Forfeit* — Immediately end the match.\n\n"
 
             "━━━━━━━━━━━━━━━━━━\n"
@@ -68,7 +67,6 @@ def setup(bot: TeleBot):
             "• Use Dodge right before opponent attacks.\n"
             "• Use Charge for massive burst damage.\n"
             "• Block when low HP to survive one more turn.\n"
-            "• Auto mode only performs *one* automatic turn.\n"
             "• High ELO opponents give bigger ELO gains.\n\n"
 
             "🔥 *Good luck in the arena!*"
