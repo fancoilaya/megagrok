@@ -200,6 +200,7 @@ def send_result_card(bot, sess, summary):
 # Setup - register handlers
 # -------------------------
 def setup(bot: TeleBot):
+    globals()["bot_instance"] = bot
 
     # -------------------------
     # /pvp menu
