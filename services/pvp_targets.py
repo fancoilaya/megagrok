@@ -4,11 +4,11 @@
 # MegaGrok PvP Targeting & Ranking Helper
 #
 # This version:
-#   ✔ DOES NOT use last_active
-#   ✔ Filters ONLY by level range & shield
-#   ✔ Supports revenge feed via db.get_users_who_attacked_you()
-#   ✔ Uses your ranking module (elo_to_rank)
-#   ✔ Computes power score for fair match suggestions
+#   ✔ Keeps ALL your original recommended-target logic
+#   ✔ Adds deduped revenge feed (max 5)
+#   ✔ Adds improved time formatting ("3m ago", "2h ago", etc.)
+#   ✔ Adds clear_revenge_for() hook
+#   ✔ Fully compatible with pvp.py and fight_session_pvp.py patches
 # -------------------------------------------
 
 from typing import List, Dict, Any
@@ -19,7 +19,7 @@ import bot.handlers.pvp_ranking as ranking_module  # your ranking system
 
 
 # -------------------------------------------
-# Power Score Calculation
+# Power Score Calculation (your original)
 # -------------------------------------------
 def calculate_power(stats: Dict[str, Any]) -> int:
     """
@@ -38,7 +38,7 @@ def calculate_power(stats: Dict[str, Any]) -> int:
 # -------------------------------------------
 def _normalize_user_dict(u: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Takes a DB user row from db.get_all_users() and standardizes keys for UI.
+    Standardizes fields for UI.
     """
     uid = u.get("user_id")
     username = u.get("username")
@@ -52,7 +52,7 @@ def _normalize_user_dict(u: Dict[str, Any]) -> Dict[str, Any]:
         "elo_pvp": int(u.get("elo_pvp", 1000)),
         "shield_until": int(u.get("pvp_shield_until", 0)),
 
-        # Stats for power calculation (fallback capability)
+        # Stats (fallback)
         "hp": int(u.get("hp", 100)),
         "attack": int(u.get("attack", 10)),
         "defense": int(u.get("defense", 5)),
@@ -60,36 +60,85 @@ def _normalize_user_dict(u: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # -------------------------------------------
-# Revenge Targets
+# Time Formatter (new)
+# -------------------------------------------
+def _format_time_since(ts: int) -> str:
+    now = int(time.time())
+    diff = now - ts
+
+    if diff < 60:
+        return "<1m ago"
+    if diff < 3600:
+        return f"{diff // 60}m ago"
+    if diff < 86400:
+        return f"{diff // 3600}h ago"
+    return f"{diff // 86400}d ago"
+
+
+# -------------------------------------------
+# REVENGE TARGETS (fully upgraded)
 # -------------------------------------------
 def get_revenge_targets(user_id: int) -> List[Dict[str, Any]]:
     """
-    Returns a list of players who recently attacked user_id.
-    Pulls from the db.pvp_attack_log table.
+    Returns a clean revenge list:
+        ✔ Deduped by attacker
+        ✔ Sorted newest-first
+        ✔ Limited to 5 newest attackers
+        ✔ Time formatting improved
     """
-    rows = db.get_users_who_attacked_you(user_id, limit=10)
-    now = int(time.time())
-    revenge_list = []
+    raw_logs = db.get_users_who_attacked_you(user_id, limit=50)
+    if not raw_logs:
+        return []
 
-    for r in rows:
-        attacker_id = r["attacker_id"]
-        attacker_row = db.get_user(attacker_id)
+    # Deduplicate: keep only most recent entry per attacker
+    latest = {}
+    for row in raw_logs:
+        atk = row["attacker_id"]
+        ts = int(row["ts"])
+        if atk not in latest or ts > latest[atk]["ts"]:
+            latest[atk] = row
 
+    entries = list(latest.values())
+
+    # Sort newest-first
+    entries.sort(key=lambda r: -int(r["ts"]))
+
+    # Limit to 5 attackers
+    entries = entries[:5]
+
+    out = []
+    for r in entries:
+        atk_id = r["attacker_id"]
+        attacker_row = db.get_user(atk_id)
         if not attacker_row:
             continue
 
         attacker = _normalize_user_dict(attacker_row)
-        attacker["since"] = now - int(r["ts"])
-        attacker["xp_stolen"] = int(r["xp_stolen"])
-        attacker["result"] = r["result"]
+        attacker["time_ago"] = _format_time_since(int(r["ts"]))
+        attacker["xp_stolen"] = int(r.get("xp_stolen", 0))
+        attacker["result"] = r.get("result", "unknown")
 
-        revenge_list.append(attacker)
+        out.append(attacker)
 
-    return revenge_list
+    return out
 
 
 # -------------------------------------------
-# Recommended PvP Targets
+# Clear revenge log AFTER revenge attack
+# -------------------------------------------
+def clear_revenge_for(defender_id: int, attacker_id: int):
+    """
+    Removes all revenge log rows for this specific matchup.
+    Called when user successfully initiates revenge via /pvp.
+    """
+    try:
+        db.clear_revenge_entries(defender_id, attacker_id)
+    except Exception:
+        pass
+
+
+# -------------------------------------------
+# RECOMMENDED TARGETS (your untouched original logic)
 # -------------------------------------------
 def get_recommended_targets(user_id: int) -> List[Dict[str, Any]]:
     """
@@ -130,7 +179,7 @@ def get_recommended_targets(user_id: int) -> List[Dict[str, Any]]:
 
         level = int(u.get("level", 1))
         if abs(level - me_level) > 4:
-            continue  # level too far
+            continue  # too far level difference
 
         normalized = _normalize_user_dict(u)
 
@@ -147,7 +196,7 @@ def get_recommended_targets(user_id: int) -> List[Dict[str, Any]]:
     # Sort by closeness to player's power
     candidates.sort(key=lambda c: abs(c["power"] - my_power))
 
-    # Add rank label from your ranking system
+    # Add rank label from ranking system
     results = []
     for c in candidates[:6]:  # top 6 recommended
         try:
