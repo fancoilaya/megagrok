@@ -133,7 +133,7 @@ def finalize_pvp_local(att_id, def_id, sess):
     def_elo = int(de.get("elo_pvp", 1000))
 
     def expected(a, b):
-        return 1 / (1 + 10 ** ((b - a) / 400)))
+        return 1 / (1 + 10 ** ((b - a) / 400))
 
     E = expected(atk_elo, def_elo)
 
