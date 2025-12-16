@@ -498,6 +498,33 @@ def reopen_db():
     global conn, cursor
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     cursor = conn.cursor()
+# ---------------------------
+# PvP Revenge Cleanup Helpers
+# ---------------------------
+
+def clear_revenge_for(attacker_id: int, defender_id: int):
+    """
+    Removes revenge log entries once a revenge fight has started or completed.
+    Safe, idempotent, will not break if rows don't exist.
+    """
+    try:
+        cursor.execute("""
+            DELETE FROM pvp_attack_log
+            WHERE attacker_id=? AND defender_id=?
+        """, (attacker_id, defender_id))
+        conn.commit()
+    except Exception:
+        try:
+            conn.rollback()
+        except:
+            pass
+
+
+def delete_attack_log_for_pair(attacker_id: int, defender_id: int):
+    """
+    Alias for compatibility with older handlers.
+    """
+    clear_revenge_for(attacker_id, defender_id)
 
 # ---------------------------
 # End of db.py
