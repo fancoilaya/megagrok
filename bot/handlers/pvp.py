@@ -579,15 +579,13 @@ def setup(bot: TeleBot):
         # LEADERBOARD LINK
         if sub == "lb":
             from bot.handlers import pvp_leaderboard            
-            # Reuse existing leaderboard generator
-            text = pvp_leaderboard.build_leaderboard_text(limit=10)
-            # Send as NEW message (do NOT edit menu)
-            bot.send_message(
-                call.message.chat.id,
-                text,
-                parse_mode="Markdown"
-               
-            )
+            class FakeMessage:
+                def __init__(self, chat_id):
+                    self.chat = type("chat", (),{"id": chat_id})
+            fake_message = FakeMessage(call.message.chat.id)
+            pvp_leaderboard.cmd_pvp_leaderboard(fake_message)
+            return bot.answer_callback_query(call.id)
+
 
         return bot.answer_callback_query(call.id)
 
