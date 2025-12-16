@@ -295,6 +295,21 @@ def help_text_commands():
         "/pvp_tutorial — Step-by-step tutorial\n"
     )
 
+def menu_main_markup(user_id: int):
+    kb = types.InlineKeyboardMarkup(row_width=2)
+    kb.add(
+        types.InlineKeyboardButton("🔥 Revenge", callback_data=f"pvp:menu:revenge:{user_id}"),
+        types.InlineKeyboardButton("🎯 Recommended", callback_data=f"pvp:menu:recommended:{user_id}"),
+    )
+    kb.add(
+        types.InlineKeyboardButton("🛡 Shielded", callback_data=f"pvp:menu:shielded:{user_id}"),
+        types.InlineKeyboardButton("📜 Browse Players", callback_data=f"pvp:menu:browse:1:{user_id}"),
+    )
+    kb.add(
+        types.InlineKeyboardButton("❓ PvP Help", callback_data=f"pvp:menu:help:{user_id}"),
+        types.InlineKeyboardButton("📊 Stats", callback_data=f"pvp:menu:stats:{user_id}"),
+    )
+    return kb
 
 # -------------------------
 # Setup
