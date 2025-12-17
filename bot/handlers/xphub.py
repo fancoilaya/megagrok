@@ -1,40 +1,60 @@
-from telebot import types
+from telebot import types, TeleBot
 from bot.db import get_user
 from bot.evolutions import get_evolution_for_level
 from bot.handlers import growmygrok, hop, battle
 
 
 # ======================================================
-# SETUP — REQUIRED BY YOUR HANDLER LOADER
+# Handler setup (MATCHES growmygrok.py)
 # ======================================================
 
-def setup(bot):
-    bot.register_message_handler(
-        cmd_xphub,
-        commands=["xphub"]
-    )
+def setup(bot: TeleBot):
 
-    bot.register_callback_query_handler(
-        handle_xphub_callback,
-        func=lambda call: call.data.startswith("xphub:")
-    )
+    @bot.message_handler(commands=["xphub"])
+    def xphub_handler(message):
+        user_id = message.from_user.id
+        chat_id = message.chat.id
 
+        text, markup = render_xp_hub(user_id)
+        bot.send_message(
+            chat_id,
+            text,
+            reply_markup=markup,
+            parse_mode="HTML"
+        )
 
-# ======================================================
-# COMMAND HANDLER
-# ======================================================
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("xphub:"))
+    def xphub_callback_handler(call):
+        action = call.data.split(":", 1)[1]
+        user_id = call.from_user.id
+        chat_id = call.message.chat.id
+        message_id = call.message.message_id
 
-def cmd_xphub(message, bot):
-    user_id = message.from_user.id
-    chat_id = message.chat.id
+        if action == "grow":
+            growmygrok.handle_grow(call.message, bot)
 
-    text, markup = render_xp_hub(user_id)
-    bot.send_message(
-        chat_id,
-        text,
-        reply_markup=markup,
-        parse_mode="HTML"
-    )
+        elif action == "hop":
+            hop.handle_hop(call.message, bot)
+
+        elif action == "battle":
+            battle.start_battle(call.message, bot)
+
+        elif action == "profile":
+            bot.send_message(chat_id, "/profile")
+            bot.answer_callback_query(call.id)
+            return
+
+        # Refresh XP Hub
+        text, markup = render_xp_hub(user_id)
+        bot.edit_message_text(
+            text,
+            chat_id,
+            message_id,
+            reply_markup=markup,
+            parse_mode="HTML"
+        )
+
+        bot.answer_callback_query(call.id)
 
 
 # ======================================================
@@ -92,38 +112,3 @@ def build_xp_hub_keyboard():
     )
 
     return kb
-
-
-# ======================================================
-# CALLBACK HANDLER
-# ======================================================
-
-def handle_xphub_callback(call, bot):
-    action = call.data.split(":", 1)[1]
-    user_id = call.from_user.id
-    chat_id = call.message.chat.id
-    message_id = call.message.message_id
-
-    # Route to existing handlers (NO logic duplication)
-    if action == "grow":
-        growmygrok.handle_grow(call.message, bot)
-
-    elif action == "hop":
-        hop.handle_hop(call.message, bot)
-
-    elif action == "battle":
-        battle.start_battle(call.message, bot)
-
-    elif action == "profile":
-        bot.send_message(chat_id, "/profile")
-        return
-
-    # Refresh XP Hub
-    text, markup = render_xp_hub(user_id)
-    bot.edit_message_text(
-        text,
-        chat_id,
-        message_id,
-        reply_markup=markup,
-        parse_mode="HTML"
-    )
