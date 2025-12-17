@@ -239,42 +239,7 @@ def register_handlers(bot: TeleBot):
                 parse_mode="Markdown"
             )
 
-    # ------------------------------------------------------
-    # PROFILE
-    # ------------------------------------------------------
-    @bot.message_handler(commands=["profile"])
-    def _profile(message):
-        try:
-            from bot.profile_image import generate_profile_image
-        except Exception:
-            return bot.reply_to(message, "Profile generator missing.")
 
-        uid = message.from_user.id
-        user = get_user(uid)
-
-        display = (
-            user.get("display_name")
-            or message.from_user.first_name
-            or user.get("username")
-            or f"User{uid}"
-        )
-
-        data = {
-            "user_id": uid,
-            "display_name": display,
-            "username": user.get("username"),
-            "level": user["level"],
-            "wins": user["wins"],
-            "rituals": user["rituals"],
-            "xp_total": user["xp_total"],
-        }
-
-        path = generate_profile_image(data)
-        if path:
-            with open(path, "rb") as f:
-                bot.send_photo(message.chat.id, f)
-        else:
-            bot.reply_to(message, "Failed to generate profile card.")
 
     # ------------------------------------------------------
     # LEADERBOARD
