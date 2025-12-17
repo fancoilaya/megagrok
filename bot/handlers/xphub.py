@@ -73,7 +73,12 @@ def render_hub(uid: int):
     level = user["level"]
     cur = user["xp_current"]
     nxt = user["xp_to_next_level"]
-    evo = get_evolution_for_level(level)
+
+    # ⚠️ get_evolution_for_level returns an INT in your codebase
+    evo_id = get_evolution_for_level(level)
+
+    # Safe, non-breaking display label
+    form_label = f"Evolution Tier {evo_id}"
 
     # Safe XP bar
     filled = int((cur / nxt) * 12) if nxt > 0 else 0
@@ -83,7 +88,7 @@ def render_hub(uid: int):
     text = (
         "🌌 <b>MEGAGROK XP HUB</b>\n"
         "━━━━━━━━━━━━━━━━━━\n\n"
-        f"👾 <b>Form:</b> {evo['name']}\n"
+        f"👾 <b>Form:</b> {form_label}\n"
         f"⚡ <b>Level:</b> {level}\n\n"
         f"<b>XP</b> <code>{bar}</code>\n"
         f"{cur} / {nxt}\n\n"
