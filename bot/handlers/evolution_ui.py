@@ -1,22 +1,29 @@
 # bot/handlers/evolution_ui.py
 # Static Evolution Codex (Knowledge Screen)
+#
+# PURPOSE:
+# - Explain the Grok evolution system
+# - Show evolution stages + XP multipliers
 # - NO database access
 # - NO user-specific state
 # - Pure educational UX
-# - Safe for concurrent Telegram callbacks
+#
+# SAFE:
+# - No DB calls
+# - No concurrency risk
+# - No side effects
 
 from telebot import TeleBot, types
 import bot.evolutions as evolutions
 
 
-def show_evolution_ui(bot: TeleBot, chat_id: int, message_id: int, uid: int | None = None):
+def show_evolution_ui(bot: TeleBot, chat_id: int, message_id: int, uid=None):
     """
     Static Evolution Codex.
-    uid is accepted for interface compatibility but NOT used.
+    uid is accepted for interface compatibility but intentionally unused.
     """
 
     tiers = evolutions.EVOLUTION_TIERS
-
     parts = []
 
     # ----------------------------
@@ -32,14 +39,13 @@ def show_evolution_ui(bot: TeleBot, chat_id: int, message_id: int, uid: int | No
     parts.append("━━━━━━━━━━━━━━")
 
     # ----------------------------
-    # Evolution Path (Static)
+    # Evolution Path (Static Codex)
     # ----------------------------
     for tier in tiers:
-        name = tier["name"]
-        min_level = tier["min_level"]
+        name = tier.get("name", "Unknown Form")
+        min_level = tier.get("min_level", 0)
         xp_mult = tier.get("xp_multiplier", 1.0)
 
-        # Short, readable descriptions (codex-style)
         description = _evolution_description(name)
 
         parts.append(
@@ -48,6 +54,7 @@ def show_evolution_ui(bot: TeleBot, chat_id: int, message_id: int, uid: int | No
             f"XP Multiplier: <b>x{xp_mult:.2f}</b>\n\n"
             f"{description}"
         )
+
         parts.append("━━━━━━━━━━━━━━")
 
     text = "\n\n".join(parts)
@@ -57,7 +64,10 @@ def show_evolution_ui(bot: TeleBot, chat_id: int, message_id: int, uid: int | No
     # ----------------------------
     kb = types.InlineKeyboardMarkup()
     kb.add(
-        types.InlineKeyboardButton("🔙 Back to XP Hub", callback_data="__xphub__:home")
+        types.InlineKeyboardButton(
+            "🔙 Back to XP Hub",
+            callback_data="__xphub__:home"  # ✅ CORRECT PREFIX
+        )
     )
 
     bot.edit_message_text(
@@ -74,8 +84,8 @@ def show_evolution_ui(bot: TeleBot, chat_id: int, message_id: int, uid: int | No
 # ----------------------------
 def _evolution_description(name: str) -> str:
     """
-    Static lore / explanation per evolution stage.
-    Kept short on purpose for Telegram readability.
+    Short, readable explanations per evolution stage.
+    Designed for Telegram readability.
     """
     descriptions = {
         "Tadpole": (
@@ -100,7 +110,7 @@ def _evolution_description(name: str) -> str:
         ),
         "Celestial": (
             "A cosmic evolution.\n"
-            "Elite-tier Groks reach this form."
+            "Only elite Groks ever reach this form."
         ),
         "OmniGrok": (
             "The final evolution.\n"
