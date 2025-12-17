@@ -1,5 +1,5 @@
 # bot/handlers/growmygrok.py
-# GrowMyGrok 2.4 — XP Hub integrated (single-message flow)
+# GrowMyGrok 2.5 — Single-message UX with cooldown refresh
 
 import os
 import time
@@ -118,16 +118,27 @@ def _apply_xp(uid, user, delta):
     return get_user(uid), leveled_up
 
 
+def _cooldown_keyboard():
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    kb.add(
+        types.InlineKeyboardButton("🔄 Refresh timer", callback_data="grow:refresh"),
+        types.InlineKeyboardButton("🔙 Back to XP Hub", callback_data="xphub:home"),
+    )
+    return kb
+
+
 # ----------------------------
 # PUBLIC UI ENTRY
 # ----------------------------
 def show_grow_ui(bot: TeleBot, chat_id: int, message_id: int | None = None):
     kb = types.InlineKeyboardMarkup(row_width=1)
     for m in XP_RANGES:
-        kb.add(types.InlineKeyboardButton(
-            MODE_DESCRIPTIONS[m].split("\n")[0],
-            callback_data=f"grow:{m}"
-        ))
+        kb.add(
+            types.InlineKeyboardButton(
+                MODE_DESCRIPTIONS[m].split("\n")[0],
+                callback_data=f"grow:{m}"
+            )
+        )
 
     text = (
         "🌱 <b>Choose how to grow your Grok</b>\n\n"
@@ -138,9 +149,20 @@ def show_grow_ui(bot: TeleBot, chat_id: int, message_id: int | None = None):
     )
 
     if message_id:
-        bot.edit_message_text(text, chat_id, message_id, reply_markup=kb, parse_mode="HTML")
+        bot.edit_message_text(
+            text,
+            chat_id,
+            message_id,
+            reply_markup=kb,
+            parse_mode="HTML"
+        )
     else:
-        bot.send_message(chat_id, text, reply_markup=kb, parse_mode="HTML")
+        bot.send_message(
+            chat_id,
+            text,
+            reply_markup=kb,
+            parse_mode="HTML"
+        )
 
 
 # ----------------------------
@@ -157,7 +179,7 @@ def setup(bot: TeleBot):
         uid = call.from_user.id
         chat_id = call.message.chat.id
         msg_id = call.message.message_id
-        mode = call.data.split(":")[1]
+        data = call.data
         now = _now()
 
         user = get_user(uid)
@@ -166,16 +188,49 @@ def setup(bot: TeleBot):
 
         cd = _load_cd(uid)
         last = cd.get("grow_last_action", 0)
-        if last and now - last < GLOBAL_GROW_COOLDOWN:
+
+        # ----------------------------
+        # COOLDOWN REFRESH HANDLER
+        # ----------------------------
+        if data == "grow:refresh":
+            if not last or now - last >= GLOBAL_GROW_COOLDOWN:
+                return show_grow_ui(bot, chat_id, msg_id)
+
             left = GLOBAL_GROW_COOLDOWN - (now - last)
             m, s = divmod(left, 60)
+
             bot.edit_message_text(
-                f"⏳ You must wait {m}m {s}s before growing again.",
+                f"⏳ <b>Grow is on cooldown</b>\n\n"
+                f"⏱️ {m}m {s}s remaining",
                 chat_id,
-                msg_id
+                msg_id,
+                reply_markup=_cooldown_keyboard(),
+                parse_mode="HTML"
             )
             return
 
+        # ----------------------------
+        # MODE SELECTED
+        # ----------------------------
+        mode = data.split(":")[1]
+
+        if last and now - last < GLOBAL_GROW_COOLDOWN:
+            left = GLOBAL_GROW_COOLDOWN - (now - last)
+            m, s = divmod(left, 60)
+
+            bot.edit_message_text(
+                f"⏳ <b>Grow is on cooldown</b>\n\n"
+                f"⏱️ {m}m {s}s remaining",
+                chat_id,
+                msg_id,
+                reply_markup=_cooldown_keyboard(),
+                parse_mode="HTML"
+            )
+            return
+
+        # ----------------------------
+        # EXECUTE GROW
+        # ----------------------------
         lo, hi = XP_RANGES[mode]
         base = random.randint(lo, hi)
 
@@ -185,11 +240,10 @@ def setup(bot: TeleBot):
 
         xp = int(base * evo_mult * streak_mult)
 
+        micro_msg = None
         if random.random() < MICRO_EVENT_CHANCE:
-            _, msg, delta = random.choice(MICRO_EVENTS)
+            _, micro_msg, delta = random.choice(MICRO_EVENTS)
             xp += delta
-        else:
-            msg = None
 
         xp = _cap_negative(xp, user["xp_to_next_level"])
         success = xp > 0
@@ -212,16 +266,21 @@ def setup(bot: TeleBot):
             f"{MODE_DESCRIPTIONS[mode].splitlines()[0]}\n"
             f"📈 XP: <b>{xp:+d}</b>\n"
             f"🔥 Streak: {cd[STREAK_KEY]}\n\n"
-            f"🧬 Level {new_user['level']} — <code>{bar}</code> {pct}%\n"
-            f"⏳ Cooldown: 45m"
+            f"🧬 Level {new_user['level']} — <code>{bar}</code> {pct}%"
         )
 
-        if msg:
-            text += f"\n\n{msg}"
+        if micro_msg:
+            text += f"\n\n{micro_msg}"
         if leveled_up:
             text += "\n\n🎉 <b>LEVEL UP!</b>"
 
         kb = types.InlineKeyboardMarkup()
         kb.add(types.InlineKeyboardButton("🔙 Back to XP Hub", callback_data="xphub:home"))
 
-        bot.edit_message_text(text, chat_id, msg_id, reply_markup=kb, parse_mode="HTML")
+        bot.edit_message_text(
+            text,
+            chat_id,
+            msg_id,
+            reply_markup=kb,
+            parse_mode="HTML"
+        )
