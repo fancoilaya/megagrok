@@ -1,10 +1,10 @@
 # bot/handlers/xphub.py
-# XP Hub — single-message game UI
 
 from telebot import TeleBot, types
 from bot.db import get_user
 from bot.evolutions import get_evolution_for_level
 from bot.handlers.growmygrok import show_grow_ui
+from bot.handlers.hop import show_hop_ui
 
 
 def setup(bot: TeleBot):
@@ -25,13 +25,13 @@ def setup(bot: TeleBot):
             show_grow_ui(bot, chat_id, msg_id)
             return
 
+        if action == "hop":
+            show_hop_ui(bot, chat_id, msg_id)
+            return
+
         if action == "home":
             text, kb = render_hub(uid)
             bot.edit_message_text(text, chat_id, msg_id, reply_markup=kb, parse_mode="HTML")
-            return
-
-        if action == "hop":
-            bot.send_message(chat_id, "/hop")
             return
 
         if action == "battle":
@@ -51,12 +51,10 @@ def render_hub(uid: int):
     level = user["level"]
     cur = user["xp_current"]
     nxt = user["xp_to_next_level"]
-
     evo = get_evolution_for_level(level)
 
-    bar_len = 12
-    filled = int((cur / nxt) * bar_len)
-    bar = "▓" * filled + "░" * (bar_len - filled)
+    filled = int((cur / nxt) * 12)
+    bar = "▓" * filled + "░" * (12 - filled)
 
     text = (
         "🌌 <b>MEGAGROK XP HUB</b>\n"
