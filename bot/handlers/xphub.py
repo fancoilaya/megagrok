@@ -7,8 +7,7 @@ from bot.handlers.growmygrok import show_grow_ui
 from bot.handlers.hop import show_hop_ui
 from bot.handlers.evolution_ui import show_evolution_ui
 
-
-XP_PREFIX = "__xphub__:"  # 🔑 unique namespace to avoid interception
+XP_PREFIX = "__xphub__:"  # unique namespace to avoid interception
 
 
 def setup(bot: TeleBot):
@@ -74,11 +73,9 @@ def render_hub(uid: int):
     cur = user["xp_current"]
     nxt = user["xp_to_next_level"]
 
-    # ⚠️ get_evolution_for_level returns an INT in your codebase
-    evo_id = get_evolution_for_level(level)
-
-    # Safe, non-breaking display label
-    form_label = f"Evolution Tier {evo_id}"
+    # ✅ get_evolution_for_level RETURNS A DICT
+    evo = get_evolution_for_level(level)
+    form_label = evo.get("name", "Unknown Grok")
 
     # Safe XP bar
     filled = int((cur / nxt) * 12) if nxt > 0 else 0
