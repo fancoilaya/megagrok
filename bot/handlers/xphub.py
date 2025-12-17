@@ -1,14 +1,28 @@
-# bot/handlers/xphub.py
-
 from telebot import types
 from bot.db import get_user
 from bot.evolutions import get_evolution_for_level
 from bot.handlers import growmygrok, hop, battle
 
 
-# =========================
-# Entry point
-# =========================
+# ======================================================
+# SETUP — REQUIRED BY YOUR HANDLER LOADER
+# ======================================================
+
+def setup(bot):
+    bot.register_message_handler(
+        cmd_xphub,
+        commands=["xphub"]
+    )
+
+    bot.register_callback_query_handler(
+        handle_xphub_callback,
+        func=lambda call: call.data.startswith("xphub:")
+    )
+
+
+# ======================================================
+# COMMAND HANDLER
+# ======================================================
 
 def cmd_xphub(message, bot):
     user_id = message.from_user.id
@@ -23,9 +37,9 @@ def cmd_xphub(message, bot):
     )
 
 
-# =========================
-# Rendering
-# =========================
+# ======================================================
+# XP HUB RENDERING
+# ======================================================
 
 def render_xp_hub(user_id):
     user = get_user(user_id)
@@ -80,9 +94,9 @@ def build_xp_hub_keyboard():
     return kb
 
 
-# =========================
-# Callback router
-# =========================
+# ======================================================
+# CALLBACK HANDLER
+# ======================================================
 
 def handle_xphub_callback(call, bot):
     action = call.data.split(":", 1)[1]
@@ -90,6 +104,7 @@ def handle_xphub_callback(call, bot):
     chat_id = call.message.chat.id
     message_id = call.message.message_id
 
+    # Route to existing handlers (NO logic duplication)
     if action == "grow":
         growmygrok.handle_grow(call.message, bot)
 
@@ -103,7 +118,7 @@ def handle_xphub_callback(call, bot):
         bot.send_message(chat_id, "/profile")
         return
 
-    # Refresh hub
+    # Refresh XP Hub
     text, markup = render_xp_hub(user_id)
     bot.edit_message_text(
         text,
