@@ -1,5 +1,5 @@
 # bot/handlers/evolution_ui.py
-# Evolution Codex UI — XP Hub integrated
+# Evolution Codex UI — FIXED for your evolutions.py
 
 from telebot import TeleBot, types
 from bot.db import get_user
@@ -10,11 +10,7 @@ import os
 # ----------------------------
 # Asset helpers
 # ----------------------------
-def _grok_image_for_stage(stage_name: str) -> str | None:
-    """
-    Map evolution name -> asset path.
-    Falls back gracefully if image missing.
-    """
+def _grok_image_for_stage(stage_name: str):
     fname = stage_name.lower().replace(" ", "_") + ".png"
     path = f"assets/groks/{fname}"
     return path if os.path.exists(path) else None
@@ -42,29 +38,24 @@ def show_evolution_ui(bot: TeleBot, chat_id: int, message_id: int, uid: int):
     cur_xp = int(user.get("xp_current", 0))
     nxt_xp = int(user.get("xp_to_next_level", 100))
 
-    current = evolutions.get_evolution_for_level(level)
+    # 🔑 CORRECT WAY (your system)
+    stage = evolutions.get_evolution_for_level(level)   # int
     tiers = evolutions.EVOLUTION_TIERS
+    current = tiers[stage]
 
-    stage_idx = current["stage"]
     stage_name = current["name"]
     xp_mult = current.get("xp_multiplier", 1.0)
     fight_bonus = current.get("fight_bonus", 0)
     ritual_bonus = current.get("ritual_bonus", 0)
 
-    # Next evolution
-    next_stage = None
-    if stage_idx + 1 < len(tiers):
-        next_stage = tiers[stage_idx + 1]
+    # Next evolution (if any)
+    next_stage = tiers[stage + 1] if stage + 1 < len(tiers) else None
 
     bar, pct = _progress_bar(cur_xp, nxt_xp)
 
-    # Image (optional)
     img_path = _grok_image_for_stage(stage_name)
     img_note = f"\n🖼️ <i>{img_path}</i>\n" if img_path else "\n🖼️ <i>(Image locked)</i>\n"
 
-    # ----------------------------
-    # Build text
-    # ----------------------------
     parts = []
 
     parts.append("🧬 <b>GROK EVOLUTION</b>")
@@ -79,7 +70,7 @@ def show_evolution_ui(bot: TeleBot, chat_id: int, message_id: int, uid: int):
     parts.append(img_note)
     parts.append(
         f"<b>{stage_name}</b>\n"
-        f"Stage {stage_idx} • Level {current['min_level']}+\n\n"
+        f"Stage {stage} • Level {current['min_level']}+\n\n"
         f"📈 XP Multiplier: <b>x{xp_mult:.2f}</b>\n"
         f"⚔️ Fight Bonus: <b>+{fight_bonus}</b>\n"
         f"🌀 Ritual Bonus: <b>+{ritual_bonus}</b>"
@@ -101,8 +92,8 @@ def show_evolution_ui(bot: TeleBot, chat_id: int, message_id: int, uid: int):
     parts.append("━━━━━━━━━━━━━━")
     parts.append("<b>EVOLUTION PATH</b>")
 
-    for tier in tiers:
-        icon = "⭐" if tier["stage"] == stage_idx else "🔒"
+    for i, tier in enumerate(tiers):
+        icon = "⭐" if i == stage else "🔒"
         parts.append(
             f"{icon} {tier['name']} "
             f"(Lv {tier['min_level']}) "
@@ -111,9 +102,6 @@ def show_evolution_ui(bot: TeleBot, chat_id: int, message_id: int, uid: int):
 
     text = "\n\n".join(parts)
 
-    # ----------------------------
-    # Buttons
-    # ----------------------------
     kb = types.InlineKeyboardMarkup(row_width=2)
     kb.add(
         types.InlineKeyboardButton("🌱 Grow", callback_data="xphub:grow"),
