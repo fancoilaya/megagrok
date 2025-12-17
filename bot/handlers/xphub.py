@@ -1,12 +1,15 @@
+# bot/handlers/xphub.py
+# XP Hub — unified UI entry point for XP-related actions
+# SAFE BASELINE VERSION (command-based routing only)
+
 from telebot import types, TeleBot
 
 from bot.db import get_user
 from bot.evolutions import get_evolution_for_level
-from bot.handlers import growmygrok, hop, battle
 
 
 # ======================================================
-# Handler setup (REQUIRED by your loader)
+# Handler setup (required by handler loader)
 # ======================================================
 
 def setup(bot: TeleBot):
@@ -27,42 +30,28 @@ def setup(bot: TeleBot):
     @bot.callback_query_handler(func=lambda call: call.data.startswith("xphub:"))
     def xphub_callback_handler(call):
         action = call.data.split(":", 1)[1]
-        user_id = call.from_user.id
         chat_id = call.message.chat.id
-        message_id = call.message.message_id
 
-        # Route into existing systems (NO logic duplication)
+        # Route to EXISTING COMMANDS ONLY (safe)
         if action == "grow":
-            # Enter Grow flow (mode selection UI)
-            growmygrok.setup  # ensure module loaded
             bot.send_message(chat_id, "/growmygrok")
             return
 
         if action == "hop":
-            hop.handle_hop(call.message)
+            bot.send_message(chat_id, "/hop")
             return
 
         if action == "battle":
-            battle.start_battle(call.message)
+            bot.send_message(chat_id, "/battle")
             return
 
         if action == "profile":
             bot.send_message(chat_id, "/profile")
             return
 
-        # Safety fallback: re-render hub
-        text, markup = render_xp_hub(user_id)
-        bot.edit_message_text(
-            text,
-            chat_id,
-            message_id,
-            reply_markup=markup,
-            parse_mode="HTML"
-        )
-
 
 # ======================================================
-# XP HUB RENDERING (READ-ONLY)
+# XP HUB RENDERING (read-only)
 # ======================================================
 
 def render_xp_hub(user_id: int):
@@ -75,7 +64,6 @@ def render_xp_hub(user_id: int):
     xp_needed = int(user.get("xp_to_next_level", 100))
 
     evo = get_evolution_for_level(level)
-
     xp_bar = build_xp_bar(xp_current, xp_needed)
 
     text = (
@@ -87,11 +75,10 @@ def render_xp_hub(user_id: int):
         f"{xp_current} / {xp_needed}\n\n"
         "━━━━━━━━━━━━━━━━━━\n"
         "🎮 <b>ACTIONS</b>\n"
-        "Tap an action below:"
+        "Choose your next move:"
     )
 
-    markup = build_xp_hub_keyboard()
-    return text, markup
+    return text, build_xp_hub_keyboard()
 
 
 def build_xp_bar(current: int, maximum: int, length: int = 12) -> str:
