@@ -1,6 +1,6 @@
 # bot/handlers/growmygrok.py
-# GrowMyGrok 2.2 — Cleaned + cooldown migration + optional debug logging
-# STEP 1: Mode explanation UI added (NO logic refactor yet)
+# GrowMyGrok 2.3 — Grow UI extracted for XP Hub reuse
+# Behavior unchanged, UI reusable
 
 import os
 import time
@@ -81,16 +81,15 @@ def _load_cooldowns(uid: int) -> dict:
     try:
         cd = get_cooldowns(uid)
         return cd if isinstance(cd, dict) else {}
-    except Exception as e:
-        _debug("Cooldown load failed:", e)
+    except Exception:
         return {}
 
 
 def _save_cooldowns(uid: int, cd: dict):
     try:
         set_cooldowns(uid, cd)
-    except Exception as e:
-        _debug("Cooldown save failed:", e)
+    except Exception:
+        pass
 
 
 def _time_of_day_modifier():
@@ -155,6 +154,35 @@ def _maybe_micro_event():
 
 
 # ----------------------------
+# PUBLIC: Grow UI entry (XP Hub + command use this)
+# ----------------------------
+def show_grow_ui(bot: TeleBot, chat_id: int):
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    for mode in XP_RANGES:
+        kb.add(
+            types.InlineKeyboardButton(
+                MODE_DESCRIPTIONS[mode].split("\n")[0],
+                callback_data=f"grow:{mode}"
+            )
+        )
+
+    text = (
+        "🌱 <b>Choose how to grow your Grok</b>\n\n"
+        f"{MODE_DESCRIPTIONS['train']}\n\n"
+        f"{MODE_DESCRIPTIONS['forage']}\n\n"
+        f"{MODE_DESCRIPTIONS['gamble']}\n\n"
+        "👇 Select an option below:"
+    )
+
+    bot.send_message(
+        chat_id,
+        text,
+        reply_markup=kb,
+        parse_mode="HTML"
+    )
+
+
+# ----------------------------
 # Handler setup
 # ----------------------------
 def setup(bot: TeleBot):
@@ -165,33 +193,9 @@ def setup(bot: TeleBot):
         args = (message.text or "").split()
         now = _now_ts()
 
-        # --------------------------------------------------
-        # MODE SELECTION UI (shown every time)
-        # --------------------------------------------------
+        # Entry → show Grow UI
         if len(args) == 1:
-            kb = types.InlineKeyboardMarkup(row_width=1)
-            for mode in XP_RANGES:
-                kb.add(
-                    types.InlineKeyboardButton(
-                        MODE_DESCRIPTIONS[mode].split("\n")[0],
-                        callback_data=f"grow:{mode}"
-                    )
-                )
-
-            text = (
-                "🌱 <b>Choose how to grow your Grok</b>\n\n"
-                f"{MODE_DESCRIPTIONS['train']}\n\n"
-                f"{MODE_DESCRIPTIONS['forage']}\n\n"
-                f"{MODE_DESCRIPTIONS['gamble']}\n\n"
-                "👇 Select an option below:"
-            )
-
-            return bot.send_message(
-                message.chat.id,
-                text,
-                reply_markup=kb,
-                parse_mode="HTML"
-            )
+            return show_grow_ui(bot, message.chat.id)
 
         action = args[1].lower()
         if action not in XP_RANGES:
@@ -213,9 +217,7 @@ def setup(bot: TeleBot):
                 parse_mode="HTML"
             )
 
-        # --------------------------------------------------
-        # EXISTING XP LOGIC (UNCHANGED)
-        # --------------------------------------------------
+        # -------- XP LOGIC (UNCHANGED) --------
         lo, hi = XP_RANGES[action]
         base_xp = random.randint(lo, hi)
 
@@ -250,18 +252,12 @@ def setup(bot: TeleBot):
         record_quest(uid, "grow")
         announce_leaderboard_if_changed(bot)
 
-        # --------------------------------------------------
-        # RESULT MESSAGE (UNCHANGED STRUCTURE)
-        # --------------------------------------------------
         parts = [
             MODE_DESCRIPTIONS[action].split("\n")[0],
             f"📈 Effective XP: <code>{effective:+d}</code>",
         ]
 
-        if success:
-            parts.append(f"🔥 Streak: {cd[STREAK_KEY]}")
-        else:
-            parts.append("❌ Streak reset.")
+        parts.append(f"🔥 Streak: {cd[STREAK_KEY]}" if success else "❌ Streak reset.")
 
         if micro_msg:
             parts.append(micro_msg)
@@ -273,8 +269,7 @@ def setup(bot: TeleBot):
         cur = new_user["xp_current"]
         nxt = new_user["xp_to_next_level"]
         pct = int((cur / nxt) * 100) if nxt > 0 else 0
-        filled = int((pct / 100) * 20)
-        bar = "▓" * filled + "░" * (20 - filled)
+        bar = "▓" * int(pct / 5) + "░" * (20 - int(pct / 5))
 
         parts.append(f"🧬 Level {new_user['level']} — <code>{bar}</code> {pct}%")
         parts.append(f"➡️ XP needed to next level: <b>{nxt - cur}</b>")
@@ -287,6 +282,5 @@ def setup(bot: TeleBot):
         mode = call.data.split(":", 1)[1]
         call.message.text = f"/growmygrok {mode}"
         grow_handler(call.message)
-        # DO NOT answer callback (prevents timeout issues)
 
     _debug("growmygrok handler registered")
