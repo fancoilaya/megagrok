@@ -21,6 +21,24 @@ PVP_SHIELD_SECONDS = 3 * 3600
 UI_EDIT_THROTTLE_SECONDS = 1.0
 PVP_ELO_K = 32
 
+# -------------------------
+# Leaderboard info
+# -------------------------
+def build_leaderboard_text(limit=20) -> str:
+    rows = db.get_top_pvp(limit)
+
+    if not rows:
+        return "🏆 *PvP Leaderboard*\n\nNo ranked players yet."
+
+    text = "🏆 *PvP Leaderboard*\n\n"
+    medals = ["🥇", "🥈", "🥉"]
+
+    for i, r in enumerate(rows, start=1):
+        icon = medals[i-1] if i <= 3 else f"{i}."
+        text += f"{icon} {r['name']} — {r['elo']} ELO\n"
+
+    return text
+
 
 # -------------------------
 # Utility
@@ -576,23 +594,19 @@ def setup(bot: TeleBot):
                 parse_mode="Markdown", reply_markup=stats_menu(user_id)
             )
 
-        # LEADERBOARD LINK
-        
-        # LEADERBOARD (DIAGNOSTIC)
-        if sub == "lb":
-            bot.answer_callback_query(
-                call.id,
-                text="✅ Leaderboard button pressed",
-                show_alert=True
-            )
 
+        
+        # LEADERBOARD
+        if sub == "lb":
+            txt = build_leaderboard_text()
             return bot.edit_message_text(
-                "🏆 *Leaderboard button works*\n\nCallback reached successfully.",
+                txt,
                 call.message.chat.id,
                 call.message.message_id,
                 parse_mode="Markdown",
                 reply_markup=stats_menu(user_id)
             )
+
 
 
 
