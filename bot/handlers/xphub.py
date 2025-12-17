@@ -1,11 +1,12 @@
 from telebot import types, TeleBot
+
 from bot.db import get_user
 from bot.evolutions import get_evolution_for_level
 from bot.handlers import growmygrok, hop, battle
 
 
 # ======================================================
-# Handler setup (EXACT SAME PATTERN AS growmygrok.py)
+# Handler setup (EXACT pattern used in growmygrok.py)
 # ======================================================
 
 def setup(bot: TeleBot):
@@ -44,7 +45,7 @@ def setup(bot: TeleBot):
             bot.answer_callback_query(call.id)
             return
 
-        # Refresh XP Hub
+        # Refresh XP Hub after action
         text, markup = render_xp_hub(user_id)
         bot.edit_message_text(
             text,
@@ -58,21 +59,21 @@ def setup(bot: TeleBot):
 
 
 # ======================================================
-# XP HUB RENDERING (NO BOT HERE)
+# XP HUB RENDERING (READ-ONLY)
 # ======================================================
 
-def render_xp_hub(user_id):
+def render_xp_hub(user_id: int):
     user = get_user(user_id)
     if not user:
         return "❌ User not found.", None
 
     level = user["level"]
-    xp = user["xp"]
+    xp_current = user["xp_current"]
+    xp_needed = user["xp_to_next_level"]
 
     evo = get_evolution_for_level(level)
-    next_xp = evo.get("next_xp", xp)
 
-    xp_bar = build_xp_bar(xp, next_xp)
+    xp_bar = build_xp_bar(xp_current, xp_needed)
 
     text = (
         "🌌 <b>MEGAGROK XP HUB</b>\n"
@@ -80,7 +81,7 @@ def render_xp_hub(user_id):
         f"👾 <b>Form:</b> {evo['name']}\n"
         f"⚡ <b>Level:</b> {level}\n\n"
         f"<b>XP</b> {xp_bar}\n"
-        f"{xp} / {next_xp}\n\n"
+        f"{xp_current} / {xp_needed}\n\n"
         "━━━━━━━━━━━━━━━━━━\n"
         "🎮 <b>ACTIONS</b>\n"
     )
@@ -89,7 +90,7 @@ def render_xp_hub(user_id):
     return text, markup
 
 
-def build_xp_bar(current, maximum, length=12):
+def build_xp_bar(current: int, maximum: int, length: int = 12) -> str:
     if maximum <= 0:
         return "▓" * length
 
