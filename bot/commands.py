@@ -21,14 +21,15 @@ except:
 
 HELP_TEXT = (
     "🐸 *MegaGrok Commands*\n\n"
-    "/start - Begin your journey and create your grok\n"
+    "/start - Begin your journey\n"
     "/help - Show this help menu\n"
-    "/xphub - Start the XP Journey\n"
-    "/battle - Select Mob Tier and fight\n"
-    "/leaderboard - Show global XP rankings\n"
+    "/growmygrok - Train and evolve your Grok\n"
+    "/hop - Daily ritual reward\n"
+    "/fight - Quick daily fight\n"
+    "/battle - Advanced interactive battle\n"
+    "/profile - Show your Grok profile card\n"
+    "/leaderboard - Show global rankings\n"
     "/grokdex - Explore all Hop-Verse creatures\n"
-    "/pvp - Start the PvP arena to fight players\n"
-    "/pvp_leaderboard - Show global PvP rankings\n"
 )
 
 ADMIN_HELP_TEXT = (
