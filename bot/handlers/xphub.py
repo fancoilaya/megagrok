@@ -5,7 +5,7 @@ from bot.handlers import growmygrok, hop, battle
 
 
 # ======================================================
-# Handler setup (MATCHES growmygrok.py)
+# Handler setup (EXACT SAME PATTERN AS growmygrok.py)
 # ======================================================
 
 def setup(bot: TeleBot):
@@ -31,13 +31,13 @@ def setup(bot: TeleBot):
         message_id = call.message.message_id
 
         if action == "grow":
-            growmygrok.handle_grow(call.message, bot)
+            growmygrok.handle_grow(call.message)
 
         elif action == "hop":
-            hop.handle_hop(call.message, bot)
+            hop.handle_hop(call.message)
 
         elif action == "battle":
-            battle.start_battle(call.message, bot)
+            battle.start_battle(call.message)
 
         elif action == "profile":
             bot.send_message(chat_id, "/profile")
@@ -58,7 +58,7 @@ def setup(bot: TeleBot):
 
 
 # ======================================================
-# XP HUB RENDERING
+# XP HUB RENDERING (NO BOT HERE)
 # ======================================================
 
 def render_xp_hub(user_id):
