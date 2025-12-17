@@ -577,14 +577,22 @@ def setup(bot: TeleBot):
             )
 
         # LEADERBOARD LINK
-        if sub == "lb":
-            from bot.handlers import pvp_leaderboard            
-            class FakeMessage:
-                def __init__(self, chat_id):
-                    self.chat = type("chat", (),{"id": chat_id})
-            fake_message = FakeMessage(call.message.chat.id)
-            pvp_leaderboard.cmd_pvp_leaderboard(fake_message)
-            return bot.answer_callback_query(call.id)
+        
+        # LEADERBOARD (DIAGNOSTIC)
+		if sub == "lb":
+			bot.answer_callback_query(
+				call.id,
+				text="✅ Leaderboard button pressed",
+				show_alert=True
+			)
+
+			return bot.edit_message_text(
+				"🏆 *Leaderboard button works*\n\nCallback reached successfully.",
+				call.message.chat.id,
+				call.message.message_id,
+				parse_mode="Markdown",
+				reply_markup=stats_menu(user_id)
+			)
 
 
         return bot.answer_callback_query(call.id)
