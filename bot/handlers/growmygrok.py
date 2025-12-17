@@ -122,7 +122,7 @@ def _cooldown_keyboard():
     kb = types.InlineKeyboardMarkup(row_width=1)
     kb.add(
         types.InlineKeyboardButton("🔄 Refresh timer", callback_data="grow:refresh"),
-        types.InlineKeyboardButton("🔙 Back to XP Hub", callback_data="xphub:home"),
+        types.InlineKeyboardButton("🔙 Back to XP Hub", callback_data="__xphub__:home"),
     )
     return kb
 
@@ -275,7 +275,7 @@ def setup(bot: TeleBot):
             text += "\n\n🎉 <b>LEVEL UP!</b>"
 
         kb = types.InlineKeyboardMarkup()
-        kb.add(types.InlineKeyboardButton("🔙 Back to XP Hub", callback_data="xphub:home"))
+        kb.add(types.InlineKeyboardButton("🔙 Back to XP Hub", callback_data="__xphub__:home"))
 
         bot.edit_message_text(
             text,
