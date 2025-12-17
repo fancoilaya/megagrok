@@ -1,114 +1,63 @@
 # bot/handlers/evolution_ui.py
-# Evolution Codex UI — FIXED for your evolutions.py
+# Static Evolution Codex (Knowledge Screen)
+# - NO database access
+# - NO user-specific state
+# - Pure educational UX
+# - Safe for concurrent Telegram callbacks
 
 from telebot import TeleBot, types
-from bot.db import get_user
 import bot.evolutions as evolutions
-import os
 
 
-# ----------------------------
-# Asset helpers
-# ----------------------------
-def _grok_image_for_stage(stage_name: str):
-    fname = stage_name.lower().replace(" ", "_") + ".png"
-    path = f"assets/groks/{fname}"
-    return path if os.path.exists(path) else None
+def show_evolution_ui(bot: TeleBot, chat_id: int, message_id: int, uid: int | None = None):
+    """
+    Static Evolution Codex.
+    uid is accepted for interface compatibility but NOT used.
+    """
 
-
-def _progress_bar(cur: int, nxt: int, length: int = 12):
-    if nxt <= 0:
-        return "░" * length, 0
-    pct = int((cur / nxt) * 100)
-    filled = max(0, min(length, int((pct / 100) * length)))
-    bar = "▓" * filled + "░" * (length - filled)
-    return bar, pct
-
-
-# ----------------------------
-# MAIN UI
-# ----------------------------
-def show_evolution_ui(bot: TeleBot, chat_id: int, message_id: int, uid: int):
-    user = get_user(uid)
-    if not user:
-        bot.edit_message_text("❌ No Grok found.", chat_id, message_id)
-        return
-
-    level = int(user.get("level", 1))
-    cur_xp = int(user.get("xp_current", 0))
-    nxt_xp = int(user.get("xp_to_next_level", 100))
-
-    # 🔑 CORRECT WAY (your system)
-    stage = evolutions.get_evolution_for_level(level)   # int
     tiers = evolutions.EVOLUTION_TIERS
-    current = tiers[stage]
-
-    stage_name = current["name"]
-    xp_mult = current.get("xp_multiplier", 1.0)
-    fight_bonus = current.get("fight_bonus", 0)
-    ritual_bonus = current.get("ritual_bonus", 0)
-
-    # Next evolution (if any)
-    next_stage = tiers[stage + 1] if stage + 1 < len(tiers) else None
-
-    bar, pct = _progress_bar(cur_xp, nxt_xp)
-
-    img_path = _grok_image_for_stage(stage_name)
-    img_note = f"\n🖼️ <i>{img_path}</i>\n" if img_path else "\n🖼️ <i>(Image locked)</i>\n"
 
     parts = []
 
-    parts.append("🧬 <b>GROK EVOLUTION</b>")
+    # ----------------------------
+    # Header / Explanation
+    # ----------------------------
+    parts.append("🧬 <b>GROK EVOLUTION SYSTEM</b>")
     parts.append(
-        "Your Grok evolves automatically as it gains levels.\n"
-        "Each evolution increases power, XP gain,\n"
-        "and unlocks new abilities."
+        "Groks evolve automatically as they gain levels.\n"
+        "Each evolution increases XP efficiency and power.\n"
+        "Higher forms unlock deeper game potential."
     )
 
     parts.append("━━━━━━━━━━━━━━")
-    parts.append("<b>CURRENT FORM</b>")
-    parts.append(img_note)
-    parts.append(
-        f"<b>{stage_name}</b>\n"
-        f"Stage {stage} • Level {current['min_level']}+\n\n"
-        f"📈 XP Multiplier: <b>x{xp_mult:.2f}</b>\n"
-        f"⚔️ Fight Bonus: <b>+{fight_bonus}</b>\n"
-        f"🌀 Ritual Bonus: <b>+{ritual_bonus}</b>"
-    )
 
-    if next_stage:
+    # ----------------------------
+    # Evolution Path (Static)
+    # ----------------------------
+    for tier in tiers:
+        name = tier["name"]
+        min_level = tier["min_level"]
+        xp_mult = tier.get("xp_multiplier", 1.0)
+
+        # Short, readable descriptions (codex-style)
+        description = _evolution_description(name)
+
+        parts.append(
+            f"<b>{name}</b>\n"
+            f"Unlocks at Level <b>{min_level}</b>\n"
+            f"XP Multiplier: <b>x{xp_mult:.2f}</b>\n\n"
+            f"{description}"
+        )
         parts.append("━━━━━━━━━━━━━━")
-        parts.append("<b>NEXT EVOLUTION</b>")
-        parts.append(
-            f"{next_stage['name']}\n"
-            f"Unlocks at Level <b>{next_stage['min_level']}</b>\n\n"
-            f"📈 XP Multiplier: x{next_stage['xp_multiplier']:.2f}\n"
-            f"⚔️ Fight Bonus: +{next_stage.get('fight_bonus', 0)}\n"
-            f"🌀 Ritual Bonus: +{next_stage.get('ritual_bonus', 0)}\n\n"
-            f"Progress:\n"
-            f"<code>{bar}</code> {pct}%"
-        )
-
-    parts.append("━━━━━━━━━━━━━━")
-    parts.append("<b>EVOLUTION PATH</b>")
-
-    for i, tier in enumerate(tiers):
-        icon = "⭐" if i == stage else "🔒"
-        parts.append(
-            f"{icon} {tier['name']} "
-            f"(Lv {tier['min_level']}) "
-            f"x{tier['xp_multiplier']:.2f}"
-        )
 
     text = "\n\n".join(parts)
 
-    kb = types.InlineKeyboardMarkup(row_width=2)
+    # ----------------------------
+    # Navigation
+    # ----------------------------
+    kb = types.InlineKeyboardMarkup()
     kb.add(
-        types.InlineKeyboardButton("🌱 Grow", callback_data="xphub:grow"),
-        types.InlineKeyboardButton("🐾 Hop", callback_data="xphub:hop"),
-    )
-    kb.add(
-        types.InlineKeyboardButton("🔙 Back to XP Hub", callback_data="xphub:home")
+        types.InlineKeyboardButton("🔙 Back to XP Hub", callback_data="__xphub__:home")
     )
 
     bot.edit_message_text(
@@ -117,4 +66,49 @@ def show_evolution_ui(bot: TeleBot, chat_id: int, message_id: int, uid: int):
         message_id,
         reply_markup=kb,
         parse_mode="HTML"
+    )
+
+
+# ----------------------------
+# Internal helpers
+# ----------------------------
+def _evolution_description(name: str) -> str:
+    """
+    Static lore / explanation per evolution stage.
+    Kept short on purpose for Telegram readability.
+    """
+    descriptions = {
+        "Tadpole": (
+            "The earliest Grok form.\n"
+            "Focused on learning, survival, and steady growth."
+        ),
+        "Hopper": (
+            "A faster, more agile Grok.\n"
+            "XP gains accelerate as training intensifies."
+        ),
+        "Battle Hopper": (
+            "A combat-oriented evolution.\n"
+            "Prepared for PvP and competitive encounters."
+        ),
+        "Void Hopper": (
+            "A Grok touched by the Void.\n"
+            "XP efficiency and power rise significantly."
+        ),
+        "Titan": (
+            "A massive and dominant form.\n"
+            "Built to overwhelm opponents in the arena."
+        ),
+        "Celestial": (
+            "A cosmic evolution.\n"
+            "Elite-tier Groks reach this form."
+        ),
+        "OmniGrok": (
+            "The final evolution.\n"
+            "A Grok that has mastered every system."
+        ),
+    }
+
+    return descriptions.get(
+        name,
+        "An evolved Grok form.\nIts power grows with experience."
     )
