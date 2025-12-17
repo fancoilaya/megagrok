@@ -1,198 +1,145 @@
 # bot/profile_card.py
-# MegaGrok Profile Card — Clean, Colorful, Playful (Style A)
+# MegaGrok Profile Card — Evolution Status Screen (WOW Edition)
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageFilter
 import os
 import math
-
-# -------------------------------------------------
-# CONFIG
-# -------------------------------------------------
+import time
 
 CANVAS_W = 1080
 CANVAS_H = 1350
 
-GROK_ASSET_PATH = "assets/groks"
-
-BACKGROUND_TOP = (235, 248, 255)
-BACKGROUND_BOTTOM = (210, 235, 255)
+BG_TOP = (232, 246, 252)
+BG_BOTTOM = (210, 235, 246)
 
 CARD_RADIUS = 40
 
-FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
-FONT_BOLD_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+ASSET_DIR = "assets/groks"
+OUT_DIR = "/tmp"
+os.makedirs(OUT_DIR, exist_ok=True)
 
-# Evolution → image mapping (explicit & safe)
-EVOLUTION_IMAGES = {
-    "Tadpole": "tadpole.png",
-    "Hopper": "hopper.png",
-    "Elder": "elder.png",
-}
 
-# -------------------------------------------------
-# HELPERS
-# -------------------------------------------------
-
-def _load_font(size, bold=False):
+# -------------------------
+# Helpers
+# -------------------------
+def _font(size, bold=False):
     try:
-        return ImageFont.truetype(FONT_BOLD_PATH if bold else FONT_PATH, size)
+        name = "DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf"
+        return ImageFont.truetype(name, size)
     except:
         return ImageFont.load_default()
 
-def _vertical_gradient(w, h, top, bottom):
-    base = Image.new("RGB", (w, h), top)
-    draw = ImageDraw.Draw(base)
-    for y in range(h):
-        ratio = y / h
-        r = int(top[0] * (1 - ratio) + bottom[0] * ratio)
-        g = int(top[1] * (1 - ratio) + bottom[1] * ratio)
-        b = int(top[2] * (1 - ratio) + bottom[2] * ratio)
-        draw.line([(0, y), (w, y)], fill=(r, g, b))
-    return base
 
-def _rounded_rect(draw, xy, radius, fill):
-    x1, y1, x2, y2 = xy
-    draw.rounded_rectangle(xy, radius=radius, fill=fill)
+def _vertical_gradient(draw):
+    for y in range(CANVAS_H):
+        ratio = y / CANVAS_H
+        r = int(BG_TOP[0] * (1 - ratio) + BG_BOTTOM[0] * ratio)
+        g = int(BG_TOP[1] * (1 - ratio) + BG_BOTTOM[1] * ratio)
+        b = int(BG_TOP[2] * (1 - ratio) + BG_BOTTOM[2] * ratio)
+        draw.line([(0, y), (CANVAS_W, y)], fill=(r, g, b))
 
-# -------------------------------------------------
-# MAIN ENTRY
-# -------------------------------------------------
 
+def _center(draw, text, y, font, fill=(0, 0, 0)):
+    w = draw.textlength(text, font=font)
+    draw.text(((CANVAS_W - w) / 2, y), text, font=font, fill=fill)
+
+
+# -------------------------
+# Main Renderer
+# -------------------------
 def generate_profile_card(data: dict) -> str:
-    """
-    Generates a profile card image and returns the file path.
-    """
-
-    uid = data.get("user_id")
-    name = data.get("display_name", "Unknown")
+    uid = data["user_id"]
     level = data.get("level", 1)
-    xp_cur = data.get("xp_current", 0)
-    xp_next = data.get("xp_to_next_level", 100)
-    xp_total = data.get("xp_total", 0)
-    wins = data.get("wins", 0)
-    battles = data.get("mobs_defeated", wins)
-    evo_name = data.get("evolution", "Tadpole")
-    growth_rate = int((data.get("evolution_multiplier", 1.0) - 1) * 100)
+    evo = data.get("evolution", "Tadpole")
 
-    losses = max(0, battles - wins)
-    win_rate = int((wins / battles) * 100) if battles > 0 else 0
-
-    # -------------------------------------------------
-    # CANVAS
-    # -------------------------------------------------
-
-    img = _vertical_gradient(CANVAS_W, CANVAS_H, BACKGROUND_TOP, BACKGROUND_BOTTOM)
+    img = Image.new("RGB", (CANVAS_W, CANVAS_H))
     draw = ImageDraw.Draw(img)
+    _vertical_gradient(draw)
 
-    # -------------------------------------------------
-    # HERO — GROK IMAGE
-    # -------------------------------------------------
+    # ---------- Title ----------
+    _center(draw, f"🧬 {evo.upper()}", 40, _font(64, True), (30, 60, 80))
+    _center(draw, "Evolution Stage I", 115, _font(28), (90, 120, 140))
+    _center(draw, f"⚡ Level {level}", 155, _font(32, True), (40, 80, 100))
 
-    grok_file = EVOLUTION_IMAGES.get(evo_name, "tadpole.png")
-    grok_path = os.path.join(GROK_ASSET_PATH, grok_file)
+    # ---------- Aura Glow ----------
+    glow = Image.new("RGBA", (500, 500), (0, 0, 0, 0))
+    gd = ImageDraw.Draw(glow)
+    gd.ellipse((0, 0, 500, 500), fill=(120, 220, 160, 120))
+    glow = glow.filter(ImageFilter.GaussianBlur(60))
+    img.paste(glow, (290, 230), glow)
 
-    try:
+    # ---------- Grok Frame ----------
+    frame_box = (260, 210, 820, 770)
+    frame = Image.new("RGBA", (560, 560), (0, 0, 0, 0))
+    fd = ImageDraw.Draw(frame)
+    fd.rounded_rectangle(
+        (0, 0, 560, 560),
+        radius=48,
+        fill=(210, 240, 225),
+        outline=(140, 200, 170),
+        width=6,
+    )
+    frame = frame.filter(ImageFilter.GaussianBlur(1))
+    img.paste(frame, frame_box[:2], frame)
+
+    # ---------- Grok Image ----------
+    grok_path = os.path.join(ASSET_DIR, f"{evo.lower()}.png")
+    if os.path.exists(grok_path):
         grok = Image.open(grok_path).convert("RGBA")
-        grok.thumbnail((700, 450), Image.LANCZOS)
+        grok.thumbnail((420, 420))
         gx = (CANVAS_W - grok.width) // 2
-        gy = 80
+        gy = 260
         img.paste(grok, (gx, gy), grok)
-    except Exception:
-        pass
 
-    # Fonts
-    f_title = _load_font(64, bold=True)
-    f_sub = _load_font(36, bold=True)
-    f_text = _load_font(30)
-    f_small = _load_font(26)
+    # ---------- Identity Card ----------
+    panel_y = 780
+    draw.rounded_rectangle(
+        (140, panel_y, 940, panel_y + 140),
+        radius=32,
+        fill=(255, 255, 255),
+    )
 
-    # -------------------------------------------------
-    # TITLE
-    # -------------------------------------------------
+    name = data.get("display_name", "Unknown")
+    _center(draw, f"👤 {name}", panel_y + 20, _font(32, True))
+    _center(draw, f"🧬 Evolution: {evo}", panel_y + 65, _font(26))
+    _center(draw, "🏆 XP Rank —", panel_y + 100, _font(22), (120, 120, 120))
 
-    draw.text((CANVAS_W // 2, 30), evo_name.upper(), fill=(40, 60, 90),
-              font=f_title, anchor="mm")
-    draw.text((CANVAS_W // 2, 100), f"LEVEL {level}", fill=(60, 90, 120),
-              font=f_sub, anchor="mm")
+    # ---------- XP Bar ----------
+    cur = data.get("xp_current", 0)
+    nxt = max(1, data.get("xp_to_next_level", 1))
+    pct = cur / nxt
 
-    # -------------------------------------------------
-    # INFO CARD
-    # -------------------------------------------------
+    bar_x1, bar_x2 = 220, 860
+    bar_y = panel_y + 170
+    draw.rounded_rectangle((bar_x1, bar_y, bar_x2, bar_y + 28), 14, fill=(220, 220, 220))
+    draw.rounded_rectangle(
+        (bar_x1, bar_y, bar_x1 + int((bar_x2 - bar_x1) * pct), bar_y + 28),
+        14,
+        fill=(120, 200, 160),
+    )
+    _center(draw, f"{cur} / {nxt} XP", bar_y + 40, _font(22))
 
-    card_y = 560
-    _rounded_rect(draw, (140, card_y, 940, card_y + 160), CARD_RADIUS, fill=(255, 255, 255))
+    _center(draw, "🌱 Growth Potential: Stable Evolution Path", bar_y + 72, _font(20), (80, 120, 100))
 
-    draw.text((180, card_y + 25), f"👤 {name}", fill=(0, 0, 0), font=f_text)
-    draw.text((180, card_y + 70), f"🧬 Evolution: {evo_name}", fill=(60, 60, 60), font=f_small)
-    draw.text((180, card_y + 110), "🏆 XP Rank: —", fill=(60, 60, 60), font=f_small)
+    # ---------- Stats ----------
+    battles = data.get("wins", 0) + max(0, data.get("mobs_defeated", 0))
+    draw.text((260, bar_y + 130), "⚔️ Battles Fought", font=_font(26, True), fill=(40, 60, 80))
+    draw.text((260, bar_y + 165), f"{battles} Encounters", font=_font(24), fill=(60, 90, 110))
 
-    # -------------------------------------------------
-    # XP BAR
-    # -------------------------------------------------
+    draw.text((620, bar_y + 130), "🔥 Victory Awaits", font=_font(26, True), fill=(40, 60, 80))
+    draw.text((620, bar_y + 165), "Win your first battle", font=_font(24), fill=(60, 90, 110))
 
-    bar_x1 = 180
-    bar_x2 = 900
-    bar_y = card_y + 200
-    bar_h = 26
+    # ---------- Badges ----------
+    badge_y = bar_y + 235
+    _center(draw, "🔒 First Evolution  •  🔒 Hop Master  •  🔒 Battle Hardened", badge_y, _font(22), (140, 140, 140))
+    _center(draw, "Unlock these by playing", badge_y + 32, _font(18), (160, 160, 160))
 
-    draw.rounded_rectangle((bar_x1, bar_y, bar_x2, bar_y + bar_h),
-                           radius=13, fill=(220, 220, 220))
+    # ---------- Emotional Line ----------
+    _center(draw, "“Your Grok is still young… but growing.”", badge_y + 90, _font(22), (70, 100, 120))
 
-    pct = min(1.0, xp_cur / xp_next if xp_next > 0 else 0)
-    fill_w = int((bar_x2 - bar_x1) * pct)
+    # ---------- Footer ----------
+    _center(draw, "MEGAGROK METAVERSE", CANVAS_H - 60, _font(20), (140, 160, 170))
 
-    draw.rounded_rectangle((bar_x1, bar_y, bar_x1 + fill_w, bar_y + bar_h),
-                           radius=13, fill=(90, 200, 140))
-
-    draw.text((CANVAS_W // 2, bar_y - 34),
-              f"{xp_cur} / {xp_next} XP",
-              fill=(0, 0, 0),
-              font=f_small,
-              anchor="mm")
-
-    draw.text((CANVAS_W // 2, bar_y + 36),
-              f"Growth Rate +{growth_rate}%",
-              fill=(80, 120, 90),
-              font=f_small,
-              anchor="mm")
-
-    # -------------------------------------------------
-    # PvE STATS
-    # -------------------------------------------------
-
-    stats_y = bar_y + 90
-    draw.text((300, stats_y), "⚔️ Battles", fill=(0, 0, 0), font=f_text, anchor="mm")
-    draw.text((300, stats_y + 45), f"{wins}W / {losses}L", fill=(60, 60, 60), font=f_small, anchor="mm")
-
-    draw.text((780, stats_y), "🔥 Win Rate", fill=(0, 0, 0), font=f_text, anchor="mm")
-    draw.text((780, stats_y + 45), f"{win_rate}%", fill=(60, 60, 60), font=f_small, anchor="mm")
-
-    # -------------------------------------------------
-    # BADGES (STATIC V1)
-    # -------------------------------------------------
-
-    badge_y = stats_y + 120
-    badges = ["🏅 First Evolution", "🏅 Hop Master", "🏅 Battle Hardened"]
-
-    bx = 200
-    for b in badges:
-        draw.text((bx, badge_y), b, fill=(80, 80, 120), font=f_small)
-        bx += 260
-
-    # -------------------------------------------------
-    # FOOTER
-    # -------------------------------------------------
-
-    draw.text((CANVAS_W // 2, CANVAS_H - 40),
-              "MEGAGROK METAVERSE",
-              fill=(120, 140, 170),
-              font=f_small,
-              anchor="mm")
-
-    # -------------------------------------------------
-    # SAVE
-    # -------------------------------------------------
-
-    out_path = f"/tmp/megagrok_profile_{uid}.png"
-    img.save(out_path, "PNG")
-    return out_path
+    out = os.path.join(OUT_DIR, f"profile_{uid}_{int(time.time())}.png")
+    img.save(out)
+    return out
