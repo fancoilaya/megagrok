@@ -129,7 +129,7 @@ def _hop_cooldown_screen(uid: int):
     kb = types.InlineKeyboardMarkup(row_width=1)
     kb.add(
         types.InlineKeyboardButton("🔄 Refresh timer", callback_data="hop:refresh"),
-        types.InlineKeyboardButton("🔙 Back to XP Hub", callback_data="xphub:home"),
+        types.InlineKeyboardButton("🔙 Back to XP Hub", callback_data="__xphub__:home"),
     )
     return text, kb
 
@@ -148,7 +148,7 @@ def show_hop_ui(bot: TeleBot, chat_id: int, message_id: int | None = None):
     kb = types.InlineKeyboardMarkup(row_width=1)
     kb.add(
         types.InlineKeyboardButton("🐾 Hop Now", callback_data="hop:go"),
-        types.InlineKeyboardButton("🔙 Back to XP Hub", callback_data="xphub:home"),
+        types.InlineKeyboardButton("🔙 Back to XP Hub", callback_data="__xphub__:home"),
     )
 
     if message_id:
@@ -276,6 +276,6 @@ def setup(bot: TeleBot):
                 text += "\n\n🎉 <b>LEVEL UP!</b>"
 
             kb = types.InlineKeyboardMarkup()
-            kb.add(types.InlineKeyboardButton("🔙 Back to XP Hub", callback_data="xphub:home"))
+            kb.add(types.InlineKeyboardButton("🔙 Back to XP Hub", callback_data="__xphub__:home"))
 
             bot.edit_message_text(text, chat_id, msg_id, reply_markup=kb, parse_mode="HTML")
