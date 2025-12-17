@@ -5,6 +5,7 @@ from bot.db import get_user
 from bot.evolutions import get_evolution_for_level
 from bot.handlers.growmygrok import show_grow_ui
 from bot.handlers.hop import show_hop_ui
+from bot.handlers.evolution_ui import show_evolution_ui
 
 
 def setup(bot: TeleBot):
@@ -27,6 +28,10 @@ def setup(bot: TeleBot):
 
         if action == "hop":
             show_hop_ui(bot, chat_id, msg_id)
+            return
+
+        if action == "evolution":
+            show_evolution_ui(bot, chat_id, msg_id, uid)
             return
 
         if action == "home":
@@ -74,6 +79,9 @@ def render_hub(uid: int):
     )
     kb.add(
         types.InlineKeyboardButton("⚔️ Battle", callback_data="xphub:battle"),
+        types.InlineKeyboardButton("🧬 Evolution", callback_data="xphub:evolution"),
+    )
+    kb.add(
         types.InlineKeyboardButton("👤 Profile", callback_data="xphub:profile"),
     )
 
