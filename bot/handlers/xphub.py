@@ -1,18 +1,16 @@
 # bot/handlers/xphub.py
 
 from telebot import types
-from bot.loader import bot
-from bot import db
+from bot.db import get_user
 from bot.evolutions import get_evolution_for_level
 from bot.handlers import growmygrok, hop, battle
 
 
 # =========================
-# /xphub command
+# Entry point
 # =========================
 
-@bot.message_handler(commands=["xphub"])
-def cmd_xphub(message):
+def cmd_xphub(message, bot):
     user_id = message.from_user.id
     chat_id = message.chat.id
 
@@ -26,11 +24,11 @@ def cmd_xphub(message):
 
 
 # =========================
-# XP HUB RENDERING
+# Rendering
 # =========================
 
 def render_xp_hub(user_id):
-    user = db.get_user(user_id)
+    user = get_user(user_id)
     if not user:
         return "❌ User not found.", None
 
@@ -38,11 +36,9 @@ def render_xp_hub(user_id):
     xp = user["xp"]
 
     evo = get_evolution_for_level(level)
-
-    current_xp = xp
     next_xp = evo.get("next_xp", xp)
 
-    xp_bar = build_xp_bar(current_xp, next_xp)
+    xp_bar = build_xp_bar(xp, next_xp)
 
     text = (
         "🌌 <b>MEGAGROK XP HUB</b>\n"
@@ -50,12 +46,12 @@ def render_xp_hub(user_id):
         f"👾 <b>Form:</b> {evo['name']}\n"
         f"⚡ <b>Level:</b> {level}\n\n"
         f"<b>XP</b> {xp_bar}\n"
-        f"{current_xp} / {next_xp}\n\n"
+        f"{xp} / {next_xp}\n\n"
         "━━━━━━━━━━━━━━━━━━\n"
         "🎮 <b>ACTIONS</b>\n"
     )
 
-    markup = build_xp_hub_keyboard(user_id)
+    markup = build_xp_hub_keyboard()
     return text, markup
 
 
@@ -69,7 +65,7 @@ def build_xp_bar(current, maximum, length=12):
     return "▓" * filled + "░" * (length - filled)
 
 
-def build_xp_hub_keyboard(user_id):
+def build_xp_hub_keyboard():
     kb = types.InlineKeyboardMarkup(row_width=2)
 
     kb.add(
@@ -85,49 +81,34 @@ def build_xp_hub_keyboard(user_id):
 
 
 # =========================
-# CALLBACK HANDLER
+# Callback router
 # =========================
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith("xphub:"))
-def handle_xphub_callback(call):
+def handle_xphub_callback(call, bot):
     action = call.data.split(":", 1)[1]
     user_id = call.from_user.id
     chat_id = call.message.chat.id
     message_id = call.message.message_id
 
-    # Route to existing logic (NO duplication)
     if action == "grow":
-        growmygrok.handle_grow(call.message)
+        growmygrok.handle_grow(call.message, bot)
 
     elif action == "hop":
-        hop.handle_hop(call.message)
+        hop.handle_hop(call.message, bot)
 
     elif action == "battle":
-        battle.start_battle(call.message)
+        battle.start_battle(call.message, bot)
 
     elif action == "profile":
         bot.send_message(chat_id, "/profile")
-        bot.answer_callback_query(call.id)
         return
 
-    # Refresh XP Hub after action
+    # Refresh hub
     text, markup = render_xp_hub(user_id)
-
-    try:
-        bot.edit_message_text(
-            text,
-            chat_id,
-            message_id,
-            reply_markup=markup,
-            parse_mode="HTML"
-        )
-    except Exception:
-        # Fallback: send new message if edit fails
-        bot.send_message(
-            chat_id,
-            text,
-            reply_markup=markup,
-            parse_mode="HTML"
-        )
-
-    bot.answer_callback_query(call.id)
+    bot.edit_message_text(
+        text,
+        chat_id,
+        message_id,
+        reply_markup=markup,
+        parse_mode="HTML"
+    )
