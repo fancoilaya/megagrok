@@ -1,5 +1,5 @@
 # bot/handlers/hop.py
-# Hop 2.2 — XP Hub integrated (single-message UX, command preserved)
+# Hop 2.3 — XP Hub integrated with cooldown timer + refresh
 
 import os
 import time
@@ -27,6 +27,7 @@ HOP_LAST_DAY_KEY = "hop_last_day"
 
 DEBUG = os.getenv("DEBUG_HOP", "0") in ("1", "true", "True", "TRUE")
 MICRO_EVENT_CHANCE = 0.10
+DAY_SECONDS = 86400
 
 
 def _debug(*args):
@@ -37,8 +38,17 @@ def _debug(*args):
 # -------------------------
 # Helpers
 # -------------------------
+def _now():
+    return int(time.time())
+
+
 def _now_day():
-    return int(time.time() // 86400)
+    return int(_now() // DAY_SECONDS)
+
+
+def _seconds_until_next_day():
+    now = _now()
+    return DAY_SECONDS - (now % DAY_SECONDS)
 
 
 def _safe_get_cd(uid):
@@ -94,15 +104,45 @@ def _streak_bonus_pct(streak: int) -> int:
     return 0
 
 
+def _format_hms(seconds: int) -> str:
+    h, rem = divmod(seconds, 3600)
+    m, _ = divmod(rem, 60)
+    return f"{h}h {m}m"
+
+
 # -------------------------
-# PUBLIC UI ENTRY
+# UI RENDERERS
 # -------------------------
+def _hop_cooldown_screen(uid: int):
+    cd = _safe_get_cd(uid)
+    streak = int(cd.get(HOP_STREAK_KEY, 0) or 0)
+    bonus = _streak_bonus_pct(streak)
+    left = _seconds_until_next_day()
+
+    text = (
+        "⏳ <b>HOP ON COOLDOWN</b>\n\n"
+        f"Next hop available in:\n"
+        f"🕒 <b>{_format_hms(left)}</b>\n\n"
+        f"🔥 Current streak: <b>{streak} days</b> (+{bonus}%)"
+    )
+
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    kb.add(
+        types.InlineKeyboardButton("🔄 Refresh timer", callback_data="hop:refresh"),
+        types.InlineKeyboardButton("🔙 Back to XP Hub", callback_data="xphub:home"),
+    )
+    return text, kb
+
+
 def show_hop_ui(bot: TeleBot, chat_id: int, message_id: int | None = None):
     text = (
         "🐾 <b>HOP</b>\n\n"
-        "Leap through the rift and see what you find.\n"
-        "You can hop <b>once per day</b>.\n\n"
-        "👇 Ready?"
+        "Leap through the rift once per day to earn XP.\n\n"
+        "• Daily action (UTC reset)\n"
+        "• Rare & legendary rewards possible\n"
+        "• Hop streaks unlock bonuses & badges\n"
+        "• Evolution multipliers apply\n\n"
+        "👇 <b>Ready?</b>"
     )
 
     kb = types.InlineKeyboardMarkup(row_width=1)
@@ -118,7 +158,7 @@ def show_hop_ui(bot: TeleBot, chat_id: int, message_id: int | None = None):
 
 
 # -------------------------
-# CORE EXECUTION (shared)
+# CORE EXECUTION
 # -------------------------
 def _execute_hop(uid: int):
     user = get_user(uid)
@@ -127,19 +167,16 @@ def _execute_hop(uid: int):
 
     quests = get_quests(uid)
     if quests.get(GLOBAL_HOP_KEY) == 1:
-        return None, "🕒 You already hopped today."
+        return None, "cooldown"
 
     cd = _safe_get_cd(uid)
     today = _now_day()
     last_day = cd.get(HOP_LAST_DAY_KEY)
 
     prev_streak = int(cd.get(HOP_STREAK_KEY, 0) or 0)
-    if last_day == today - 1:
-        streak = prev_streak + 1
-    else:
-        streak = 1
-
+    streak = prev_streak + 1 if last_day == today - 1 else 1
     bonus_pct = _streak_bonus_pct(streak)
+
     rarity, base_xp = _rarity_and_base()
 
     micro = _micro_event_roll()
@@ -185,9 +222,6 @@ def _execute_hop(uid: int):
         "bonus": bonus_pct,
         "leveled": leveled,
         "micro": micro_label,
-        "level": level,
-        "cur": cur,
-        "nxt": nxt,
     }, None
 
 
@@ -202,16 +236,25 @@ def setup(bot: TeleBot):
 
     @bot.callback_query_handler(func=lambda c: c.data.startswith("hop:"))
     def hop_cb(call):
+        uid = call.from_user.id
         chat_id = call.message.chat.id
         msg_id = call.message.message_id
-        uid = call.from_user.id
+
+        if call.data == "hop:refresh":
+            text, kb = _hop_cooldown_screen(uid)
+            bot.edit_message_text(text, chat_id, msg_id, reply_markup=kb, parse_mode="HTML")
+            return
 
         if call.data == "hop:go":
             result, err = _execute_hop(uid)
+
+            if err == "cooldown":
+                text, kb = _hop_cooldown_screen(uid)
+                bot.edit_message_text(text, chat_id, msg_id, reply_markup=kb, parse_mode="HTML")
+                return
+
             if err:
-                kb = types.InlineKeyboardMarkup()
-                kb.add(types.InlineKeyboardButton("🔙 Back to XP Hub", callback_data="xphub:home"))
-                bot.edit_message_text(err, chat_id, msg_id, reply_markup=kb)
+                bot.edit_message_text(err, chat_id, msg_id)
                 return
 
             rarity_emoji = {
