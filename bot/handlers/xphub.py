@@ -6,7 +6,7 @@ from bot.handlers import growmygrok, hop, battle
 
 
 # ======================================================
-# Handler setup (EXACT pattern used in growmygrok.py)
+# Handler setup (REQUIRED by your loader)
 # ======================================================
 
 def setup(bot: TeleBot):
@@ -31,21 +31,26 @@ def setup(bot: TeleBot):
         chat_id = call.message.chat.id
         message_id = call.message.message_id
 
+        # Route into existing systems (NO logic duplication)
         if action == "grow":
-            growmygrok.handle_grow(call.message)
-
-        elif action == "hop":
-            hop.handle_hop(call.message)
-
-        elif action == "battle":
-            battle.start_battle(call.message)
-
-        elif action == "profile":
-            bot.send_message(chat_id, "/profile")
-            bot.answer_callback_query(call.id)
+            # Enter Grow flow (mode selection UI)
+            growmygrok.setup  # ensure module loaded
+            bot.send_message(chat_id, "/growmygrok")
             return
 
-        # Refresh XP Hub after action
+        if action == "hop":
+            hop.handle_hop(call.message)
+            return
+
+        if action == "battle":
+            battle.start_battle(call.message)
+            return
+
+        if action == "profile":
+            bot.send_message(chat_id, "/profile")
+            return
+
+        # Safety fallback: re-render hub
         text, markup = render_xp_hub(user_id)
         bot.edit_message_text(
             text,
@@ -55,8 +60,6 @@ def setup(bot: TeleBot):
             parse_mode="HTML"
         )
 
-        bot.answer_callback_query(call.id)
-
 
 # ======================================================
 # XP HUB RENDERING (READ-ONLY)
@@ -65,11 +68,11 @@ def setup(bot: TeleBot):
 def render_xp_hub(user_id: int):
     user = get_user(user_id)
     if not user:
-        return "❌ User not found.", None
+        return "❌ You do not have a Grok yet.", None
 
-    level = user["level"]
-    xp_current = user["xp_current"]
-    xp_needed = user["xp_to_next_level"]
+    level = int(user.get("level", 1))
+    xp_current = int(user.get("xp_current", 0))
+    xp_needed = int(user.get("xp_to_next_level", 100))
 
     evo = get_evolution_for_level(level)
 
@@ -84,6 +87,7 @@ def render_xp_hub(user_id: int):
         f"{xp_current} / {xp_needed}\n\n"
         "━━━━━━━━━━━━━━━━━━\n"
         "🎮 <b>ACTIONS</b>\n"
+        "Tap an action below:"
     )
 
     markup = build_xp_hub_keyboard()
