@@ -1,27 +1,23 @@
 # bot/handlers/xphub.py
-# XP Hub — unified UI entry point for XP-related actions
-# SAFE BASELINE VERSION (command-based routing only)
+# XP Hub — Grow integrated cleanly (no fake commands)
 
 from telebot import types, TeleBot
-
 from bot.db import get_user
 from bot.evolutions import get_evolution_for_level
+from bot.handlers.growmygrok import show_grow_ui
 
 
 # ======================================================
-# Handler setup (required by handler loader)
+# Handler setup
 # ======================================================
 
 def setup(bot: TeleBot):
 
     @bot.message_handler(commands=["xphub"])
     def xphub_handler(message):
-        user_id = message.from_user.id
-        chat_id = message.chat.id
-
-        text, markup = render_xp_hub(user_id)
+        text, markup = render_xp_hub(message.from_user.id)
         bot.send_message(
-            chat_id,
+            message.chat.id,
             text,
             reply_markup=markup,
             parse_mode="HTML"
@@ -32,9 +28,8 @@ def setup(bot: TeleBot):
         action = call.data.split(":", 1)[1]
         chat_id = call.message.chat.id
 
-        # Route to EXISTING COMMANDS ONLY (safe)
         if action == "grow":
-            bot.send_message(chat_id, "/growmygrok")
+            show_grow_ui(bot, chat_id)
             return
 
         if action == "hop":
@@ -51,7 +46,7 @@ def setup(bot: TeleBot):
 
 
 # ======================================================
-# XP HUB RENDERING (read-only)
+# XP HUB RENDERING
 # ======================================================
 
 def render_xp_hub(user_id: int):
@@ -81,19 +76,15 @@ def render_xp_hub(user_id: int):
     return text, build_xp_hub_keyboard()
 
 
-def build_xp_bar(current: int, maximum: int, length: int = 12) -> str:
+def build_xp_bar(current: int, maximum: int, length: int = 12):
     if maximum <= 0:
         return "▓" * length
-
     filled = int((current / maximum) * length)
-    filled = max(0, min(filled, length))
-
-    return "▓" * filled + "░" * (length - filled)
+    return "▓" * min(length, filled) + "░" * (length - min(length, filled))
 
 
 def build_xp_hub_keyboard():
     kb = types.InlineKeyboardMarkup(row_width=2)
-
     kb.add(
         types.InlineKeyboardButton("🌱 Grow", callback_data="xphub:grow"),
         types.InlineKeyboardButton("🐾 Hop", callback_data="xphub:hop"),
@@ -102,5 +93,4 @@ def build_xp_hub_keyboard():
         types.InlineKeyboardButton("⚔️ Battle", callback_data="xphub:battle"),
         types.InlineKeyboardButton("👤 Profile", callback_data="xphub:profile"),
     )
-
     return kb
