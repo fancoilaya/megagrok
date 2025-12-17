@@ -579,20 +579,21 @@ def setup(bot: TeleBot):
         # LEADERBOARD LINK
         
         # LEADERBOARD (DIAGNOSTIC)
-		if sub == "lb":
-			bot.answer_callback_query(
-				call.id,
-				text="✅ Leaderboard button pressed",
-				show_alert=True
-			)
+        if sub == "lb":
+            bot.answer_callback_query(
+                call.id,
+                text="✅ Leaderboard button pressed",
+                show_alert=True
+            )
 
-			return bot.edit_message_text(
-				"🏆 *Leaderboard button works*\n\nCallback reached successfully.",
-				call.message.chat.id,
-				call.message.message_id,
-				parse_mode="Markdown",
-				reply_markup=stats_menu(user_id)
-			)
+            return bot.edit_message_text(
+                "🏆 *Leaderboard button works*\n\nCallback reached successfully.",
+                call.message.chat.id,
+                call.message.message_id,
+                parse_mode="Markdown",
+                reply_markup=stats_menu(user_id)
+            )
+
 
 
         return bot.answer_callback_query(call.id)
