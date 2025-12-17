@@ -1,18 +1,10 @@
 # bot/handlers/hop.py
-# Hop 2.1 — Robust Hop handler
-# - Uses shared cooldowns dict (merges, does not overwrite)
-# - Rarity-based XP (common/rare/epic/legendary)
-# - Hop streak (7/14/30 badges supported through cooldowns)
-# - Micro-events (10% chance)
-# - Evolution-aware multiplier
-# - Safe math (no ZeroDivisionError), defensive coding
-# - Always replies (falls back to a safe message on error)
-# - DEBUG_HOP env toggle for diagnostic prints
+# Hop 2.2 — XP Hub integrated (single-message UX, command preserved)
 
 import os
 import time
 import random
-from telebot import TeleBot
+from telebot import TeleBot, types
 
 from bot.db import (
     get_user,
@@ -29,40 +21,40 @@ from bot.leaderboard_tracker import announce_leaderboard_if_changed
 # -------------------------
 # Config
 # -------------------------
-GLOBAL_HOP_KEY = "hop"           # quest key marking hop used today
+GLOBAL_HOP_KEY = "hop"
 HOP_STREAK_KEY = "hop_streak"
 HOP_LAST_DAY_KEY = "hop_last_day"
+
 DEBUG = os.getenv("DEBUG_HOP", "0") in ("1", "true", "True", "TRUE")
-# Rarity chances: legendary 1%, epic 9%, rare 20%, common rest
 MICRO_EVENT_CHANCE = 0.10
 
-def _debug(*args, **kwargs):
+
+def _debug(*args):
     if DEBUG:
-        print("[HOP DEBUG]", *args, **kwargs)
+        print("[HOP DEBUG]", *args)
+
 
 # -------------------------
 # Helpers
 # -------------------------
 def _now_day():
-    """Return the UTC day number (integer)."""
     return int(time.time() // 86400)
 
-def _safe_get_cooldowns(uid: int) -> dict:
+
+def _safe_get_cd(uid):
     try:
         cd = get_cooldowns(uid)
-        if isinstance(cd, dict):
-            return cd
-        # defensive: if stored as JSON string or None, return empty dict
-        return {}
-    except Exception as e:
-        _debug("get_cooldowns failed for", uid, ":", e)
+        return cd if isinstance(cd, dict) else {}
+    except Exception:
         return {}
 
-def _safe_set_cooldowns(uid: int, cd: dict):
+
+def _safe_set_cd(uid, cd):
     try:
         set_cooldowns(uid, cd)
-    except Exception as e:
-        _debug("set_cooldowns failed for", uid, ":", e)
+    except Exception:
+        pass
+
 
 def _rarity_and_base():
     r = random.random()
@@ -74,25 +66,19 @@ def _rarity_and_base():
         return "rare", random.randint(35, 65)
     return "common", random.randint(15, 35)
 
+
 def _micro_event_roll():
     if random.random() < MICRO_EVENT_CHANCE:
-        events = [
+        return random.choice([
             ("🍃 Lucky Leaf", random.randint(10, 25)),
             ("🌌 Cosmic Ripple", random.randint(20, 50)),
             ("💦 Hop Slip", random.randint(-15, -5)),
-            ("🐸 Spirit Whisper", 0),  # cosmetic
-        ]
-        return random.choice(events)
+            ("🐸 Spirit Whisper", 0),
+        ])
     return None
 
+
 def _streak_bonus_pct(streak: int) -> int:
-    """
-    Return total bonus percent based on streak.
-    Matches design: small scaling with cap.
-    """
-    if streak <= 1:
-        return 0
-    # We'll use a stepped system:
     if streak >= 30:
         return 20
     if streak >= 14:
@@ -107,235 +93,146 @@ def _streak_bonus_pct(streak: int) -> int:
         return 3
     return 0
 
-def _safe_progress_bar(cur: int, nxt: int, bar_len: int = 20) -> (str, int):
-    """Return (bar_text, pct) safely. Avoid divide by zero."""
-    try:
-        if nxt <= 0:
-            return ("░" * bar_len, 0)
-        pct = int((cur / nxt) * 100)
-        filled = int((pct / 100.0) * bar_len)
-        filled = max(0, min(bar_len, filled))
-        bar = "▓" * filled + "░" * (bar_len - filled)
-        return bar, pct
-    except Exception as e:
-        _debug("progress bar calc failed:", e)
-        return ("░" * bar_len, 0)
 
 # -------------------------
-# Handler
+# PUBLIC UI ENTRY
+# -------------------------
+def show_hop_ui(bot: TeleBot, chat_id: int, message_id: int | None = None):
+    text = (
+        "🐾 <b>HOP</b>\n\n"
+        "Leap through the rift and see what you find.\n"
+        "You can hop <b>once per day</b>.\n\n"
+        "👇 Ready?"
+    )
+
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    kb.add(
+        types.InlineKeyboardButton("🐾 Hop Now", callback_data="hop:go"),
+        types.InlineKeyboardButton("🔙 Back to XP Hub", callback_data="xphub:home"),
+    )
+
+    if message_id:
+        bot.edit_message_text(text, chat_id, message_id, reply_markup=kb, parse_mode="HTML")
+    else:
+        bot.send_message(chat_id, text, reply_markup=kb, parse_mode="HTML")
+
+
+# -------------------------
+# CORE EXECUTION (shared)
+# -------------------------
+def _execute_hop(uid: int):
+    user = get_user(uid)
+    if not user:
+        return None, "❌ You do not have a Grok yet."
+
+    quests = get_quests(uid)
+    if quests.get(GLOBAL_HOP_KEY) == 1:
+        return None, "🕒 You already hopped today."
+
+    cd = _safe_get_cd(uid)
+    today = _now_day()
+    last_day = cd.get(HOP_LAST_DAY_KEY)
+
+    prev_streak = int(cd.get(HOP_STREAK_KEY, 0) or 0)
+    if last_day == today - 1:
+        streak = prev_streak + 1
+    else:
+        streak = 1
+
+    bonus_pct = _streak_bonus_pct(streak)
+    rarity, base_xp = _rarity_and_base()
+
+    micro = _micro_event_roll()
+    micro_label = None
+    if micro:
+        micro_label, delta = micro
+        base_xp += delta
+
+    evo_mult = evolutions.get_xp_multiplier_for_level(user["level"])
+    effective = int(round(base_xp * (1 + bonus_pct / 100) * evo_mult))
+
+    # Apply XP
+    level = user["level"]
+    cur = user["xp_current"] + effective
+    nxt = user["xp_to_next_level"]
+    curve = user.get("level_curve_factor", 1.15)
+    leveled = False
+
+    while cur >= nxt:
+        cur -= nxt
+        level += 1
+        nxt = int(nxt * curve)
+        leveled = True
+
+    update_user_xp(uid, {
+        "level": level,
+        "xp_current": cur,
+        "xp_to_next_level": nxt,
+        "xp_total": user["xp_total"] + effective,
+    })
+
+    cd[HOP_STREAK_KEY] = streak
+    cd[HOP_LAST_DAY_KEY] = today
+    _safe_set_cd(uid, cd)
+
+    record_quest(uid, GLOBAL_HOP_KEY)
+    announce_leaderboard_if_changed(None)
+
+    return {
+        "rarity": rarity,
+        "xp": effective,
+        "streak": streak,
+        "bonus": bonus_pct,
+        "leveled": leveled,
+        "micro": micro_label,
+        "level": level,
+        "cur": cur,
+        "nxt": nxt,
+    }, None
+
+
+# -------------------------
+# Handlers
 # -------------------------
 def setup(bot: TeleBot):
 
     @bot.message_handler(commands=["hop"])
-    def hop_handler(message):
-        uid = message.from_user.id
-        try:
-            user = get_user(uid)
-        except Exception as e:
-            _debug("get_user failed for", uid, ":", e)
-            return bot.reply_to(message, "❌ Error loading your profile. Try again later.")
+    def hop_cmd(message):
+        show_hop_ui(bot, message.chat.id)
 
-        if not user:
-            return bot.reply_to(message, "❌ You do not have a Grok yet.")
+    @bot.callback_query_handler(func=lambda c: c.data.startswith("hop:"))
+    def hop_cb(call):
+        chat_id = call.message.chat.id
+        msg_id = call.message.message_id
+        uid = call.from_user.id
 
-        # QUICK: check quest flag (this is how your system tracked "used today")
-        try:
-            quests = get_quests(uid)
-        except Exception as e:
-            _debug("get_quests failed for", uid, ":", e)
-            quests = {}
-
-        if quests.get(GLOBAL_HOP_KEY, 0) == 1:
-            # user already used hop today
-            return bot.reply_to(message, "🕒 You already used /hop today.")
-
-        # load cooldowns (shared object) and safely read streak/day
-        cd = _safe_get_cooldowns(uid)
-        today = _now_day()
-
-        last_day_raw = cd.get(HOP_LAST_DAY_KEY)
-        # normalize last_day to integer if possible
-        last_day = None
-        if isinstance(last_day_raw, int):
-            last_day = last_day_raw
-        elif isinstance(last_day_raw, str) and last_day_raw.isdigit():
-            try:
-                last_day = int(last_day_raw)
-            except:
-                last_day = None
-
-        # determine streak behavior
-        if last_day is None:
-            # new or no previous hop info
-            prev_streak = int(cd.get(HOP_STREAK_KEY, 0) or 0)
-            # If last_day missing but streak exists, we keep streak (safer) and treat as new day
-            # but ensure we won't double-apply if a user has quests flagged (handled above)
-            can_count = True
-        else:
-            if last_day == today:
-                # shouldn't reach here because quest check above, but safety:
-                return bot.reply_to(message, "🕒 You already used /hop today.")
-            elif last_day == today - 1:
-                prev_streak = int(cd.get(HOP_STREAK_KEY, 0) or 0)
-                can_count = True
-            else:
-                # missed days -> reset streak
-                prev_streak = 0
-                can_count = True
-
-        # increment streak (start at 1)
-        new_streak = prev_streak + 1 if can_count else prev_streak
-        bonus_pct = _streak_bonus_pct(new_streak)
-        _debug(f"user={uid} prev_streak={prev_streak} new_streak={new_streak} bonus={bonus_pct}%")
-
-        # Rarity & base XP
-        rarity, base_xp = _rarity_and_base()
-        _debug("rarity/base_xp:", rarity, base_xp)
-
-        # Micro event
-        micro = _micro_event_roll()
-        micro_label = None
-        micro_xp = 0
-        if micro:
-            micro_label, micro_xp = micro
-            _debug("micro event:", micro_label, micro_xp)
-            base_xp += micro_xp
-
-        # Evolution multiplier (defensive)
-        try:
-            evo_mult = float(evolutions.get_xp_multiplier_for_level(int(user.get("level", 1))))
-            evo_mult *= float(user.get("evolution_multiplier", 1.0))
-        except Exception as e:
-            _debug("evolution multiplier failed:", e)
-            evo_mult = 1.0
-
-        # final effective XP
-        try:
-            effective = int(round(base_xp * (1 + (bonus_pct / 100.0)) * evo_mult))
-        except Exception as e:
-            _debug("final XP calc failed:", e)
-            effective = max(0, int(base_xp))
-
-        # Apply XP and leveling (defensive)
-        try:
-            # persist xp
-            level = int(user.get("level", 1))
-            xp_total = int(user.get("xp_total", 0)) + effective
-            cur = int(user.get("xp_current", 0)) + effective
-            nxt = int(user.get("xp_to_next_level", 100))
-            curve = float(user.get("level_curve_factor", 1.15))
-
-            leveled = False
-            leveled_down = False
-            # level up
-            while nxt > 0 and cur >= nxt:
-                cur -= nxt
-                level += 1
-                nxt = int(max(1, nxt * curve))
-                leveled = True
-
-            # level down (shouldn't usually happen here)
-            while cur < 0 and level > 1:
-                level -= 1
-                nxt = int(max(1, nxt / curve))
-                cur += nxt
-                leveled_down = True
-
-            # ensure sane
-            cur = max(0, cur)
-            xp_total = max(0, xp_total)
-
-            update_user_xp(uid, {
-                "xp_total": xp_total,
-                "xp_current": cur,
-                "xp_to_next_level": nxt,
-                "level": level
-            })
-        except Exception as e:
-            _debug("XP persist failed for", uid, ":", e)
-            return bot.reply_to(message, "⚠️ Error applying hop XP — try again later.")
-
-        # Save hop usage: merge cooldowns safely (DO NOT overwrite other keys)
-        try:
-            # ensure cd is a dict we modify
-            cd = cd if isinstance(cd, dict) else {}
-            cd[HOP_STREAK_KEY] = new_streak
-            cd[HOP_LAST_DAY_KEY] = today
-            # IMPORTANT: don't remove other cooldown keys — just update and write back
-            _safe_set_cooldowns(uid, cd)
-        except Exception as e:
-            _debug("Failed saving hop cooldowns for", uid, ":", e)
-            # keep going; do not abort — we want to reply
-
-        # Mark quest used today safely
-        try:
-            record_quest(uid, GLOBAL_HOP_KEY)
-        except Exception as e:
-            _debug("record_quest failed for", uid, ":", e)
-
-        # Announce leaderboard update (best-effort)
-        try:
-            announce_leaderboard_if_changed(bot)
-        except Exception as e:
-            _debug("announce leaderboard failed:", e)
-
-        # Build response (safe formatting)
-        try:
-            # load updated user for progress bar
-            try:
-                updated_user = get_user(uid)
-            except Exception:
-                updated_user = {
-                    "level": level,
-                    "xp_current": cur,
-                    "xp_to_next_level": nxt
-                }
-
-            bar, pct = _safe_progress_bar(int(updated_user.get("xp_current", cur)),
-                                          int(updated_user.get("xp_to_next_level", nxt)))
+        if call.data == "hop:go":
+            result, err = _execute_hop(uid)
+            if err:
+                kb = types.InlineKeyboardMarkup()
+                kb.add(types.InlineKeyboardButton("🔙 Back to XP Hub", callback_data="xphub:home"))
+                bot.edit_message_text(err, chat_id, msg_id, reply_markup=kb)
+                return
 
             rarity_emoji = {
                 "legendary": "🌈",
                 "epic": "💎",
                 "rare": "✨",
                 "common": "🐸",
-            }.get(rarity, "🐸")
+            }.get(result["rarity"], "🐸")
 
-            parts = []
-            parts.append(f"{rarity_emoji} <b>{rarity.upper()} HOP!</b>")
-            parts.append(f"📈 XP gained: <b>{effective}</b>")
+            text = (
+                f"{rarity_emoji} <b>{result['rarity'].upper()} HOP!</b>\n\n"
+                f"📈 XP gained: <b>{result['xp']}</b>\n"
+                f"🔥 Streak: {result['streak']} days (+{result['bonus']}%)"
+            )
 
-            if micro_label:
-                sign = "+" if micro_xp > 0 else ""
-                parts.append(f"{micro_label} ({sign}{micro_xp} XP)")
+            if result["micro"]:
+                text += f"\n\n{result['micro']}"
+            if result["leveled"]:
+                text += "\n\n🎉 <b>LEVEL UP!</b>"
 
-            parts.append(f"🔥 Hop streak: <b>{new_streak} days</b> (+{bonus_pct}% bonus)")
-            if leveled:
-                parts.append("🎉 <b>LEVEL UP!</b>")
-            if leveled_down:
-                parts.append("💀 <b>LEVEL DOWN!</b>")
+            kb = types.InlineKeyboardMarkup()
+            kb.add(types.InlineKeyboardButton("🔙 Back to XP Hub", callback_data="xphub:home"))
 
-            parts.append(f"🧬 Level {level} — <code>{bar}</code> {pct}% ({cur}/{nxt})")
-            parts.append("⏳ Next hop available tomorrow")
-
-            # Badge hints (not unlocking logic here, but informative)
-            if new_streak >= 30:
-                parts.append("🏅 Badge: <b>Hop Ascended (30-day)</b>")
-            elif new_streak >= 14:
-                parts.append("🏅 Badge: <b>Hop Sage (14-day)</b")
-            elif new_streak >= 7:
-                parts.append("🏅 Badge: <b>Hop Master (7-day)</b>")
-
-            # final reply
-            return bot.reply_to(message, "\n".join(parts), parse_mode="HTML")
-        except Exception as e:
-            _debug("Failed building/sending reply for", uid, ":", e)
-            # fallback minimal reply
-            try:
-                return bot.reply_to(message, f"✅ Hop complete! XP: {effective}")
-            except Exception as e2:
-                _debug("Fallback reply failed for", uid, ":", e2)
-                # nothing more we can do
-                return
-
-    _debug("hop handler registered")
+            bot.edit_message_text(text, chat_id, msg_id, reply_markup=kb, parse_mode="HTML")
