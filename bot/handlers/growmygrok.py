@@ -1,12 +1,10 @@
 # bot/handlers/growmygrok.py
-# GrowMyGrok 2.3 — Grow UI extracted for XP Hub reuse
-# Behavior unchanged, UI reusable
+# GrowMyGrok 2.4 — XP Hub integrated (single-message flow)
 
 import os
 import time
 import random
-from telebot import TeleBot
-from telebot import types
+from telebot import TeleBot, types
 
 from bot.db import (
     get_user,
@@ -18,10 +16,11 @@ from bot.db import (
 import bot.evolutions as evolutions
 from bot.leaderboard_tracker import announce_leaderboard_if_changed
 
+
 # ----------------------------
 # Configuration
 # ----------------------------
-GLOBAL_GROW_COOLDOWN = 45 * 60  # 45 minutes
+GLOBAL_GROW_COOLDOWN = 45 * 60
 
 XP_RANGES = {
     "train": (-2, 10),
@@ -39,14 +38,12 @@ MODE_DESCRIPTIONS = {
     "forage": (
         "🍃 <b>Forage</b> — Medium Risk\n"
         "• Higher XP potential\n"
-        "• Chance of failure\n"
-        "• Balanced choice"
+        "• Chance of failure"
     ),
     "gamble": (
         "🎲 <b>Gamble</b> — High Risk\n"
         "• Massive XP if successful\n"
-        "• Chance to lose XP\n"
-        "• High-risk, high-reward"
+        "• Chance to lose XP"
     ),
 }
 
@@ -54,30 +51,25 @@ STREAK_KEY = "grow_streak"
 STREAK_BONUS_PER = 0.03
 STREAK_CAP = 10
 
-MICRO_EVENT_CHANCE = 1.0 / 20.0
+MICRO_EVENT_CHANCE = 1 / 20
 MICRO_EVENTS = [
     ("lucky_find", "🌟 Your Grok found a glowing mushroom!", 50),
-    ("bad_weather", "🌧️ Bad weather! Your Grok got damp and lost energy.", -10),
-    ("mini_fight", "⚔️ Your Grok fought a tiny critter and trained through the scuffle.", 12),
-    ("mystic_whisper", "🔮 A whisper passes — you feel closer to evolution.", 0),
+    ("bad_weather", "🌧️ Bad weather drained energy.", -10),
+    ("mini_fight", "⚔️ Training fight sharpened instincts.", 12),
 ]
 
 MAX_LOSS_PCT = 0.05
-DEBUG = os.getenv("DEBUG_GROW", "0") in ("1", "true", "True", "TRUE")
+DEBUG = os.getenv("DEBUG_GROW", "0") in ("1", "true", "True")
+
 
 # ----------------------------
 # Helpers
 # ----------------------------
-def _now_ts():
+def _now():
     return int(time.time())
 
 
-def _debug(*args):
-    if DEBUG:
-        print("[growmygrok DEBUG]", *args)
-
-
-def _load_cooldowns(uid: int) -> dict:
+def _load_cd(uid):
     try:
         cd = get_cooldowns(uid)
         return cd if isinstance(cd, dict) else {}
@@ -85,202 +77,151 @@ def _load_cooldowns(uid: int) -> dict:
         return {}
 
 
-def _save_cooldowns(uid: int, cd: dict):
+def _save_cd(uid, cd):
     try:
         set_cooldowns(uid, cd)
     except Exception:
         pass
 
 
-def _time_of_day_modifier():
-    hr = time.localtime().tm_hour
-    if 6 <= hr < 12:
-        return (5, 1.0)
-    if 18 <= hr < 22:
-        return (0, 1.10)
-    if 0 <= hr < 4:
-        return (0, 0.95)
-    return (0, 1.0)
+def _cap_negative(val, xp_next):
+    if val >= 0:
+        return val
+    cap = max(1, int(xp_next * MAX_LOSS_PCT))
+    return -min(cap, abs(val))
 
 
-def _cap_negative(value: int, xp_to_next: int) -> int:
-    if value >= 0:
-        return value
-    cap = max(1, int(xp_to_next * MAX_LOSS_PCT))
-    return -min(cap, abs(value))
+def _apply_xp(uid, user, delta):
+    level = user["level"]
+    cur = user["xp_current"]
+    nxt = user["xp_to_next_level"]
+    curve = user.get("level_curve_factor", 1.15)
 
-
-def _apply_leveling_and_persist(uid: int, user_before: dict, delta_xp: int):
-    level = int(user_before.get("level", 1))
-    xp_total = int(user_before.get("xp_total", 0))
-    cur = int(user_before.get("xp_current", 0))
-    xp_to_next = int(user_before.get("xp_to_next_level", 100))
-    curve = float(user_before.get("level_curve_factor", 1.15))
-
-    xp_total = max(0, xp_total + delta_xp)
-    cur += delta_xp
-
+    cur += delta
     leveled_up = False
-    leveled_down = False
 
-    while cur >= xp_to_next:
-        cur -= xp_to_next
+    while cur >= nxt:
+        cur -= nxt
         level += 1
-        xp_to_next = int(max(1, xp_to_next * curve))
+        nxt = int(nxt * curve)
         leveled_up = True
-
-    while cur < 0 and level > 1:
-        level -= 1
-        xp_to_next = int(max(1, xp_to_next / curve))
-        cur += xp_to_next
-        leveled_down = True
 
     cur = max(0, cur)
 
     update_user_xp(uid, {
-        "xp_total": xp_total,
-        "xp_current": cur,
-        "xp_to_next_level": xp_to_next,
         "level": level,
+        "xp_current": cur,
+        "xp_to_next_level": nxt,
+        "xp_total": user["xp_total"] + delta,
     })
 
-    return get_user(uid), leveled_up, leveled_down
-
-
-def _maybe_micro_event():
-    if random.random() < MICRO_EVENT_CHANCE:
-        return random.choice(MICRO_EVENTS)
-    return None
+    return get_user(uid), leveled_up
 
 
 # ----------------------------
-# PUBLIC: Grow UI entry (XP Hub + command use this)
+# PUBLIC UI ENTRY
 # ----------------------------
-def show_grow_ui(bot: TeleBot, chat_id: int):
+def show_grow_ui(bot: TeleBot, chat_id: int, message_id: int | None = None):
     kb = types.InlineKeyboardMarkup(row_width=1)
-    for mode in XP_RANGES:
-        kb.add(
-            types.InlineKeyboardButton(
-                MODE_DESCRIPTIONS[mode].split("\n")[0],
-                callback_data=f"grow:{mode}"
-            )
-        )
+    for m in XP_RANGES:
+        kb.add(types.InlineKeyboardButton(
+            MODE_DESCRIPTIONS[m].split("\n")[0],
+            callback_data=f"grow:{m}"
+        ))
 
     text = (
         "🌱 <b>Choose how to grow your Grok</b>\n\n"
         f"{MODE_DESCRIPTIONS['train']}\n\n"
         f"{MODE_DESCRIPTIONS['forage']}\n\n"
         f"{MODE_DESCRIPTIONS['gamble']}\n\n"
-        "👇 Select an option below:"
+        "👇 Select an option:"
     )
 
-    bot.send_message(
-        chat_id,
-        text,
-        reply_markup=kb,
-        parse_mode="HTML"
-    )
+    if message_id:
+        bot.edit_message_text(text, chat_id, message_id, reply_markup=kb, parse_mode="HTML")
+    else:
+        bot.send_message(chat_id, text, reply_markup=kb, parse_mode="HTML")
 
 
 # ----------------------------
-# Handler setup
+# Handlers
 # ----------------------------
 def setup(bot: TeleBot):
 
     @bot.message_handler(commands=["growmygrok"])
-    def grow_handler(message):
-        uid = message.from_user.id
-        args = (message.text or "").split()
-        now = _now_ts()
+    def grow_cmd(message):
+        show_grow_ui(bot, message.chat.id)
 
-        # Entry → show Grow UI
-        if len(args) == 1:
-            return show_grow_ui(bot, message.chat.id)
-
-        action = args[1].lower()
-        if action not in XP_RANGES:
-            return bot.reply_to(message, "❌ Invalid grow mode.")
+    @bot.callback_query_handler(func=lambda c: c.data.startswith("grow:"))
+    def grow_cb(call):
+        uid = call.from_user.id
+        chat_id = call.message.chat.id
+        msg_id = call.message.message_id
+        mode = call.data.split(":")[1]
+        now = _now()
 
         user = get_user(uid)
         if not user:
-            return bot.reply_to(message, "❌ You do not have a Grok yet.")
+            return
 
-        cd = _load_cooldowns(uid)
-        last_used = cd.get("grow_last_action", 0)
-
-        if last_used and now - last_used < GLOBAL_GROW_COOLDOWN:
-            left = GLOBAL_GROW_COOLDOWN - (now - last_used)
+        cd = _load_cd(uid)
+        last = cd.get("grow_last_action", 0)
+        if last and now - last < GLOBAL_GROW_COOLDOWN:
+            left = GLOBAL_GROW_COOLDOWN - (now - last)
             m, s = divmod(left, 60)
-            return bot.reply_to(
-                message,
+            bot.edit_message_text(
                 f"⏳ You must wait {m}m {s}s before growing again.",
-                parse_mode="HTML"
+                chat_id,
+                msg_id
             )
+            return
 
-        # -------- XP LOGIC (UNCHANGED) --------
-        lo, hi = XP_RANGES[action]
-        base_xp = random.randint(lo, hi)
+        lo, hi = XP_RANGES[mode]
+        base = random.randint(lo, hi)
 
-        flat_td, pct_td = _time_of_day_modifier()
-        evo_mult = evolutions.get_xp_multiplier_for_level(int(user.get("level", 1)))
-        streak = int(cd.get(STREAK_KEY, 0))
-        streak_mult = 1.0 + min(STREAK_CAP, streak) * STREAK_BONUS_PER
+        evo_mult = evolutions.get_xp_multiplier_for_level(user["level"])
+        streak = cd.get(STREAK_KEY, 0)
+        streak_mult = 1 + min(streak, STREAK_CAP) * STREAK_BONUS_PER
 
-        effective = base_xp
-        if effective > 0:
-            effective = int(round(effective * pct_td))
-        effective += flat_td
-        effective = int(round(effective * evo_mult * streak_mult))
+        xp = int(base * evo_mult * streak_mult)
 
-        micro = _maybe_micro_event()
-        micro_msg = None
-        if micro:
-            _, micro_msg, mdelta = micro
-            if mdelta < 0:
-                mdelta = _cap_negative(mdelta, int(user.get("xp_to_next_level", 100)))
-            effective += mdelta
+        if random.random() < MICRO_EVENT_CHANCE:
+            _, msg, delta = random.choice(MICRO_EVENTS)
+            xp += delta
+        else:
+            msg = None
 
-        effective = _cap_negative(effective, int(user.get("xp_to_next_level", 100)))
-        success = effective > 0
+        xp = _cap_negative(xp, user["xp_to_next_level"])
+        success = xp > 0
 
-        new_user, leveled_up, leveled_down = _apply_leveling_and_persist(uid, user, effective)
+        new_user, leveled_up = _apply_xp(uid, user, xp)
 
         cd["grow_last_action"] = now
-        cd[STREAK_KEY] = (streak + 1) if success else 0
-        _save_cooldowns(uid, cd)
+        cd[STREAK_KEY] = streak + 1 if success else 0
+        _save_cd(uid, cd)
 
         record_quest(uid, "grow")
         announce_leaderboard_if_changed(bot)
 
-        parts = [
-            MODE_DESCRIPTIONS[action].split("\n")[0],
-            f"📈 Effective XP: <code>{effective:+d}</code>",
-        ]
+        bar_len = 12
+        pct = int((new_user["xp_current"] / new_user["xp_to_next_level"]) * 100)
+        filled = int((pct / 100) * bar_len)
+        bar = "▓" * filled + "░" * (bar_len - filled)
 
-        parts.append(f"🔥 Streak: {cd[STREAK_KEY]}" if success else "❌ Streak reset.")
+        text = (
+            f"{MODE_DESCRIPTIONS[mode].splitlines()[0]}\n"
+            f"📈 XP: <b>{xp:+d}</b>\n"
+            f"🔥 Streak: {cd[STREAK_KEY]}\n\n"
+            f"🧬 Level {new_user['level']} — <code>{bar}</code> {pct}%\n"
+            f"⏳ Cooldown: 45m"
+        )
 
-        if micro_msg:
-            parts.append(micro_msg)
+        if msg:
+            text += f"\n\n{msg}"
         if leveled_up:
-            parts.append("🎉 <b>LEVEL UP!</b>")
-        if leveled_down:
-            parts.append("💀 <b>LEVEL DOWN!</b>")
+            text += "\n\n🎉 <b>LEVEL UP!</b>"
 
-        cur = new_user["xp_current"]
-        nxt = new_user["xp_to_next_level"]
-        pct = int((cur / nxt) * 100) if nxt > 0 else 0
-        bar = "▓" * int(pct / 5) + "░" * (20 - int(pct / 5))
+        kb = types.InlineKeyboardMarkup()
+        kb.add(types.InlineKeyboardButton("🔙 Back to XP Hub", callback_data="xphub:home"))
 
-        parts.append(f"🧬 Level {new_user['level']} — <code>{bar}</code> {pct}%")
-        parts.append(f"➡️ XP needed to next level: <b>{nxt - cur}</b>")
-        parts.append("⏳ Next grow available in 45m")
-
-        bot.reply_to(message, "\n".join(parts), parse_mode="HTML")
-
-    @bot.callback_query_handler(func=lambda call: call.data.startswith("grow:"))
-    def grow_callback(call):
-        mode = call.data.split(":", 1)[1]
-        call.message.text = f"/growmygrok {mode}"
-        grow_handler(call.message)
-
-    _debug("growmygrok handler registered")
+        bot.edit_message_text(text, chat_id, msg_id, reply_markup=kb, parse_mode="HTML")
