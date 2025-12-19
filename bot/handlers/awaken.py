@@ -1,7 +1,7 @@
 # bot/handlers/awaken.py
 #
 # MegaGrok — Main Entry & Global Navigation
-# FINAL SAFE VERSION (Revenge button only)
+# FINAL VERSION: Arena edits in-place (no chat clutter)
 
 from telebot import TeleBot, types
 
@@ -41,16 +41,18 @@ def setup(bot: TeleBot):
         msg_id = call.message.message_id
         uid = call.from_user.id
 
-        # 🧠 Training Grounds
+        # 🧠 Training Grounds (in-place)
         if action == "training":
             db.update_user_xp(uid, {"location": "TRAINING"})
             text, kb = render_hub(uid)
+
             kb.add(
                 types.InlineKeyboardButton(
                     "🔙 Back to Awaken",
                     callback_data=f"{NAV_PREFIX}home"
                 )
             )
+
             bot.edit_message_text(
                 text,
                 chat_id,
@@ -60,13 +62,22 @@ def setup(bot: TeleBot):
             )
             return
 
-        # ⚔️ Arena — OPEN PvP DIRECTLY (unchanged behavior)
+        # ⚔️ Arena (PvP) — IN-PLACE, CLEAN UX
         if action == "arena":
             db.update_user_xp(uid, {"location": "ARENA"})
             text, kb = render_pvp_main(uid)
-            bot.send_message(
-                chat_id,
+
+            kb.add(
+                types.InlineKeyboardButton(
+                    "🔙 Back to Awaken",
+                    callback_data=f"{NAV_PREFIX}home"
+                )
+            )
+
+            bot.edit_message_text(
                 text,
+                chat_id,
+                msg_id,
                 reply_markup=kb,
                 parse_mode="HTML"
             )
@@ -105,15 +116,12 @@ def setup(bot: TeleBot):
 def open_game_lobby(bot, chat_id, uid, edit=False, msg_id=None):
     get_user(uid)
 
-    # Mark awaken state
     db.update_user_xp(uid, {
         "has_awakened": 1,
         "location": "AWAKEN"
     })
 
-    # ----------------------------
-    # World + Personal Status
-    # ----------------------------
+    # World + personal status
     world_block = ""
     personal_block = ""
 
@@ -121,11 +129,8 @@ def open_game_lobby(bot, chat_id, uid, edit=False, msg_id=None):
         world_block = get_world_status()
         personal_block = get_since_you_were_gone(uid)
     except Exception:
-        pass  # Awaken must never fail due to UX helpers
+        pass  # UI helpers must never break awaken
 
-    # ----------------------------
-    # Main Text
-    # ----------------------------
     text = (
         world_block +
         personal_block +
@@ -138,9 +143,6 @@ def open_game_lobby(bot, chat_id, uid, edit=False, msg_id=None):
         "<b>Choose your path:</b>"
     )
 
-    # ----------------------------
-    # Buttons
-    # ----------------------------
     kb = types.InlineKeyboardMarkup(row_width=2)
     kb.add(
         types.InlineKeyboardButton(
@@ -153,7 +155,7 @@ def open_game_lobby(bot, chat_id, uid, edit=False, msg_id=None):
         ),
     )
 
-    # Show revenge shortcut only if relevant
+    # View Revenge shortcut (only if relevant)
     try:
         if has_unseen_pvp_attacks(uid):
             kb.add(
