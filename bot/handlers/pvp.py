@@ -310,15 +310,15 @@ def setup(bot: TeleBot):
     # ---------------------------------------------------------------
     # /pvp COMMAND
     # ---------------------------------------------------------------
-@bot.message_handler(commands=["pvp"])
-def cmd_pvp(message):    
-    uid = message.from_user.id
-    text, kb = render_pvp_main(uid)
-    bot.send_message(
-        message.chat.id,
-        text,
-        parse_mode="HTML",
-        reply_markup=kb
+    @bot.message_handler(commands=["pvp"])
+    def cmd_pvp(message):    
+        uid = message.from_user.id
+        text, kb = render_pvp_main(uid)
+        bot.send_message(
+            message.chat.id,
+            text,
+            parse_mode="HTML",
+            reply_markup=kb
     )
 
     # ---------------------------------------------------------------
