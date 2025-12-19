@@ -10,7 +10,6 @@ from telebot import TeleBot, types
 from bot.db import get_top_users, get_user
 from bot.handlers.leaderboard_views import render_grok_evolution_leaderboard
 
-
 NAV_PREFIX = "__nav__:"
 
 
@@ -21,13 +20,13 @@ def show_leaderboard_ui(
     uid: int
 ):
     # -------------------------------------------------
-    # Fetch raw leaderboard data (existing DB logic)
+    # Fetch raw leaderboard data
     # -------------------------------------------------
     raw_users = get_top_users(limit=10)
     me = get_user(uid)
 
     # -------------------------------------------------
-    # Map DB rows → view models (SAFE DECOUPLING)
+    # Map DB rows → view models
     # -------------------------------------------------
     top_users = []
     for u in raw_users:
@@ -43,11 +42,10 @@ def show_leaderboard_ui(
         })
 
     # -------------------------------------------------
-    # Current user context (optional)
+    # Current user context
     # -------------------------------------------------
     current_user = None
     if me:
-        # Find rank
         rank = None
         for idx, u in enumerate(raw_users, start=1):
             if u["user_id"] == uid:
@@ -69,7 +67,7 @@ def show_leaderboard_ui(
         }
 
     # -------------------------------------------------
-    # Render leaderboard text
+    # Render leaderboard
     # -------------------------------------------------
     text = render_grok_evolution_leaderboard(top_users, current_user)
 
@@ -89,7 +87,7 @@ def show_leaderboard_ui(
     )
 
     # -------------------------------------------------
-    # Edit message in-place (clean UX)
+    # Edit message
     # -------------------------------------------------
     bot.edit_message_text(
         text,
@@ -98,9 +96,3 @@ def show_leaderboard_ui(
         reply_markup=kb,
         parse_mode="HTML"
     )
-    # ------------------------------------------------------------------
-# Backward-compatible export
-# ------------------------------------------------------------------
-
-show_leaderboard_ui = show_grok_leaderboard
-
