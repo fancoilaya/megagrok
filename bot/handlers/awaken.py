@@ -47,8 +47,7 @@ def setup(bot: TeleBot):
     # ----------------------------
     @bot.callback_query_handler(func=lambda c: c.data.startswith(NAV_PREFIX))
     def nav_cb(call):
-        bot.answer_callback_query(call.id)
-
+        
         action = call.data.split(":", 1)[1]
         chat_id = call.message.chat.id
         msg_id = call.message.message_id
