@@ -167,6 +167,14 @@ def update_display_name(user_id: int, display_name: str):
     cursor.execute("UPDATE users SET display_name=? WHERE user_id=?", (clean, user_id))
     conn.commit()
 
+
+# ---------------------------
+# UX / GAME STATE COLUMNS
+# ---------------------------
+_add_column_if_missing("has_awakened", "INTEGER DEFAULT 0")
+_add_column_if_missing("location", "TEXT DEFAULT 'NONE'")
+
+
 # ---------------------------
 # USERNAME MANAGEMENT
 # ---------------------------
