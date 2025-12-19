@@ -1,32 +1,29 @@
 # bot/handlers/awaken.py
 #
 # MegaGrok — Awaken Entry & Global Navigation
-# This file is the SINGLE entry point to the game UX.
-# Everything routes through here.
-#
-# Safe to add, safe to remove, future-proof.
+# SINGLE source of truth for the main game lobby.
+# Designed to wrap existing systems without breaking them.
 
 from telebot import TeleBot, types
 
-from bot.db import get_user
 import bot.db as db
+from bot.db import get_user
 
-# Reuse existing UIs
+# Reuse existing UI systems
 from bot.handlers.xphub import render_hub
 from bot.profile_card import generate_profile_card
 from bot.evolutions import get_evolution_for_level
+
 
 # ----------------------------
 # Constants
 # ----------------------------
 NAV_PREFIX = "__nav__:"
-ENTRY_NAME = "Awaken"
 
 
 # ----------------------------
-# DB SAFETY (idempotent)
+# Ensure UX state columns exist (safe & idempotent)
 # ----------------------------
-# We follow your existing pattern exactly
 try:
     db._add_column_if_missing("has_awakened", "INTEGER DEFAULT 0")
     db._add_column_if_missing("location", "TEXT DEFAULT 'NONE'")
@@ -39,16 +36,16 @@ except Exception:
 # ----------------------------
 def setup(bot: TeleBot):
 
-    # ---------------------------------
+    # ----------------------------
     # /awaken (primary) + /start (alias)
-    # ---------------------------------
+    # ----------------------------
     @bot.message_handler(commands=["awaken", "start"])
     def awaken_cmd(message):
         open_game_lobby(bot, message.chat.id, message.from_user.id)
 
-    # ---------------------------------
-    # Global Navigation Callbacks
-    # ---------------------------------
+    # ----------------------------
+    # Global Navigation Router
+    # ----------------------------
     @bot.callback_query_handler(func=lambda c: c.data.startswith(NAV_PREFIX))
     def nav_cb(call):
         bot.answer_callback_query(call.id)
@@ -71,7 +68,15 @@ def setup(bot: TeleBot):
             return
 
         if action == "leaderboards":
+            show_leaderboard_choice(bot, chat_id)
+            return
+
+        if action == "lb_grok":
             bot.send_message(chat_id, "/leaderboard")
+            return
+
+        if action == "lb_arena":
+            bot.send_message(chat_id, "/pvp")
             return
 
         if action == "howtoplay":
@@ -79,12 +84,18 @@ def setup(bot: TeleBot):
             return
 
         if action == "home":
-            open_game_lobby(bot, chat_id, uid, edit=True, msg_id=msg_id)
+            open_game_lobby(
+                bot,
+                chat_id,
+                uid,
+                edit=True,
+                msg_id=msg_id
+            )
             return
 
 
 # ----------------------------
-# CORE: GAME LOBBY
+# GAME LOBBY
 # ----------------------------
 def open_game_lobby(
     bot: TeleBot,
@@ -94,10 +105,9 @@ def open_game_lobby(
     msg_id: int | None = None
 ):
     user = get_user(uid)
-
     first_time = not bool(user.get("has_awakened", 0))
 
-    # Update user state
+    # Update UX state
     db.update_user_xp(uid, {
         "has_awakened": 1,
         "location": "AWAKEN"
@@ -142,17 +152,32 @@ def build_lobby_keyboard():
     kb = types.InlineKeyboardMarkup(row_width=2)
 
     kb.add(
-        types.InlineKeyboardButton("🧠 Training Grounds", callback_data=f"{NAV_PREFIX}training"),
-        types.InlineKeyboardButton("⚔️ Enter Arena", callback_data=f"{NAV_PREFIX}arena"),
+        types.InlineKeyboardButton(
+            "🧠 Training Grounds",
+            callback_data=f"{NAV_PREFIX}training"
+        ),
+        types.InlineKeyboardButton(
+            "⚔️ Enter Arena",
+            callback_data=f"{NAV_PREFIX}arena"
+        ),
     )
 
     kb.add(
-        types.InlineKeyboardButton("🧾 My Profile", callback_data=f"{NAV_PREFIX}profile"),
-        types.InlineKeyboardButton("🏆 Leaderboards", callback_data=f"{NAV_PREFIX}leaderboards"),
+        types.InlineKeyboardButton(
+            "🧾 My Profile",
+            callback_data=f"{NAV_PREFIX}profile"
+        ),
+        types.InlineKeyboardButton(
+            "🏆 Leaderboards",
+            callback_data=f"{NAV_PREFIX}leaderboards"
+        ),
     )
 
     kb.add(
-        types.InlineKeyboardButton("❓ How to Play", callback_data=f"{NAV_PREFIX}howtoplay"),
+        types.InlineKeyboardButton(
+            "❓ How to Play",
+            callback_data=f"{NAV_PREFIX}howtoplay"
+        ),
     )
 
     return kb
@@ -161,14 +186,22 @@ def build_lobby_keyboard():
 # ----------------------------
 # PLACES
 # ----------------------------
-def enter_training_grounds(bot: TeleBot, chat_id: int, msg_id: int, uid: int):
+def enter_training_grounds(
+    bot: TeleBot,
+    chat_id: int,
+    msg_id: int,
+    uid: int
+):
     db.update_user_xp(uid, {"location": "TRAINING"})
 
     text, kb = render_hub(uid)
 
-    # Inject a "Back to Awaken" button without breaking xphub
+    # Inject Back button safely
     kb.add(
-        types.InlineKeyboardButton("🔙 Back to Awaken", callback_data=f"{NAV_PREFIX}home")
+        types.InlineKeyboardButton(
+            "🔙 Back to Awaken",
+            callback_data=f"{NAV_PREFIX}home"
+        )
     )
 
     bot.edit_message_text(
@@ -186,15 +219,18 @@ def enter_arena(bot: TeleBot, chat_id: int, uid: int):
     intro = (
         "⚔️ <b>THE ARENA OPENS</b>\n"
         "━━━━━━━━━━━━━━━━━━\n\n"
-        "Risk XP.\n"
-        "Climb the ranks.\n"
-        "Only the strong endure."
+        "Challenge other players.\n"
+        "Risk XP and ELO.\n"
+        "Only the strong climb."
     )
 
     bot.send_message(chat_id, intro, parse_mode="HTML")
-    bot.send_message(chat_id, "/battle")
+    bot.send_message(chat_id, "/pvp")
 
 
+# ----------------------------
+# PROFILE
+# ----------------------------
 def send_profile(bot: TeleBot, chat_id: int, uid: int):
     user = get_user(uid)
     if not user:
@@ -227,6 +263,38 @@ def send_profile(bot: TeleBot, chat_id: int, uid: int):
         bot.send_message(chat_id, "❌ Failed to generate profile card.")
 
 
+# ----------------------------
+# LEADERBOARD CHOOSER (Option A)
+# ----------------------------
+def show_leaderboard_choice(bot: TeleBot, chat_id: int):
+    text = (
+        "🏆 <b>LEADERBOARDS</b>\n"
+        "━━━━━━━━━━━━━━━━━━\n\n"
+        "Choose a ranking:"
+    )
+
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    kb.add(
+        types.InlineKeyboardButton(
+            "🧬 Grok Evolution Leaderboard",
+            callback_data=f"{NAV_PREFIX}lb_grok"
+        ),
+        types.InlineKeyboardButton(
+            "⚔️ Arena Leaderboard",
+            callback_data=f"{NAV_PREFIX}lb_arena"
+        ),
+        types.InlineKeyboardButton(
+            "🔙 Back to Awaken",
+            callback_data=f"{NAV_PREFIX}home"
+        ),
+    )
+
+    bot.send_message(chat_id, text, reply_markup=kb, parse_mode="HTML")
+
+
+# ----------------------------
+# HOW TO PLAY
+# ----------------------------
 def show_how_to_play(bot: TeleBot, chat_id: int):
     text = (
         "🎮 <b>HOW TO PLAY MEGAGROK</b>\n"
@@ -240,7 +308,10 @@ def show_how_to_play(bot: TeleBot, chat_id: int):
 
     kb = types.InlineKeyboardMarkup()
     kb.add(
-        types.InlineKeyboardButton("🔙 Back to Awaken", callback_data=f"{NAV_PREFIX}home")
+        types.InlineKeyboardButton(
+            "🔙 Back to Awaken",
+            callback_data=f"{NAV_PREFIX}home"
+        )
     )
 
     bot.send_message(chat_id, text, reply_markup=kb, parse_mode="HTML")
