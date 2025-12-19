@@ -535,6 +535,33 @@ def delete_attack_log_for_pair(attacker_id: int, defender_id: int):
     """
     clear_revenge_for(attacker_id, defender_id)
 
+def has_unseen_pvp_attacks(user_id: int) -> bool:
+    """
+    Returns True if the user has PvP attacks logged after their last seen alert.
+    """
+    user = get_user(user_id)
+    last_seen = int(user.get("last_pvp_alert_ts", 0) or 0)
+
+    cursor.execute("""
+        SELECT 1
+        FROM pvp_attack_log
+        WHERE defender_id=?
+          AND ts > ?
+        LIMIT 1
+    """, (user_id, last_seen))
+
+    return cursor.fetchone() is not None
+
+
+def mark_pvp_alert_seen(user_id: int):
+    """
+    Marks PvP alerts as seen up to now (does NOT clear revenge).
+    """
+    update_user_xp(user_id, {
+        "last_pvp_alert_ts": int(time.time())
+    })
+
+
 # ---------------------------
 # End of db.py
 # ---------------------------
