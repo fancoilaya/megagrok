@@ -9,7 +9,7 @@ import bot.db as db
 from bot.db import get_user
 
 from bot.handlers.xphub import render_hub
-from bot.handlers.leaderboard_ui import show_grok_leaderboard
+from bot.handlers.leaderboard_ui import show_leaderboard_ui
 from bot.profile_card import generate_profile_card
 from bot.evolutions import get_evolution_for_level
 
