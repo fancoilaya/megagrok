@@ -1,7 +1,7 @@
 # bot/handlers/awaken.py
 #
-# MegaGrok — Unified Entry & Navigation
-# SAFE VERSION: additive only, no PvP rewrites
+# MegaGrok — Main Entry & Global Navigation
+# STABLE VERSION with clarified welcome copy
 
 from telebot import TeleBot, types
 
@@ -9,7 +9,7 @@ import bot.db as db
 from bot.db import get_user
 
 from bot.handlers.xphub import render_hub
-from bot.handlers.pvp import render_pvp_main   # <-- additive helper only
+from bot.handlers.leaderboard_ui import show_grok_leaderboard
 from bot.profile_card import generate_profile_card
 from bot.evolutions import get_evolution_for_level
 
@@ -36,7 +36,7 @@ def setup(bot: TeleBot):
         uid = call.from_user.id
 
         # ----------------------------
-        # 🧠 Training Grounds (XP Hub)
+        # 🧠 Training Grounds
         # ----------------------------
         if action == "training":
             db.update_user_xp(uid, {"location": "TRAINING"})
@@ -57,22 +57,14 @@ def setup(bot: TeleBot):
             return
 
         # ----------------------------
-        # ⚔️ Arena (PvP) — SAME UX PATTERN
+        # ⚔️ Arena (PvP stays untouched)
         # ----------------------------
         if action == "arena":
             db.update_user_xp(uid, {"location": "ARENA"})
-            text, kb = render_pvp_main(uid)
-            kb.add(
-                types.InlineKeyboardButton(
-                    "🔙 Back to Awaken",
-                    callback_data=f"{NAV_PREFIX}home"
-                )
-            )
             bot.edit_message_text(
-                text,
+                "⚔️ <b>MEGAGROK PvP ARENA</b>\n\nUse /pvp to enter the Arena.",
                 chat_id,
                 msg_id,
-                reply_markup=kb,
                 parse_mode="HTML"
             )
             return
@@ -85,18 +77,10 @@ def setup(bot: TeleBot):
             return
 
         # ----------------------------
-        # 🏆 Leaderboards (chooser)
+        # 🏆 Leaderboards (Grok Evolution)
         # ----------------------------
         if action == "leaderboards":
-            show_leaderboard_choice(bot, chat_id)
-            return
-
-        if action == "lb_grok":
-            bot.send_message(chat_id, "/leaderboard")
-            return
-
-        if action == "lb_arena":
-            bot.send_message(chat_id, "/pvp")
+            show_grok_leaderboard(bot, chat_id, msg_id, uid)
             return
 
         # ----------------------------
@@ -124,7 +108,7 @@ def setup(bot: TeleBot):
 # Awaken Lobby
 # -------------------------------------------------
 def open_game_lobby(bot, chat_id, uid, edit=False, msg_id=None):
-    user = get_user(uid)
+    get_user(uid)  # ensure user exists
 
     db.update_user_xp(uid, {
         "has_awakened": 1,
@@ -139,20 +123,34 @@ def open_game_lobby(bot, chat_id, uid, edit=False, msg_id=None):
         "⚔️ <b>Arena</b>\n"
         "Challenge other players, risk XP & ELO, and climb the ranks.\n\n"
         "<b>Choose your path:</b>"
-        
     )
 
     kb = types.InlineKeyboardMarkup(row_width=2)
     kb.add(
-        types.InlineKeyboardButton("🧠 Training Grounds", callback_data=f"{NAV_PREFIX}training"),
-        types.InlineKeyboardButton("⚔️ Enter Arena", callback_data=f"{NAV_PREFIX}arena"),
+        types.InlineKeyboardButton(
+            "🧠 Training Grounds",
+            callback_data=f"{NAV_PREFIX}training"
+        ),
+        types.InlineKeyboardButton(
+            "⚔️ Enter Arena",
+            callback_data=f"{NAV_PREFIX}arena"
+        ),
     )
     kb.add(
-        types.InlineKeyboardButton("🧾 My Profile", callback_data=f"{NAV_PREFIX}profile"),
-        types.InlineKeyboardButton("🏆 Leaderboards", callback_data=f"{NAV_PREFIX}leaderboards"),
+        types.InlineKeyboardButton(
+            "🧾 My Profile",
+            callback_data=f"{NAV_PREFIX}profile"
+        ),
+        types.InlineKeyboardButton(
+            "🏆 Leaderboards",
+            callback_data=f"{NAV_PREFIX}leaderboards"
+        ),
     )
     kb.add(
-        types.InlineKeyboardButton("❓ How to Play", callback_data=f"{NAV_PREFIX}howtoplay"),
+        types.InlineKeyboardButton(
+            "❓ How to Play",
+            callback_data=f"{NAV_PREFIX}howtoplay"
+        ),
     )
 
     if edit:
@@ -184,7 +182,11 @@ def send_profile(bot, chat_id, uid):
 
     data = {
         "user_id": uid,
-        "display_name": user.get("display_name") or user.get("username") or f"User{uid}",
+        "display_name": (
+            user.get("display_name")
+            or user.get("username")
+            or f"User{uid}"
+        ),
         "level": user.get("level", 1),
         "xp_current": user.get("xp_current", 0),
         "xp_to_next_level": user.get("xp_to_next_level", 100),
@@ -204,26 +206,6 @@ def send_profile(bot, chat_id, uid):
 
 
 # -------------------------------------------------
-# Leaderboard chooser
-# -------------------------------------------------
-def show_leaderboard_choice(bot, chat_id):
-    text = (
-        "🏆 <b>LEADERBOARDS</b>\n"
-        "━━━━━━━━━━━━━━━━━━\n\n"
-        "Choose a ranking:"
-    )
-
-    kb = types.InlineKeyboardMarkup(row_width=1)
-    kb.add(
-        types.InlineKeyboardButton("🧬 Grok Evolution Leaderboard", callback_data=f"{NAV_PREFIX}lb_grok"),
-        types.InlineKeyboardButton("⚔️ Arena Leaderboard", callback_data=f"{NAV_PREFIX}lb_arena"),
-        types.InlineKeyboardButton("🔙 Back to Awaken", callback_data=f"{NAV_PREFIX}home"),
-    )
-
-    bot.send_message(chat_id, text, reply_markup=kb, parse_mode="HTML")
-
-
-# -------------------------------------------------
 # How to Play
 # -------------------------------------------------
 def show_how_to_play(bot, chat_id):
@@ -239,7 +221,15 @@ def show_how_to_play(bot, chat_id):
 
     kb = types.InlineKeyboardMarkup()
     kb.add(
-        types.InlineKeyboardButton("🔙 Back to Awaken", callback_data=f"{NAV_PREFIX}home")
+        types.InlineKeyboardButton(
+            "🔙 Back to Awaken",
+            callback_data=f"{NAV_PREFIX}home"
+        )
     )
 
-    bot.send_message(chat_id, text, reply_markup=kb, parse_mode="HTML")
+    bot.send_message(
+        chat_id,
+        text,
+        reply_markup=kb,
+        parse_mode="HTML"
+    )
