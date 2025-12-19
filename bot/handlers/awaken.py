@@ -1,34 +1,40 @@
 # bot/handlers/awaken.py
 #
 # MegaGrok — Main Entry & Global Navigation
-# FINAL, CORRECT VERSION
+# FINAL STABLE VERSION (World Status + Since You Were Gone)
 
 from telebot import TeleBot, types
+import time
 
 import bot.db as db
 from bot.db import get_user
 
 from bot.handlers.xphub import render_hub
 from bot.handlers.leaderboard_ui import show_leaderboard_ui
-from bot.handlers.pvp import render_pvp_main   # 🔑 THIS IS THE KEY
+from bot.handlers.pvp import render_pvp_main
 from bot.profile_card import generate_profile_card
 from bot.evolutions import get_evolution_for_level
+
+from bot.ui.world_status import get_world_status, get_since_you_were_gone
 
 NAV_PREFIX = "__nav__:"
 
 
+# -------------------------------------------------
+# Setup
+# -------------------------------------------------
 def setup(bot: TeleBot):
 
-    # -------------------------------------------------
+    # ----------------------------
     # /awaken entry
-    # -------------------------------------------------
+    # ----------------------------
     @bot.message_handler(commands=["awaken", "start"])
     def awaken_cmd(message):
         open_game_lobby(bot, message.chat.id, message.from_user.id)
 
-    # -------------------------------------------------
+    # ----------------------------
     # Navigation callbacks
-    # -------------------------------------------------
+    # ----------------------------
     @bot.callback_query_handler(func=lambda c: c.data.startswith(NAV_PREFIX))
     def nav_cb(call):
         action = call.data.split(":", 1)[1]
@@ -55,7 +61,7 @@ def setup(bot: TeleBot):
             )
             return
 
-        # ⚔️ Arena — OPEN PvP DIRECTLY (CORRECT)
+        # ⚔️ Arena — OPEN PvP DIRECTLY
         if action == "arena":
             db.update_user_xp(uid, {"location": "ARENA"})
             text, kb = render_pvp_main(uid)
@@ -100,12 +106,30 @@ def setup(bot: TeleBot):
 def open_game_lobby(bot, chat_id, uid, edit=False, msg_id=None):
     get_user(uid)
 
+    # Mark awaken
     db.update_user_xp(uid, {
         "has_awakened": 1,
         "location": "AWAKEN"
     })
 
+    # ----------------------------
+    # World + Personal Status
+    # ----------------------------
+    world_block = ""
+    personal_block = ""
+
+    try:
+        world_block = get_world_status()
+        personal_block = get_since_you_were_gone(uid)
+    except Exception:
+        pass  # Awaken must never fail
+
+    # ----------------------------
+    # Main Text
+    # ----------------------------
     text = (
+        world_block +
+        personal_block +
         "⚡ <b>WELCOME BACK, AWAKENED ONE</b>\n"
         "━━━━━━━━━━━━━━━━━━\n\n"
         "🧠 <b>Training Grounds</b>\n"
@@ -115,6 +139,9 @@ def open_game_lobby(bot, chat_id, uid, edit=False, msg_id=None):
         "<b>Choose your path:</b>"
     )
 
+    # ----------------------------
+    # Buttons
+    # ----------------------------
     kb = types.InlineKeyboardMarkup(row_width=2)
     kb.add(
         types.InlineKeyboardButton(
