@@ -159,7 +159,7 @@ def render_hub(uid: int):
     )
 
     kb.add(
-        types.InlineKeyboardButton("⚔️ Battle", callback_data=f"{XP_PREFIX}battle"),
+        types.InlineKeyboardButton("🗡 Fight Mobs", callback_data=f"{XP_PREFIX}battle"),
         types.InlineKeyboardButton("🧬 Evolution", callback_data=f"{XP_PREFIX}evolution"),
     )
 
