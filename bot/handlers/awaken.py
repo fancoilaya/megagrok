@@ -134,7 +134,12 @@ def open_game_lobby(bot, chat_id, uid, edit=False, msg_id=None):
     text = (
         "⚡ <b>WELCOME BACK, AWAKENED ONE</b>\n"
         "━━━━━━━━━━━━━━━━━━\n\n"
-        "Your Grok awaits its next move."
+        "🧠 <b>Training Grounds</b>\n"
+        "Grow your Grok, fight mobs, earn XP, and evolve.\n\n"
+        "⚔️ <b>Arena</b>\n"
+        "Challenge other players, risk XP & ELO, and climb the ranks.\n\n"
+        "<b>Choose your path:</b>"
+        
     )
 
     kb = types.InlineKeyboardMarkup(row_width=2)
