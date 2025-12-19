@@ -1,14 +1,15 @@
 # bot/handlers/awaken.py
 #
 # MegaGrok — Awaken Entry & Global Navigation
-# Single source of truth for the main game lobby and place routing.
+# RULE: Awaken buttons always open REAL working menus.
+# No intermediate screens. No dead UX.
 
 from telebot import TeleBot, types
 
 import bot.db as db
 from bot.db import get_user
 
-# Reuse existing systems
+# Existing systems
 from bot.handlers.xphub import render_hub
 from bot.profile_card import generate_profile_card
 from bot.evolutions import get_evolution_for_level
@@ -47,28 +48,48 @@ def setup(bot: TeleBot):
     # ----------------------------
     @bot.callback_query_handler(func=lambda c: c.data.startswith(NAV_PREFIX))
     def nav_cb(call):
-        
         action = call.data.split(":", 1)[1]
         chat_id = call.message.chat.id
         msg_id = call.message.message_id
         uid = call.from_user.id
 
+        # 🧠 Training Grounds (XP Hub)
         if action == "training":
-            enter_training_grounds(bot, chat_id, msg_id, uid)
+            db.update_user_xp(uid, {"location": "TRAINING"})
+            text, kb = render_hub(uid)
+            kb.add(
+                types.InlineKeyboardButton(
+                    "🔙 Back to Awaken",
+                    callback_data=f"{NAV_PREFIX}home"
+                )
+            )
+            bot.edit_message_text(
+                text,
+                chat_id,
+                msg_id,
+                reply_markup=kb,
+                parse_mode="HTML"
+            )
             return
 
+        # ⚔️ Arena (PvP) — DIRECTLY OPEN PvP MENU
         if action == "arena":
-            enter_arena(bot, chat_id, msg_id, uid)
-            return
-
-        if action == "pvp_start":
+            db.update_user_xp(uid, {"location": "ARENA"})
+            bot.edit_message_text(
+                "⚔️ <b>MEGAGROK PvP ARENA</b>\n\nLoading Arena…",
+                chat_id,
+                msg_id,
+                parse_mode="HTML"
+            )
             bot.send_message(chat_id, "/pvp")
             return
 
+        # 🧾 Profile
         if action == "profile":
             send_profile(bot, chat_id, uid)
             return
 
+        # 🏆 Leaderboards (choice screen)
         if action == "leaderboards":
             show_leaderboard_choice(bot, chat_id)
             return
@@ -81,10 +102,12 @@ def setup(bot: TeleBot):
             bot.send_message(chat_id, "/pvp")
             return
 
+        # ❓ How to Play
         if action == "howtoplay":
             show_how_to_play(bot, chat_id)
             return
 
+        # 🔙 Back to Awaken
         if action == "home":
             open_game_lobby(
                 bot,
@@ -109,7 +132,6 @@ def open_game_lobby(
     user = get_user(uid)
     first_time = not bool(user.get("has_awakened", 0))
 
-    # Update UX state
     db.update_user_xp(uid, {
         "has_awakened": 1,
         "location": "AWAKEN"
@@ -183,73 +205,6 @@ def build_lobby_keyboard():
     )
 
     return kb
-
-
-# ----------------------------
-# PLACES
-# ----------------------------
-def enter_training_grounds(
-    bot: TeleBot,
-    chat_id: int,
-    msg_id: int,
-    uid: int
-):
-    db.update_user_xp(uid, {"location": "TRAINING"})
-
-    text, kb = render_hub(uid)
-
-    kb.add(
-        types.InlineKeyboardButton(
-            "🔙 Back to Awaken",
-            callback_data=f"{NAV_PREFIX}home"
-        )
-    )
-
-    bot.edit_message_text(
-        text,
-        chat_id,
-        msg_id,
-        reply_markup=kb,
-        parse_mode="HTML"
-    )
-
-
-def enter_arena(
-    bot: TeleBot,
-    chat_id: int,
-    msg_id: int,
-    uid: int
-):
-    db.update_user_xp(uid, {"location": "ARENA"})
-
-    text = (
-        "⚔️ <b>THE ARENA</b>\n"
-        "━━━━━━━━━━━━━━━━━━\n\n"
-        "Challenge other players.\n"
-        "Risk XP and ELO.\n"
-        "Only the strong climb.\n\n"
-        "<b>What will you do?</b>"
-    )
-
-    kb = types.InlineKeyboardMarkup(row_width=1)
-    kb.add(
-        types.InlineKeyboardButton(
-            "⚔️ Enter PvP Arena",
-            callback_data=f"{NAV_PREFIX}pvp_start"
-        ),
-        types.InlineKeyboardButton(
-            "🔙 Back to Awaken",
-            callback_data=f"{NAV_PREFIX}home"
-        ),
-    )
-
-    bot.edit_message_text(
-        text,
-        chat_id,
-        msg_id,
-        reply_markup=kb,
-        parse_mode="HTML"
-    )
 
 
 # ----------------------------
