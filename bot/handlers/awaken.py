@@ -1,15 +1,14 @@
 # bot/handlers/awaken.py
 #
 # MegaGrok — Awaken Entry & Global Navigation
-# SINGLE source of truth for the main game lobby.
-# Designed to wrap existing systems without breaking them.
+# Single source of truth for the main game lobby and place routing.
 
 from telebot import TeleBot, types
 
 import bot.db as db
 from bot.db import get_user
 
-# Reuse existing UI systems
+# Reuse existing systems
 from bot.handlers.xphub import render_hub
 from bot.profile_card import generate_profile_card
 from bot.evolutions import get_evolution_for_level
@@ -60,7 +59,11 @@ def setup(bot: TeleBot):
             return
 
         if action == "arena":
-            enter_arena(bot, chat_id, uid)
+            enter_arena(bot, chat_id, msg_id, uid)
+            return
+
+        if action == "pvp_start":
+            bot.send_message(chat_id, "/pvp")
             return
 
         if action == "profile":
@@ -196,7 +199,6 @@ def enter_training_grounds(
 
     text, kb = render_hub(uid)
 
-    # Inject Back button safely
     kb.add(
         types.InlineKeyboardButton(
             "🔙 Back to Awaken",
@@ -213,19 +215,42 @@ def enter_training_grounds(
     )
 
 
-def enter_arena(bot: TeleBot, chat_id: int, uid: int):
+def enter_arena(
+    bot: TeleBot,
+    chat_id: int,
+    msg_id: int,
+    uid: int
+):
     db.update_user_xp(uid, {"location": "ARENA"})
 
-    intro = (
-        "⚔️ <b>THE ARENA OPENS</b>\n"
+    text = (
+        "⚔️ <b>THE ARENA</b>\n"
         "━━━━━━━━━━━━━━━━━━\n\n"
         "Challenge other players.\n"
         "Risk XP and ELO.\n"
-        "Only the strong climb."
+        "Only the strong climb.\n\n"
+        "<b>What will you do?</b>"
     )
 
-    bot.send_message(chat_id, intro, parse_mode="HTML")
-    bot.send_message(chat_id, "/pvp")
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    kb.add(
+        types.InlineKeyboardButton(
+            "⚔️ Enter PvP Arena",
+            callback_data=f"{NAV_PREFIX}pvp_start"
+        ),
+        types.InlineKeyboardButton(
+            "🔙 Back to Awaken",
+            callback_data=f"{NAV_PREFIX}home"
+        ),
+    )
+
+    bot.edit_message_text(
+        text,
+        chat_id,
+        msg_id,
+        reply_markup=kb,
+        parse_mode="HTML"
+    )
 
 
 # ----------------------------
@@ -264,7 +289,7 @@ def send_profile(bot: TeleBot, chat_id: int, uid: int):
 
 
 # ----------------------------
-# LEADERBOARD CHOOSER (Option A)
+# LEADERBOARD CHOOSER
 # ----------------------------
 def show_leaderboard_choice(bot: TeleBot, chat_id: int):
     text = (
