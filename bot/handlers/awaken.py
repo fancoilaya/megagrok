@@ -1,12 +1,12 @@
 # bot/handlers/awaken.py
 #
 # MegaGrok — Main Entry & Global Navigation
-# FINAL STABLE VERSION
+# FINAL SAFE VERSION (Revenge button only)
 
 from telebot import TeleBot, types
 
 import bot.db as db
-from bot.db import get_user
+from bot.db import get_user, has_unseen_pvp_attacks
 
 from bot.handlers.xphub import render_hub
 from bot.handlers.leaderboard_ui import show_leaderboard_ui
@@ -121,8 +121,7 @@ def open_game_lobby(bot, chat_id, uid, edit=False, msg_id=None):
         world_block = get_world_status()
         personal_block = get_since_you_were_gone(uid)
     except Exception:
-        # Awaken must never fail due to UX helpers
-        pass
+        pass  # Awaken must never fail due to UX helpers
 
     # ----------------------------
     # Main Text
@@ -153,6 +152,19 @@ def open_game_lobby(bot, chat_id, uid, edit=False, msg_id=None):
             callback_data=f"{NAV_PREFIX}arena"
         ),
     )
+
+    # Show revenge shortcut only if relevant
+    try:
+        if has_unseen_pvp_attacks(uid):
+            kb.add(
+                types.InlineKeyboardButton(
+                    "⚔️ View Revenge",
+                    callback_data=f"{NAV_PREFIX}arena"
+                )
+            )
+    except Exception:
+        pass
+
     kb.add(
         types.InlineKeyboardButton(
             "🧾 My Profile",
