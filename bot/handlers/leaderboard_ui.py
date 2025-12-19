@@ -98,3 +98,9 @@ def show_leaderboard_ui(
         reply_markup=kb,
         parse_mode="HTML"
     )
+    # ------------------------------------------------------------------
+# Backward-compatible export
+# ------------------------------------------------------------------
+
+show_leaderboard_ui = show_grok_leaderboard
+
