@@ -1,7 +1,6 @@
 # bot/handlers/awaken.py
 #
 # MegaGrok — Main Entry & Global Navigation
-# STABLE VERSION with clarified welcome copy
 
 from telebot import TeleBot, types
 
@@ -13,21 +12,21 @@ from bot.handlers.leaderboard_ui import show_leaderboard_ui
 from bot.profile_card import generate_profile_card
 from bot.evolutions import get_evolution_for_level
 
-
 NAV_PREFIX = "__nav__:"
 
 
-# -------------------------------------------------
-# Setup
-# -------------------------------------------------
 def setup(bot: TeleBot):
 
-    # /awaken (primary entry)
+    # -------------------------------------------------
+    # /awaken entry
+    # -------------------------------------------------
     @bot.message_handler(commands=["awaken", "start"])
     def awaken_cmd(message):
         open_game_lobby(bot, message.chat.id, message.from_user.id)
 
-    # Navigation router
+    # -------------------------------------------------
+    # Navigation callbacks
+    # -------------------------------------------------
     @bot.callback_query_handler(func=lambda c: c.data.startswith(NAV_PREFIX))
     def nav_cb(call):
         action = call.data.split(":", 1)[1]
@@ -35,9 +34,7 @@ def setup(bot: TeleBot):
         msg_id = call.message.message_id
         uid = call.from_user.id
 
-        # ----------------------------
         # 🧠 Training Grounds
-        # ----------------------------
         if action == "training":
             db.update_user_xp(uid, {"location": "TRAINING"})
             text, kb = render_hub(uid)
@@ -56,43 +53,33 @@ def setup(bot: TeleBot):
             )
             return
 
-        # ----------------------------
-        # ⚔️ Arena (PvP stays untouched)
-        # ----------------------------
+        # ⚔️ Arena (PvP untouched)
         if action == "arena":
             db.update_user_xp(uid, {"location": "ARENA"})
             bot.edit_message_text(
-                "⚔️ <b>MEGAGROK PvP ARENA</b>\n\nUse /pvp to enter the Arena.",
+                "⚔️ <b>MEGAGROK PvP ARENA</b>\n\nUse <code>/pvp</code> to enter the Arena.",
                 chat_id,
                 msg_id,
                 parse_mode="HTML"
             )
             return
 
-        # ----------------------------
         # 🧾 Profile
-        # ----------------------------
         if action == "profile":
             send_profile(bot, chat_id, uid)
             return
 
-        # ----------------------------
-        # 🏆 Leaderboards (Grok Evolution)
-        # ----------------------------
+        # 🏆 Leaderboards
         if action == "leaderboards":
-            show_grok_leaderboard(bot, chat_id, msg_id, uid)
+            show_leaderboard_ui(bot, chat_id, msg_id, uid)
             return
 
-        # ----------------------------
         # ❓ How to Play
-        # ----------------------------
         if action == "howtoplay":
             show_how_to_play(bot, chat_id)
             return
 
-        # ----------------------------
         # 🔙 Back to Awaken
-        # ----------------------------
         if action == "home":
             open_game_lobby(
                 bot,
@@ -108,7 +95,7 @@ def setup(bot: TeleBot):
 # Awaken Lobby
 # -------------------------------------------------
 def open_game_lobby(bot, chat_id, uid, edit=False, msg_id=None):
-    get_user(uid)  # ensure user exists
+    get_user(uid)
 
     db.update_user_xp(uid, {
         "has_awakened": 1,
