@@ -1,10 +1,9 @@
 # bot/handlers/awaken.py
 #
 # MegaGrok — Main Entry & Global Navigation
-# FINAL STABLE VERSION (World Status + Since You Were Gone)
+# FINAL STABLE VERSION
 
 from telebot import TeleBot, types
-import time
 
 import bot.db as db
 from bot.db import get_user
@@ -61,7 +60,7 @@ def setup(bot: TeleBot):
             )
             return
 
-        # ⚔️ Arena — OPEN PvP DIRECTLY
+        # ⚔️ Arena — OPEN PvP DIRECTLY (unchanged behavior)
         if action == "arena":
             db.update_user_xp(uid, {"location": "ARENA"})
             text, kb = render_pvp_main(uid)
@@ -106,7 +105,7 @@ def setup(bot: TeleBot):
 def open_game_lobby(bot, chat_id, uid, edit=False, msg_id=None):
     get_user(uid)
 
-    # Mark awaken
+    # Mark awaken state
     db.update_user_xp(uid, {
         "has_awakened": 1,
         "location": "AWAKEN"
@@ -122,7 +121,8 @@ def open_game_lobby(bot, chat_id, uid, edit=False, msg_id=None):
         world_block = get_world_status()
         personal_block = get_since_you_were_gone(uid)
     except Exception:
-        pass  # Awaken must never fail
+        # Awaken must never fail due to UX helpers
+        pass
 
     # ----------------------------
     # Main Text
