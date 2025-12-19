@@ -1,8 +1,7 @@
 # bot/handlers/leaderboard_views.py
 #
-# UI renderers for leaderboards.
-# NO database logic. NO bot calls.
-# Pure formatting only.
+# PURE UI RENDERERS FOR LEADERBOARDS
+# No DB calls. No bot calls. Formatting only.
 
 from typing import List, Dict, Optional
 
@@ -12,15 +11,19 @@ def render_grok_evolution_leaderboard(
     current_user: Optional[Dict] = None
 ) -> str:
     """
-    Renders the Grok Evolution Leaderboard (XP / Level based)
+    Renders the Grok Evolution Leaderboard (XP / Level based).
 
     Expected keys per user dict:
     - display_name
     - level
     - xp_total
     - evolution (optional)
-    - rank (for current_user)
-    - xp_to_top10 (optional, current_user)
+
+    Expected keys for current_user (optional):
+    - rank
+    - level
+    - xp_total
+    - xp_to_top10 (optional)
     """
 
     lines: List[str] = []
@@ -36,7 +39,7 @@ def render_grok_evolution_leaderboard(
     )
 
     # -------------------------------------------------
-    # TOP 3 (HERO SECTION)
+    # TOP 3 — HERO SECTION
     # -------------------------------------------------
     medals = ["🥇", "🥈", "🥉"]
     for i, u in enumerate(top_users[:3]):
@@ -72,7 +75,7 @@ def render_grok_evolution_leaderboard(
             )
 
     # -------------------------------------------------
-    # FOOTER / CTA
+    # FOOTER
     # -------------------------------------------------
     lines.append(
         "\n━━━━━━━━━━━━━━━━━━━━━━\n"
