@@ -21,6 +21,22 @@ PVP_SHIELD_SECONDS = 3 * 3600
 UI_EDIT_THROTTLE_SECONDS = 1.0
 PVP_ELO_K = 32
 
+
+# --- ADD THIS (do not modify existing code) ---
+def render_pvp_main(user_id: int):
+    u = db.get_user(user_id)
+    rank, _ = ranking_module.elo_to_rank(int(u.get("elo_pvp", 1000)))
+
+    text = (
+        "⚔️ <b>MEGAGROK PvP ARENA</b>\n\n"
+        f"Welcome, <b>{get_display_name(u)}</b>!\n\n"
+        f"🏅 Rank: <b>{rank}</b>\n"
+        f"🎯 ELO: <b>{u.get('elo_pvp', 1000)}</b>\n\n"
+        "Choose an option:"
+    )
+
+    return text, menu_main(user_id)
+
 # -------------------------
 # Leaderboard info
 # -------------------------
@@ -295,24 +311,15 @@ def setup(bot: TeleBot):
     # /pvp COMMAND
     # ---------------------------------------------------------------
     @bot.message_handler(commands=["pvp"])
-    def cmd_pvp(message):
-        uid = message.from_user.id
-        u = db.get_user(uid)
-        rank, _ = ranking_module.elo_to_rank(int(u.get("elo_pvp", 1000)))
-
-        text = (
-            "⚔️ *MEGAGROK PvP ARENA*\n\n"
-            f"Welcome, {get_display_name(u)}!\n\n"
-            f"📈 Rank: *{rank}* — ELO: *{u.get('elo_pvp',1000)}*\n\n"
-            "Choose an option:"
-        )
-
-        bot.reply_to(
-            message,
-            text,
-            parse_mode="Markdown",
-            reply_markup=menu_main(uid),
-        )
+   def cmd_pvp(message):
+    uid = message.from_user.id
+    text, kb = render_pvp_main(uid)
+    bot.send_message(
+        message.chat.id,
+        text,
+        parse_mode="HTML",
+        reply_markup=kb
+    )
 
     # ---------------------------------------------------------------
     # MENU: MAIN / HELP / STATS / BROWSE / RECOMMENDED / REVENGE
