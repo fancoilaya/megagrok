@@ -92,6 +92,7 @@ _add_column_if_missing("pvp_successful_defenses", "INTEGER DEFAULT 0")
 _add_column_if_missing("pvp_failed_defenses", "INTEGER DEFAULT 0")
 _add_column_if_missing("pvp_challenges_received", "INTEGER DEFAULT 0")
 _add_column_if_missing("pvp_shield_until", "INTEGER DEFAULT 0")
+_add_column_if_missing("last_pvp_alert_ts", "INTEGER DEFAULT 0")
 
 # Ensure last_active column (for recent activity / recommended targets)
 _add_column_if_missing("last_active", "INTEGER DEFAULT 0")
