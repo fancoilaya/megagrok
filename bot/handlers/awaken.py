@@ -1,6 +1,7 @@
 # bot/handlers/awaken.py
 #
 # MegaGrok — Main Entry & Global Navigation
+# FINAL STABLE VERSION
 
 from telebot import TeleBot, types
 
@@ -15,18 +16,21 @@ from bot.evolutions import get_evolution_for_level
 NAV_PREFIX = "__nav__:"
 
 
+# -------------------------------------------------
+# Setup
+# -------------------------------------------------
 def setup(bot: TeleBot):
 
-    # -------------------------------------------------
+    # ----------------------------
     # /awaken entry
-    # -------------------------------------------------
+    # ----------------------------
     @bot.message_handler(commands=["awaken", "start"])
     def awaken_cmd(message):
         open_game_lobby(bot, message.chat.id, message.from_user.id)
 
-    # -------------------------------------------------
+    # ----------------------------
     # Navigation callbacks
-    # -------------------------------------------------
+    # ----------------------------
     @bot.callback_query_handler(func=lambda c: c.data.startswith(NAV_PREFIX))
     def nav_cb(call):
         action = call.data.split(":", 1)[1]
@@ -53,15 +57,10 @@ def setup(bot: TeleBot):
             )
             return
 
-        # ⚔️ Arena (PvP untouched)
+        # ⚔️ Arena — RESTORED BEHAVIOR (LAUNCH PvP)
         if action == "arena":
             db.update_user_xp(uid, {"location": "ARENA"})
-            bot.edit_message_text(
-                "⚔️ <b>MEGAGROK PvP ARENA</b>\n\nUse <code>/pvp</code> to enter the Arena.",
-                chat_id,
-                msg_id,
-                parse_mode="HTML"
-            )
+            bot.send_message(chat_id, "/pvp")
             return
 
         # 🧾 Profile
