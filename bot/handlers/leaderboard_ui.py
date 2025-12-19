@@ -14,7 +14,7 @@ from bot.handlers.leaderboard_views import render_grok_evolution_leaderboard
 NAV_PREFIX = "__nav__:"
 
 
-def show_grok_leaderboard(
+def show_leaderboard_ui(
     bot: TeleBot,
     chat_id: int,
     message_id: int,
