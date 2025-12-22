@@ -48,7 +48,7 @@ def get_online_players(exclude_id: int):
         if now - last_active > ONLINE_WINDOW:
             continue
 
-        # Skip shielded users (if applicable)
+        # Skip shielded users if present
         if u.get("pvp_shield_until", 0) > now:
             continue
 
@@ -81,13 +81,13 @@ def render_turn_kb():
 
 
 # -------------------------------------------------------------------
-# HANDLER SETUP
+# HANDLERS
 # -------------------------------------------------------------------
 
 def setup(bot: TeleBot):
 
     # ---------------------------------------------------------------
-    # /challenge command
+    # /challenge
     # ---------------------------------------------------------------
     @bot.message_handler(commands=["challenge"])
     def challenge_menu(message):
@@ -103,7 +103,7 @@ def setup(bot: TeleBot):
         players = get_online_players(uid)
 
         if not players:
-            bot.reply_to(message, "😴 No players available to challenge right now.")
+            bot.reply_to(message, "😴 No players online to challenge.")
             return
 
         kb = types.InlineKeyboardMarkup(row_width=1)
@@ -114,7 +114,7 @@ def setup(bot: TeleBot):
 
             kb.add(
                 types.InlineKeyboardButton(
-                    f"⚔️ {name} (Lv {level})",
+                    f"🟢 {name} (Lv {level})",
                     callback_data=f"challenge:send:{pid}",
                 )
             )
@@ -171,9 +171,7 @@ def setup(bot: TeleBot):
     @bot.callback_query_handler(func=lambda c: c.data.startswith("challenge:accept:"))
     def accept_cb(call):
         tick()
-
-        uid = call.from_user.id
-        db.touch_last_active(uid)
+        db.touch_last_active(call.from_user.id)
 
         session_id = call.data.split(":")[2]
         if not accept_challenge(session_id):
@@ -206,7 +204,6 @@ def setup(bot: TeleBot):
     @bot.callback_query_handler(func=lambda c: c.data == "challenge:attack")
     def attack_cb(call):
         tick()
-
         uid = call.from_user.id
         db.touch_last_active(uid)
 
@@ -221,21 +218,11 @@ def setup(bot: TeleBot):
         if attack(session, uid):
             end_turn(session)
 
-        if session["state"] == "FINISHED":
-            bot.send_message(uid, "🏆 <b>You won the duel!</b>", parse_mode="HTML")
-        else:
-            player = session["turn_owner"]
-            bot.send_message(
-                player,
-                render_turn_text(session, player),
-                reply_markup=render_turn_kb(),
-                parse_mode="HTML",
-            )
+        _send_next_turn(bot, session)
 
     @bot.callback_query_handler(func=lambda c: c.data == "challenge:defend")
     def defend_cb(call):
         tick()
-
         uid = call.from_user.id
         db.touch_last_active(uid)
 
@@ -250,13 +237,18 @@ def setup(bot: TeleBot):
         if defend(session, uid):
             end_turn(session)
 
-        if session["state"] == "FINISHED":
-            bot.send_message(uid, "🏆 <b>You won the duel!</b>", parse_mode="HTML")
-        else:
-            player = session["turn_owner"]
-            bot.send_message(
-                player,
-                render_turn_text(session, player),
-                reply_markup=render_turn_kb(),
-                parse_mode="HTML",
-            )
+        _send_next_turn(bot, session)
+
+
+def _send_next_turn(bot, session):
+    if session["state"] == "FINISHED":
+        bot.send_message(session["winner"], "🏆 <b>You won the duel!</b>", parse_mode="HTML")
+        return
+
+    player = session["turn_owner"]
+    bot.send_message(
+        player,
+        render_turn_text(session, player),
+        reply_markup=render_turn_kb(),
+        parse_mode="HTML",
+    )
