@@ -216,7 +216,7 @@ class PvPFightSession:
             self.winner = "attacker"
 
             if self.revenge_fury:
-                db.mark_revenge_complete(self.attacker_id, self.defender_id)
+                db.mark_revenge_complete(self.defender_id, self.attacker_id)
 
             return
 
@@ -276,7 +276,7 @@ class PvPFightSession:
             self.winner = "defender"
 
             if self.revenge_fury:
-                db.mark_revenge_complete(self.attacker_id, self.defender_id)
+                db.mark_revenge_complete(self.defender_id, self.attacker_id)
 
         d.pop("_block_active", None)
         d.pop("_dodge_active", None)
