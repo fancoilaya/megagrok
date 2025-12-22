@@ -217,6 +217,15 @@ class PvPFightSession:
 
             if self.revenge_fury:
                 db.mark_revenge_complete(self.defender_id, self.attacker_id)
+                
+                self.events.insert(0, {
+                    "actor": "system",
+                    "action": "revenge_complete",
+                    "damage": None,
+                    "note": "🔥 REVENGE COMPLETE — that attack has been settled.",
+                    "turn": self.turn,
+                    "ts": int(time.time())
+                    })
 
             return
 
