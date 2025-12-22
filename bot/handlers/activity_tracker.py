@@ -1,14 +1,21 @@
 # bot/handlers/activity_tracker.py
-# Global activity tracker — SAFE FOR COMMANDS
+# FINAL SAFE VERSION — does not block commands or UI callbacks
 
 from telebot import TeleBot
 import bot.db as db
+
+# IMPORTANT:
+# - DO NOT intercept commands
+# - DO NOT intercept navigation callbacks
+# - ONLY track safe activity signals
+
+NAV_PREFIX = "__nav__:"
 
 
 def setup(bot: TeleBot):
 
     # -------------------------------------------------
-    # Track ONLY NON-COMMAND messages
+    # Track NON-COMMAND text messages only
     # -------------------------------------------------
     @bot.message_handler(
         func=lambda m: bool(m.text) and not m.text.startswith("/")
@@ -18,15 +25,17 @@ def setup(bot: TeleBot):
             if message.from_user:
                 db.touch_last_active(message.from_user.id)
         except Exception as e:
-            print("[ACTIVITY ERROR]", e)
+            print("[ACTIVITY ERROR message]", e)
 
     # -------------------------------------------------
-    # Track ALL callback queries (buttons are safe)
+    # Track ONLY NON-NAV callbacks (safe signals)
     # -------------------------------------------------
-    @bot.callback_query_handler(func=lambda c: True)
+    @bot.callback_query_handler(
+        func=lambda c: not c.data.startswith(NAV_PREFIX)
+    )
     def track_callback_activity(call):
         try:
             if call.from_user:
                 db.touch_last_active(call.from_user.id)
         except Exception as e:
-            print("[ACTIVITY ERROR]", e)
+            print("[ACTIVITY ERROR callback]", e)
