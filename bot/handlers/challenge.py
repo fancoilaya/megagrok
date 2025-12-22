@@ -1,5 +1,5 @@
 # bot/handlers/challenge.py
-# Challenge Mode — Turn-based PvP (Telegram UI)
+# Challenge Mode — Turn-based PvP (Online-only, stable)
 
 import time
 from telebot import TeleBot, types
@@ -22,7 +22,7 @@ from services.challenge_session import (
 # CONFIG
 # -------------------------------------------------------------------
 
-ONLINE_WINDOW = 180  # seconds
+ONLINE_WINDOW = 300  # 5 minutes
 
 
 # -------------------------------------------------------------------
@@ -30,18 +30,29 @@ ONLINE_WINDOW = 180  # seconds
 # -------------------------------------------------------------------
 
 def get_online_players(exclude_id: int):
-    now = time.time()
+    now = int(time.time())
     users = db.get_all_users()
 
     online = []
     for u in users:
-        uid = u.get("id")
+        uid = u.get("id") or u.get("user_id")
         if not uid or uid == exclude_id:
             continue
+
+        # Skip users already in a duel
         if uid in USER_TO_SESSION:
             continue
-        if now - u.get("last_active", 0) <= ONLINE_WINDOW:
-            online.append(u)
+
+        # Skip inactive users
+        last_active = int(u.get("last_active", 0))
+        if now - last_active > ONLINE_WINDOW:
+            continue
+
+        # Skip shielded users (if applicable)
+        if u.get("pvp_shield_until", 0) > now:
+            continue
+
+        online.append(u)
 
     return online
 
@@ -70,7 +81,7 @@ def render_turn_kb():
 
 
 # -------------------------------------------------------------------
-# HANDLER SETUP (CRITICAL)
+# HANDLER SETUP
 # -------------------------------------------------------------------
 
 def setup(bot: TeleBot):
@@ -83,6 +94,7 @@ def setup(bot: TeleBot):
         tick()
 
         uid = message.from_user.id
+        db.touch_last_active(uid)
 
         if uid in USER_TO_SESSION:
             bot.reply_to(message, "⚠️ You are already in a duel.")
@@ -94,18 +106,22 @@ def setup(bot: TeleBot):
             bot.reply_to(message, "😴 No players available to challenge right now.")
             return
 
-        kb = types.InlineKeyboardMarkup()
+        kb = types.InlineKeyboardMarkup(row_width=1)
         for p in players[:5]:
+            pid = p.get("id") or p.get("user_id")
+            name = p.get("name") or p.get("username") or f"User{pid}"
+            level = p.get("level", 1)
+
             kb.add(
                 types.InlineKeyboardButton(
-                    f"{p.get('name','Player')} (Lv {p.get('level',1)})",
-                    callback_data=f"challenge:send:{p['id']}",
+                    f"⚔️ {name} (Lv {level})",
+                    callback_data=f"challenge:send:{pid}",
                 )
             )
 
         bot.send_message(
             message.chat.id,
-            "⚔️ <b>Challenge an opponent</b>",
+            "⚔️ <b>Challenge an online opponent</b>",
             reply_markup=kb,
             parse_mode="HTML",
         )
@@ -118,6 +134,8 @@ def setup(bot: TeleBot):
         tick()
 
         challenger = call.from_user.id
+        db.touch_last_active(challenger)
+
         target = int(call.data.split(":")[2])
 
         try:
@@ -154,6 +172,9 @@ def setup(bot: TeleBot):
     def accept_cb(call):
         tick()
 
+        uid = call.from_user.id
+        db.touch_last_active(uid)
+
         session_id = call.data.split(":")[2]
         if not accept_challenge(session_id):
             bot.answer_callback_query(call.id, "Challenge expired.")
@@ -173,6 +194,9 @@ def setup(bot: TeleBot):
 
     @bot.callback_query_handler(func=lambda c: c.data.startswith("challenge:decline:"))
     def decline_cb(call):
+        tick()
+        db.touch_last_active(call.from_user.id)
+
         decline_challenge(call.data.split(":")[2])
         bot.answer_callback_query(call.id, "Challenge declined.")
 
@@ -184,6 +208,8 @@ def setup(bot: TeleBot):
         tick()
 
         uid = call.from_user.id
+        db.touch_last_active(uid)
+
         session_id = USER_TO_SESSION.get(uid)
         if not session_id:
             return
@@ -211,6 +237,8 @@ def setup(bot: TeleBot):
         tick()
 
         uid = call.from_user.id
+        db.touch_last_active(uid)
+
         session_id = USER_TO_SESSION.get(uid)
         if not session_id:
             return
