@@ -114,6 +114,8 @@ def setup(bot: TeleBot):
 # Awaken Lobby
 # -------------------------------------------------
 def open_game_lobby(bot, chat_id, uid, edit=False, msg_id=None):
+    db.touch_last_active(uid)
+    
     get_user(uid)
 
     db.update_user_xp(uid, {
