@@ -40,7 +40,7 @@ if not TOKEN:
 
 print(f"BOOT: PID={os.getpid()} TOKEN_PREFIX={TOKEN[:8]}…")
 
-bot = TeleBot(TOKEN, middlewares=True)
+bot = TeleBot(TOKEN)
 
 
 # ==============================================
