@@ -554,6 +554,7 @@ def has_unseen_pvp_attacks(user_id: int) -> bool:
         FROM pvp_attack_log
         WHERE defender_id=?
           AND ts > ?
+          AND revenged = 0
         LIMIT 1
     """, (user_id, last_seen))
 
