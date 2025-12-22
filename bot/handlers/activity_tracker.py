@@ -1,22 +1,27 @@
 # bot/handlers/activity_tracker.py
-# Global user activity tracker (online detection backbone)
+# Global activity tracker using middleware (NON-BLOCKING)
 
 import time
 from telebot import TeleBot
 import bot.db as db
 
+
 def setup(bot: TeleBot):
 
-    @bot.message_handler(func=lambda m: True)
-    def track_message_activity(message):
+    # Track messages WITHOUT consuming them
+    @bot.middleware_handler(update_types=["message"])
+    def track_message_activity(bot_instance, message):
         try:
-            db.touch_last_active(message.from_user.id)
+            if message.from_user:
+                db.touch_last_active(message.from_user.id)
         except Exception:
             pass
 
-    @bot.callback_query_handler(func=lambda c: True)
-    def track_callback_activity(call):
+    # Track callbacks WITHOUT consuming them
+    @bot.middleware_handler(update_types=["callback_query"])
+    def track_callback_activity(bot_instance, call):
         try:
-            db.touch_last_active(call.from_user.id)
+            if call.from_user:
+                db.touch_last_active(call.from_user.id)
         except Exception:
             pass
