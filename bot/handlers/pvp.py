@@ -649,8 +649,8 @@ def setup(bot: TeleBot):
             attacker_id, defender_id, a_stats, d_stats, revenge_fury=is_rev
         )
 
-        if is_rev:
-            pvp_targets.clear_revenge_for(attacker_id, defender_id)
+        #if is_rev:
+        #    pvp_targets.clear_revenge_for(attacker_id, defender_id)
 
         m = bot.send_message(
             call.message.chat.id,
