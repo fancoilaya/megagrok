@@ -471,6 +471,19 @@ def get_recent_active_users(limit: int = 200) -> List[Dict[str, Any]]:
         out.append({desc[i]: r[i] for i in range(len(desc))})
     return out
 
+def count_online_users(window: int = 180) -> int:
+    """
+    Count users active within the last `window` seconds.
+    Used for /awaken, Arena status, Challenge Mode.
+    """
+    now = int(time.time())
+    users = get_recent_active_users()
+    return sum(
+        1 for u in users
+        if now - int(u.get("last_active", 0)) <= window
+    )
+
+
 def get_all_users() -> List[Dict[str, Any]]:
     """
     Return all user rows as list of dicts (keys from cursor.description).
