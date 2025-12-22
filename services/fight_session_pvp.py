@@ -8,6 +8,8 @@ import time
 import secrets
 from typing import Optional, Dict, Any
 
+import services.pvp_targets as pvp_targets  # ✅ NEW (safe import)
+
 SESSIONS_FILE = "data/fight_sessions_pvp.json"
 
 ACTION_ATTACK = "attack"
@@ -43,7 +45,7 @@ class PvPFightSession:
         self.attacker.setdefault("hp", int(self.attacker.get("hp", 100)))
         self.defender.setdefault("hp", int(self.defender.get("hp", 100)))
 
-        # Max HP for heal calculations — added
+        # Max HP for heal calculations
         if "max_hp" not in self.attacker:
             self.attacker["max_hp"] = int(self.attacker.get("hp", 100))
         if "max_hp" not in self.defender:
@@ -63,16 +65,14 @@ class PvPFightSession:
         self.session_id = session_id or secrets.token_hex(6)
 
         # ----------------------------------------
-        # APPLY REVENGE FURY BONUS (full fight buff)
+        # APPLY REVENGE FURY BONUS
         # ----------------------------------------
         self.revenge_fury = bool(revenge_fury)
         if self.revenge_fury:
-            # +10% ATK, +5% DEF, +2% Crit
             self.attacker["attack"] = float(self.attacker.get("attack", 10)) * 1.10
             self.attacker["defense"] = float(self.attacker.get("defense", 5)) * 1.05
             self.attacker["crit_chance"] = float(self.attacker.get("crit_chance", 0.05)) + 0.02
 
-            # First event log entry
             self.events.insert(0, {
                 "actor": "attacker",
                 "action": "buff",
@@ -144,7 +144,6 @@ class PvPFightSession:
         a = self.attacker
         d = self.defender
 
-        # Normalize numeric values
         a["hp"] = int(a.get("hp", 100))
         d["hp"] = int(d.get("hp", 100))
 
@@ -157,7 +156,7 @@ class PvPFightSession:
         d_crit = float(d.get("crit_chance", 0.01))
 
         charged = int(a.get("_charge_stacks", 0))
-        a["_charge_stacks"] = 0  # consumed
+        a["_charge_stacks"] = 0
 
         note = ""
         dmg_to_def = 0
@@ -207,11 +206,17 @@ class PvPFightSession:
             d["hp"] -= dmg_to_def
             self.log("attacker", "attack", dmg_to_def, note)
 
-        # Check defender death
+        # ----------------------------------------
+        # DEFENDER DEATH → END FIGHT
+        # ----------------------------------------
         if d["hp"] <= 0:
-            d["hp"] = max(0, d["hp"])
+            d["hp"] = 0
             self.ended = True
             self.winner = "attacker"
+
+            if self.revenge_fury:
+                pvp_targets.clear_revenge_for(self.attacker_id, self.defender_id)
+
             return
 
         # ----------- DEFENDER AI -----------
@@ -225,7 +230,6 @@ class PvPFightSession:
         else:
             d_action = ACTION_ATTACK
 
-        # 70% chance to counter
         if random.random() >= 0.70:
             self.log("defender", "idle", None, "defender did not counter")
         else:
@@ -262,32 +266,38 @@ class PvPFightSession:
                     a["hp"] -= dmg_back
                     self.log("defender", "attack", dmg_back, note_c)
 
-        # Death check
+        # ----------------------------------------
+        # ATTACKER DEATH → END FIGHT
+        # ----------------------------------------
         if a["hp"] <= 0:
-            a["hp"] = max(0, a["hp"])
+            a["hp"] = 0
             self.ended = True
             self.winner = "defender"
 
-        # Reset defender flags
+            if self.revenge_fury:
+                pvp_targets.clear_revenge_for(self.attacker_id, self.defender_id)
+
         d.pop("_block_active", None)
         d.pop("_dodge_active", None)
-
-        # Next turn
         self.turn += 1
 
     # ----------------------------------------
-    # Auto attacker for future extensions
+    # Auto attacker (unchanged)
     # ----------------------------------------
     def resolve_auto_attacker_turn(self):
         if self.ended:
             return
         choice = random.choices(
-            population=[ACTION_ATTACK, ACTION_ATTACK, ACTION_CHARGE, ACTION_BLOCK, ACTION_DODGE],
-            weights=[0.45, 0.25, 0.15, 0.10, 0.05],
+            [ACTION_ATTACK, ACTION_ATTACK, ACTION_CHARGE, ACTION_BLOCK, ACTION_DODGE],
+            [0.45, 0.25, 0.15, 0.10, 0.05],
             k=1
         )[0]
         self.resolve_attacker_action(choice)
 
+
+# -------------------------------------------------
+# PvP Manager (unchanged)
+# -------------------------------------------------
 
 class PvPManager:
     def __init__(self, storage_file: str = SESSIONS_FILE):
@@ -309,9 +319,6 @@ class PvPManager:
     def create_pvp_session(self, attacker_id: int, defender_id: int,
                            attacker_stats: Dict[str, Any], defender_stats: Dict[str, Any],
                            revenge_fury: bool = False) -> PvPFightSession:
-        """
-        New param `revenge_fury` used by pvp.py.
-        """
         sess = PvPFightSession(attacker_id, defender_id,
                                attacker_stats, defender_stats,
                                revenge_fury=revenge_fury)
@@ -354,8 +361,7 @@ class PvPManager:
                 continue
         for sd in to_del:
             self._sessions.pop(sd, None)
-        if k in self._sessions:
-            del self._sessions[k]
+        self._sessions.pop(k, None)
         self.save()
 
     def end_session_by_sid(self, sid: str):
