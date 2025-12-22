@@ -1,12 +1,17 @@
 # bot/handlers/awaken.py
 #
 # MegaGrok — Main Entry & Global Navigation
-# FINAL VERSION: Arena edits in-place (no chat clutter)
+# FINAL VERSION: Arena + Online Presence integrated
 
 from telebot import TeleBot, types
+import time
 
 import bot.db as db
-from bot.db import get_user, has_unseen_pvp_attacks
+from bot.db import (
+    get_user,
+    has_unseen_pvp_attacks,
+    count_online_users,   # ✅ NEW (reader helper)
+)
 
 from bot.handlers.xphub import render_hub
 from bot.handlers.leaderboard_ui import show_leaderboard_ui
@@ -17,6 +22,9 @@ from bot.evolutions import get_evolution_for_level
 from bot.ui.world_status import get_world_status, get_since_you_were_gone
 
 NAV_PREFIX = "__nav__:"
+
+# Online definition (shared with Challenge Mode)
+ONLINE_WINDOW = 180  # seconds
 
 
 # -------------------------------------------------
@@ -41,7 +49,7 @@ def setup(bot: TeleBot):
         msg_id = call.message.message_id
         uid = call.from_user.id
 
-        # 🧠 Training Grounds (in-place)
+        # 🧠 Training Grounds
         if action == "training":
             db.update_user_xp(uid, {"location": "TRAINING"})
             text, kb = render_hub(uid)
@@ -62,7 +70,7 @@ def setup(bot: TeleBot):
             )
             return
 
-        # ⚔️ Arena (PvP) — IN-PLACE, CLEAN UX
+        # ⚔️ Arena
         if action == "arena":
             db.update_user_xp(uid, {"location": "ARENA"})
             text, kb = render_pvp_main(uid)
@@ -121,15 +129,32 @@ def open_game_lobby(bot, chat_id, uid, edit=False, msg_id=None):
         "location": "AWAKEN"
     })
 
-    # World + personal status
-    world_block = ""
-    personal_block = ""
+    # -------------------------------------------------
+    # 🌍 WORLD STATUS (ONLINE-AWARE)
+    # -------------------------------------------------
+    online = count_online_users(ONLINE_WINDOW)
 
+    if online >= 5:
+        arena_status = "🔥 Hot"
+    elif online >= 2:
+        arena_status = "🟢 Active"
+    else:
+        arena_status = "⚪ Quiet"
+
+    world_block = (
+        "🌍 <b>WORLD STATUS</b>\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        f"⚔️ Arena Activity: <b>{arena_status}</b>\n"
+        f"🧠 Trainers Active: <b>{online}</b>\n"
+        "━━━━━━━━━━━━━━━━━━\n\n"
+    )
+
+    # Personal status (unchanged)
+    personal_block = ""
     try:
-        world_block = get_world_status()
         personal_block = get_since_you_were_gone(uid)
     except Exception:
-        pass  # UI helpers must never break awaken
+        pass
 
     text = (
         world_block +
@@ -155,7 +180,7 @@ def open_game_lobby(bot, chat_id, uid, edit=False, msg_id=None):
         ),
     )
 
-    # View Revenge shortcut (only if relevant)
+    # View Revenge shortcut
     try:
         if has_unseen_pvp_attacks(uid):
             kb.add(
