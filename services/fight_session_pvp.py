@@ -9,6 +9,7 @@ import secrets
 from typing import Optional, Dict, Any
 
 import services.pvp_targets as pvp_targets  # ✅ NEW (safe import)
+import bot.db as db
 
 SESSIONS_FILE = "data/fight_sessions_pvp.json"
 
