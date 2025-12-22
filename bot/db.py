@@ -421,6 +421,7 @@ def get_users_who_attacked_you(user_id: int, limit: int = 10) -> List[Dict[str, 
         SELECT attacker_id, ts, xp_stolen, result
         FROM pvp_attack_log
         WHERE defender_id=?
+          AND revenged = 0
         ORDER BY ts DESC
         LIMIT ?
     """, (user_id, limit))
