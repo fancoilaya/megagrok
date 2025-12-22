@@ -1,12 +1,16 @@
 # bot/handlers/awaken.py
 #
 # MegaGrok — Main Entry & Global Navigation
-# FINAL VERSION: Arena edits in-place (no chat clutter)
+# STABLE VERSION — Online count via last_active (no trackers)
 
 from telebot import TeleBot, types
 
 import bot.db as db
-from bot.db import get_user, has_unseen_pvp_attacks
+from bot.db import (
+    get_user,
+    has_unseen_pvp_attacks,
+    count_online_users,
+)
 
 from bot.handlers.xphub import render_hub
 from bot.handlers.leaderboard_ui import show_leaderboard_ui
@@ -17,6 +21,7 @@ from bot.evolutions import get_evolution_for_level
 from bot.ui.world_status import get_world_status, get_since_you_were_gone
 
 NAV_PREFIX = "__nav__:"
+ONLINE_WINDOW = 300  # 5 minutes
 
 
 # -------------------------------------------------
@@ -41,11 +46,12 @@ def setup(bot: TeleBot):
         msg_id = call.message.message_id
         uid = call.from_user.id
 
-        # 🧠 Training Grounds (in-place)
+        # 🧠 Training Grounds
         if action == "training":
             db.update_user_xp(uid, {"location": "TRAINING"})
-            text, kb = render_hub(uid)
+            db.touch_last_active(uid)
 
+            text, kb = render_hub(uid)
             kb.add(
                 types.InlineKeyboardButton(
                     "🔙 Back to Awaken",
@@ -62,11 +68,12 @@ def setup(bot: TeleBot):
             )
             return
 
-        # ⚔️ Arena (PvP) — IN-PLACE, CLEAN UX
+        # ⚔️ Arena
         if action == "arena":
             db.update_user_xp(uid, {"location": "ARENA"})
-            text, kb = render_pvp_main(uid)
+            db.touch_last_active(uid)
 
+            text, kb = render_pvp_main(uid)
             kb.add(
                 types.InlineKeyboardButton(
                     "🔙 Back to Awaken",
@@ -85,16 +92,19 @@ def setup(bot: TeleBot):
 
         # 🧾 Profile
         if action == "profile":
+            db.touch_last_active(uid)
             send_profile(bot, chat_id, uid)
             return
 
         # 🏆 Leaderboards
         if action == "leaderboards":
+            db.touch_last_active(uid)
             show_leaderboard_ui(bot, chat_id, msg_id, uid)
             return
 
         # ❓ How to Play
         if action == "howtoplay":
+            db.touch_last_active(uid)
             show_how_to_play(bot, chat_id)
             return
 
@@ -114,8 +124,10 @@ def setup(bot: TeleBot):
 # Awaken Lobby
 # -------------------------------------------------
 def open_game_lobby(bot, chat_id, uid, edit=False, msg_id=None):
+    # Mark user active (SAFE, explicit)
     db.touch_last_active(uid)
-    
+
+    # Ensure user exists
     get_user(uid)
 
     db.update_user_xp(uid, {
@@ -131,11 +143,26 @@ def open_game_lobby(bot, chat_id, uid, edit=False, msg_id=None):
         world_block = get_world_status()
         personal_block = get_since_you_were_gone(uid)
     except Exception:
-        pass  # UI helpers must never break awaken
+        pass
+
+    # Online stats (READ ONLY)
+    online = count_online_users(ONLINE_WINDOW)
+
+    if online >= 5:
+        arena_status = "🔥 Hot"
+    elif online >= 2:
+        arena_status = "🟢 Active"
+    else:
+        arena_status = "⚪ Quiet"
 
     text = (
         world_block +
         personal_block +
+        "🌍 <b>WORLD STATUS</b>\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        f"🧠 Trainers Online: <b>{online}</b>\n"
+        f"⚔️ Arena Activity: <b>{arena_status}</b>\n"
+        "━━━━━━━━━━━━━━━━━━\n\n"
         "⚡ <b>WELCOME BACK, AWAKENED ONE</b>\n"
         "━━━━━━━━━━━━━━━━━━\n\n"
         "🧠 <b>Training Grounds</b>\n"
@@ -157,7 +184,7 @@ def open_game_lobby(bot, chat_id, uid, edit=False, msg_id=None):
         ),
     )
 
-    # View Revenge shortcut (only if relevant)
+    # Revenge shortcut
     try:
         if has_unseen_pvp_attacks(uid):
             kb.add(
@@ -179,6 +206,7 @@ def open_game_lobby(bot, chat_id, uid, edit=False, msg_id=None):
             callback_data=f"{NAV_PREFIX}leaderboards"
         ),
     )
+
     kb.add(
         types.InlineKeyboardButton(
             "❓ How to Play",
