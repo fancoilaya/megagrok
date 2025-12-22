@@ -24,8 +24,7 @@ import bot.db as db
 
 ONLINE_WINDOW = 180  # seconds considered "online"
 
-# You MUST have bot instance imported or passed in
-from bot import bot
+
 
 
 # -------------------------------------------------------------------
