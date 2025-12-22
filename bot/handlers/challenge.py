@@ -1,8 +1,10 @@
 # bot/handlers/challenge.py
-# Telegram UI handler for Challenge Mode (Turn-based PvP)
+# Challenge Mode — Turn-based PvP (Telegram UI)
 
-from telebot import TeleBot, types
 import time
+from telebot import TeleBot, types
+
+import bot.db as db
 
 from services.challenge_session import (
     create_challenge,
@@ -16,15 +18,11 @@ from services.challenge_session import (
     SESSIONS,
 )
 
-import bot.db as db
-
 # -------------------------------------------------------------------
 # CONFIG
 # -------------------------------------------------------------------
 
-ONLINE_WINDOW = 180  # seconds considered "online"
-
-
+ONLINE_WINDOW = 180  # seconds
 
 
 # -------------------------------------------------------------------
@@ -32,9 +30,6 @@ ONLINE_WINDOW = 180  # seconds considered "online"
 # -------------------------------------------------------------------
 
 def get_online_players(exclude_id: int):
-    """
-    Returns users active recently and not already in a challenge.
-    """
     now = time.time()
     users = db.get_all_users()
 
@@ -51,195 +46,189 @@ def get_online_players(exclude_id: int):
     return online
 
 
-def send_turn_ui(session: dict):
-    """
-    Sends the turn UI to the active player.
-    """
-    tick()
-
-    if session["state"] == "FINISHED":
-        return
-
-    player = session["turn_owner"]
+def render_turn_text(session: dict, player: int):
     opponent = session["p2"] if player == session["p1"] else session["p1"]
-
     hp_self = max(0, session["hp"][player])
     hp_opp = max(0, session["hp"][opponent])
     seconds_left = max(0, int(session["turn_deadline"] - time.time()))
 
+    return (
+        "⚔️ <b>Your Turn</b>\n\n"
+        f"❤️ You: <b>{hp_self}</b>\n"
+        f"💀 Opponent: <b>{hp_opp}</b>\n\n"
+        f"⏱️ <b>{seconds_left}s</b> remaining"
+    )
+
+
+def render_turn_kb():
     kb = types.InlineKeyboardMarkup(row_width=2)
     kb.add(
         types.InlineKeyboardButton("⚔️ Attack", callback_data="challenge:attack"),
         types.InlineKeyboardButton("🛡️ Defend", callback_data="challenge:defend"),
     )
-
-    bot.send_message(
-        player,
-        f"⚔️ *Your Turn*\n\n"
-        f"❤️ You: {hp_self}\n"
-        f"💀 Opponent: {hp_opp}\n\n"
-        f"⏱️ {seconds_left}s remaining",
-        reply_markup=kb,
-        parse_mode="Markdown",
-    )
-
-
-def send_battle_end(session: dict):
-    """
-    Notify both players that the battle ended.
-    """
-    p1, p2 = session["p1"], session["p2"]
-    hp1, hp2 = session["hp"][p1], session["hp"][p2]
-
-    if hp1 > hp2:
-        winner, loser = p1, p2
-    else:
-        winner, loser = p2, p1
-
-    bot.send_message(winner, "🏆 *You won the duel!*", parse_mode="Markdown")
-    bot.send_message(loser, "💀 *You lost the duel.*", parse_mode="Markdown")
+    return kb
 
 
 # -------------------------------------------------------------------
-# COMMANDS
+# HANDLER SETUP (CRITICAL)
 # -------------------------------------------------------------------
 
-@bot.message_handler(commands=["challenge"])
-def challenge_menu(msg):
-    tick()
+def setup(bot: TeleBot):
 
-    user_id = msg.from_user.id
+    # ---------------------------------------------------------------
+    # /challenge command
+    # ---------------------------------------------------------------
+    @bot.message_handler(commands=["challenge"])
+    def challenge_menu(message):
+        tick()
 
-    if user_id in USER_TO_SESSION:
-        bot.reply_to(msg, "⚠️ You are already in a duel.")
-        return
+        uid = message.from_user.id
 
-    players = get_online_players(user_id)
+        if uid in USER_TO_SESSION:
+            bot.reply_to(message, "⚠️ You are already in a duel.")
+            return
 
-    if not players:
-        bot.reply_to(msg, "😴 No players available to challenge right now.")
-        return
+        players = get_online_players(uid)
 
-    kb = types.InlineKeyboardMarkup()
-    for p in players[:5]:
-        kb.add(
-            types.InlineKeyboardButton(
-                f"{p.get('name','Player')} (Lv {p.get('level',1)})",
-                callback_data=f"challenge:send:{p['id']}",
+        if not players:
+            bot.reply_to(message, "😴 No players available to challenge right now.")
+            return
+
+        kb = types.InlineKeyboardMarkup()
+        for p in players[:5]:
+            kb.add(
+                types.InlineKeyboardButton(
+                    f"{p.get('name','Player')} (Lv {p.get('level',1)})",
+                    callback_data=f"challenge:send:{p['id']}",
+                )
             )
+
+        bot.send_message(
+            message.chat.id,
+            "⚔️ <b>Challenge an opponent</b>",
+            reply_markup=kb,
+            parse_mode="HTML",
         )
 
-    bot.reply_to(
-        msg,
-        "⚔️ *Challenge an opponent*",
-        reply_markup=kb,
-        parse_mode="Markdown",
-    )
+    # ---------------------------------------------------------------
+    # Send challenge
+    # ---------------------------------------------------------------
+    @bot.callback_query_handler(func=lambda c: c.data.startswith("challenge:send:"))
+    def send_challenge(call):
+        tick()
 
+        challenger = call.from_user.id
+        target = int(call.data.split(":")[2])
 
-# -------------------------------------------------------------------
-# CALLBACKS
-# -------------------------------------------------------------------
+        try:
+            session = create_challenge(challenger, target)
+        except ValueError:
+            bot.answer_callback_query(call.id, "Player unavailable.")
+            return
 
-@bot.callback_query_handler(func=lambda c: c.data.startswith("challenge:send:"))
-def send_challenge(call):
-    tick()
+        kb = types.InlineKeyboardMarkup(row_width=2)
+        kb.add(
+            types.InlineKeyboardButton(
+                "Accept ⚔️", callback_data=f"challenge:accept:{session['id']}"
+            ),
+            types.InlineKeyboardButton(
+                "Decline ❌", callback_data=f"challenge:decline:{session['id']}"
+            ),
+        )
 
-    challenger = call.from_user.id
-    target = int(call.data.split(":")[2])
+        bot.send_message(
+            target,
+            "⚠️ <b>Duel Challenge Received</b>\n\n"
+            f"{call.from_user.first_name} challenges you.\n"
+            "⏱️ Respond within <b>30 seconds</b>.",
+            reply_markup=kb,
+            parse_mode="HTML",
+        )
 
-    try:
-        session = create_challenge(challenger, target)
-    except ValueError:
-        bot.answer_callback_query(call.id, "Player unavailable.")
-        return
+        bot.answer_callback_query(call.id, "Challenge sent ⚔️")
 
-    kb = types.InlineKeyboardMarkup(row_width=2)
-    kb.add(
-        types.InlineKeyboardButton(
-            "Accept ⚔️", callback_data=f"challenge:accept:{session['id']}"
-        ),
-        types.InlineKeyboardButton(
-            "Decline ❌", callback_data=f"challenge:decline:{session['id']}"
-        ),
-    )
+    # ---------------------------------------------------------------
+    # Accept / Decline
+    # ---------------------------------------------------------------
+    @bot.callback_query_handler(func=lambda c: c.data.startswith("challenge:accept:"))
+    def accept_cb(call):
+        tick()
 
-    bot.send_message(
-        target,
-        f"⚠️ *Duel Challenge Received*\n\n"
-        f"{call.from_user.first_name} challenges you.\n"
-        f"⏱️ Respond within 30 seconds.",
-        reply_markup=kb,
-        parse_mode="Markdown",
-    )
+        session_id = call.data.split(":")[2]
+        if not accept_challenge(session_id):
+            bot.answer_callback_query(call.id, "Challenge expired.")
+            return
 
-    bot.answer_callback_query(call.id, "Challenge sent ⚔️")
+        session = SESSIONS.get(session_id)
+        if not session:
+            return
 
+        player = session["turn_owner"]
+        bot.send_message(
+            player,
+            render_turn_text(session, player),
+            reply_markup=render_turn_kb(),
+            parse_mode="HTML",
+        )
 
-@bot.callback_query_handler(func=lambda c: c.data.startswith("challenge:accept:"))
-def accept_challenge_cb(call):
-    tick()
+    @bot.callback_query_handler(func=lambda c: c.data.startswith("challenge:decline:"))
+    def decline_cb(call):
+        decline_challenge(call.data.split(":")[2])
+        bot.answer_callback_query(call.id, "Challenge declined.")
 
-    session_id = call.data.split(":")[2]
-    ok = accept_challenge(session_id)
+    # ---------------------------------------------------------------
+    # Actions
+    # ---------------------------------------------------------------
+    @bot.callback_query_handler(func=lambda c: c.data == "challenge:attack")
+    def attack_cb(call):
+        tick()
 
-    if not ok:
-        bot.answer_callback_query(call.id, "Challenge expired.")
-        return
+        uid = call.from_user.id
+        session_id = USER_TO_SESSION.get(uid)
+        if not session_id:
+            return
 
-    session = SESSIONS.get(session_id)
-    if not session:
-        return
+        session = SESSIONS.get(session_id)
+        if not session:
+            return
 
-    send_turn_ui(session)
-
-
-@bot.callback_query_handler(func=lambda c: c.data.startswith("challenge:decline:"))
-def decline_challenge_cb(call):
-    session_id = call.data.split(":")[2]
-    decline_challenge(session_id)
-    bot.answer_callback_query(call.id, "Challenge declined.")
-
-
-@bot.callback_query_handler(func=lambda c: c.data == "challenge:attack")
-def challenge_attack(call):
-    tick()
-
-    user_id = call.from_user.id
-    session_id = USER_TO_SESSION.get(user_id)
-    if not session_id:
-        return
-
-    session = SESSIONS.get(session_id)
-    if not session:
-        return
-
-    if attack(session, user_id):
-        end_turn(session)
+        if attack(session, uid):
+            end_turn(session)
 
         if session["state"] == "FINISHED":
-            send_battle_end(session)
+            bot.send_message(uid, "🏆 <b>You won the duel!</b>", parse_mode="HTML")
         else:
-            send_turn_ui(session)
+            player = session["turn_owner"]
+            bot.send_message(
+                player,
+                render_turn_text(session, player),
+                reply_markup=render_turn_kb(),
+                parse_mode="HTML",
+            )
 
+    @bot.callback_query_handler(func=lambda c: c.data == "challenge:defend")
+    def defend_cb(call):
+        tick()
 
-@bot.callback_query_handler(func=lambda c: c.data == "challenge:defend")
-def challenge_defend(call):
-    tick()
+        uid = call.from_user.id
+        session_id = USER_TO_SESSION.get(uid)
+        if not session_id:
+            return
 
-    user_id = call.from_user.id
-    session_id = USER_TO_SESSION.get(user_id)
-    if not session_id:
-        return
+        session = SESSIONS.get(session_id)
+        if not session:
+            return
 
-    session = SESSIONS.get(session_id)
-    if not session:
-        return
-
-    if defend(session, user_id):
-        end_turn(session)
+        if defend(session, uid):
+            end_turn(session)
 
         if session["state"] == "FINISHED":
-            send_battle_end(session)
+            bot.send_message(uid, "🏆 <b>You won the duel!</b>", parse_mode="HTML")
         else:
-            send_turn_ui(session)
+            player = session["turn_owner"]
+            bot.send_message(
+                player,
+                render_turn_text(session, player),
+                reply_markup=render_turn_kb(),
+                parse_mode="HTML",
+            )
