@@ -112,6 +112,12 @@ cursor.execute("""
     )
 """)
 conn.commit()
+# Ensure revenged column exists (safe migration)
+try:
+    cursor.execute("ALTER TABLE pvp_attack_log ADD COLUMN revenged INTEGER DEFAULT 0")
+    conn.commit()
+except Exception:
+    pass
 
 # ---------------------------
 # GET OR CREATE USER
