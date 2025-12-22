@@ -9,6 +9,7 @@
 #   ✔ Adds improved time formatting ("3m ago", "2h ago", etc.)
 #   ✔ Adds clear_revenge_for() hook
 #   ✔ Fully compatible with pvp.py and fight_session_pvp.py patches
+#   ✔ FIXES revenge not clearing (argument order bug)
 # -------------------------------------------
 
 from typing import List, Dict, Any
@@ -126,13 +127,16 @@ def get_revenge_targets(user_id: int) -> List[Dict[str, Any]]:
 # -------------------------------------------
 # Clear revenge log AFTER revenge attack
 # -------------------------------------------
-def clear_revenge_for(defender_id: int, attacker_id: int):
+def clear_revenge_for(attacker_id: int, defender_id: int):
     """
     Removes all revenge log rows for this specific matchup.
     Called when user successfully initiates revenge via /pvp.
+
+    IMPORTANT:
+    Order MUST be (attacker_id, defender_id)
     """
     try:
-        db.clear_revenge_entries(defender_id, attacker_id)
+        db.clear_revenge_for(attacker_id, defender_id)
     except Exception:
         pass
 
@@ -201,7 +205,7 @@ def get_recommended_targets(user_id: int) -> List[Dict[str, Any]]:
     for c in candidates[:6]:  # top 6 recommended
         try:
             rank_label, _ = ranking_module.elo_to_rank(c["elo_pvp"])
-        except:
+        except Exception:
             rank_label = "Unknown"
 
         c["rank"] = rank_label
