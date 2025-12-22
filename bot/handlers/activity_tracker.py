@@ -1,14 +1,18 @@
 # bot/handlers/activity_tracker.py
-# Global activity tracker (NON-BLOCKING, compatible with older TeleBot)
+# Global activity tracker — SAFE FOR COMMANDS
 
 from telebot import TeleBot
-from telebot.handler_backends import SkipHandler
 import bot.db as db
 
 
 def setup(bot: TeleBot):
 
-    @bot.message_handler(func=lambda m: True)
+    # -------------------------------------------------
+    # Track ONLY NON-COMMAND messages
+    # -------------------------------------------------
+    @bot.message_handler(
+        func=lambda m: bool(m.text) and not m.text.startswith("/")
+    )
     def track_message_activity(message):
         try:
             if message.from_user:
@@ -16,9 +20,9 @@ def setup(bot: TeleBot):
         except Exception as e:
             print("[ACTIVITY ERROR]", e)
 
-        # IMPORTANT: allow other handlers to run
-        raise SkipHandler()
-
+    # -------------------------------------------------
+    # Track ALL callback queries (buttons are safe)
+    # -------------------------------------------------
     @bot.callback_query_handler(func=lambda c: True)
     def track_callback_activity(call):
         try:
@@ -26,6 +30,3 @@ def setup(bot: TeleBot):
                 db.touch_last_active(call.from_user.id)
         except Exception as e:
             print("[ACTIVITY ERROR]", e)
-
-        # IMPORTANT: allow other handlers to run
-        raise SkipHandler()
