@@ -559,6 +559,25 @@ def has_unseen_pvp_attacks(user_id: int) -> bool:
 
     return cursor.fetchone() is not None
 
+def mark_revenge_complete(attacker_id: int, defender_id: int):
+    """
+    Marks all revenge attacks between attacker and defender as resolved.
+    Does NOT delete history.
+    """
+    try:
+        cursor.execute("""
+            UPDATE pvp_attack_log
+            SET revenged = 1
+            WHERE attacker_id=?
+              AND defender_id=?
+              AND revenged = 0
+        """, (attacker_id, defender_id))
+        conn.commit()
+    except Exception:
+        try:
+            conn.rollback()
+        except:
+            pass
 
 def mark_pvp_alert_seen(user_id: int):
     """
