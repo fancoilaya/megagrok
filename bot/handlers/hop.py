@@ -1,8 +1,11 @@
 # bot/handlers/hop.py
 # -------------------------------------------------
 # Hop — Daily XP Ritual
+# Entry points:
+#   - /hop command
+#   - XP Hub callback (show_hop_ui)
+#   - hop:go callback
 # Uses cooldown timestamps (NOT quests)
-# Preserves all previous logic + fixes Telegram edit crash
 # -------------------------------------------------
 
 import time
@@ -57,7 +60,7 @@ def _save_cd(uid: int, cd: dict):
         pass
 
 def _streak_bonus_pct(streak: int) -> int:
-    return min(25, max(0, streak * 2))  # +2% per day, capped at 25%
+    return min(25, max(0, streak * 2))  # +2% per day, cap 25%
 
 # -------------------------------------------------
 # UI
@@ -65,14 +68,15 @@ def _streak_bonus_pct(streak: int) -> int:
 
 def show_hop_ui(bot: TeleBot, chat_id: int, message_id: int | None = None):
     """
-    ENTRY POINT — called from XP Hub:
-        show_hop_ui(bot, chat_id, msg_id)
-
-    chat_id == user_id (private chat)
+    Main Hop UI renderer.
+    Called from:
+      - /hop command
+      - XP Hub (show_hop_ui(bot, chat_id, msg_id))
+      - hop callbacks
     """
-    uid = chat_id
-    cd = _load_cd(uid)
+    uid = chat_id  # private chat: chat_id == user_id
 
+    cd = _load_cd(uid)
     next_ts = int(cd.get(HOP_NEXT_TS, 0) or 0)
     streak = int(cd.get(HOP_STREAK_KEY, 0) or 0)
 
@@ -83,11 +87,12 @@ def show_hop_ui(bot: TeleBot, chat_id: int, message_id: int | None = None):
     if on_cooldown:
         remaining = _seconds_until(next_ts)
         text = (
-            "🐾 <b>HOP — ON COOLDOWN</b>\n\n"
-            "The rift has closed for today.\n\n"
-            f"🔥 Streak: <b>{streak} days</b> (+{bonus}%)\n"
+            "🐾 <b>HOP</b>\n\n"
+            "Each day, the rift opens once.\n"
+            "Those who return daily grow faster.\n\n"
+            f"🔥 Current streak: <b>{streak} days</b> (+{bonus}%)\n"
             f"⏳ Next hop in: <b>{_format_hms(remaining)}</b>\n\n"
-            "Return tomorrow to continue your ritual."
+            "Return tomorrow to continue the ritual."
         )
     else:
         text = (
@@ -105,7 +110,6 @@ def show_hop_ui(bot: TeleBot, chat_id: int, message_id: int | None = None):
 
     kb.add(types.InlineKeyboardButton("🔙 Back to XP Hub", callback_data="__xphub__:home"))
 
-    # --- SAFE EDIT (Telegram may reject identical edits) ---
     try:
         if message_id:
             bot.edit_message_text(
@@ -128,11 +132,24 @@ def show_hop_ui(bot: TeleBot, chat_id: int, message_id: int | None = None):
         raise
 
 # -------------------------------------------------
-# CALLBACK HANDLER
+# HANDLERS
 # -------------------------------------------------
 
 def setup(bot: TeleBot):
 
+    # ----------------------------
+    # /hop command (ENTRY POINT)
+    # ----------------------------
+    @bot.message_handler(commands=["hop"])
+    def hop_cmd(message):
+        chat_id = message.chat.id
+
+        sent = bot.send_message(chat_id, "🐾 Opening the rift…")
+        show_hop_ui(bot, chat_id, sent.message_id)
+
+    # ----------------------------
+    # Hop callbacks
+    # ----------------------------
     @bot.callback_query_handler(func=lambda c: c.data.startswith("hop:"))
     def hop_cb(call):
         bot.answer_callback_query(call.id)
@@ -149,15 +166,15 @@ def setup(bot: TeleBot):
 
         now = int(time.time())
 
-        # -------------------------------------------------
+        # ----------------------------
         # EXECUTE HOP
-        # -------------------------------------------------
+        # ----------------------------
         if action == "go":
             if now < next_ts:
                 show_hop_ui(bot, chat_id, msg_id)
                 return
 
-            # --- roll XP ---
+            # Roll XP
             base_xp = random.randint(15, 35)
             bonus_pct = _streak_bonus_pct(streak)
             gained = int(round(base_xp * (1 + bonus_pct / 100)))
@@ -167,7 +184,7 @@ def setup(bot: TeleBot):
                 "xp_total": int(user.get("xp_total", 0)) + gained
             })
 
-            # --- update cooldown + streak ---
+            # Update cooldown + streak
             cd[HOP_STREAK_KEY] = streak + 1
             cd[HOP_NEXT_TS] = _utc_midnight_ts()
             _save_cd(uid, cd)
