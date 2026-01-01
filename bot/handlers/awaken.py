@@ -140,7 +140,7 @@ def open_game_lobby(bot, chat_id, uid, edit=False, msg_id=None):
     personal_block = ""
 
     try:
-        world_block = get_world_status()
+        # world_block = get_world_status()
         personal_block = get_since_you_were_gone(uid)
     except Exception:
         pass
@@ -156,7 +156,6 @@ def open_game_lobby(bot, chat_id, uid, edit=False, msg_id=None):
         arena_status = "⚪ Quiet"
 
     text = (
-        world_block +
         personal_block +
         "🌍 <b>WORLD STATUS</b>\n"
         "━━━━━━━━━━━━━━━━━━\n"
