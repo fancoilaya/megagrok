@@ -4,7 +4,7 @@
 # Entry points:
 #   - /hop command
 #   - XP Hub callback (show_hop_ui)
-#   - hop:go callback
+#   - __hop__:go callback
 # Uses cooldown timestamps (NOT quests)
 # -------------------------------------------------
 
@@ -20,6 +20,7 @@ import bot.db as db
 
 HOP_NEXT_TS = "hop_next_ts"      # timestamp when hop becomes available again
 HOP_STREAK_KEY = "hop_streak"    # daily streak counter
+HOP_PREFIX = "__hop__:"          # callback namespace (IMPORTANT)
 
 # -------------------------------------------------
 # TIME HELPERS
@@ -60,7 +61,7 @@ def _save_cd(uid: int, cd: dict):
         pass
 
 def _streak_bonus_pct(streak: int) -> int:
-    return min(25, max(0, streak * 2))  # +2% per day, cap 25%
+    return min(25, max(0, streak * 2))  # +2% per day, capped at 25%
 
 # -------------------------------------------------
 # UI
@@ -106,9 +107,19 @@ def show_hop_ui(bot: TeleBot, chat_id: int, message_id: int | None = None):
     kb = types.InlineKeyboardMarkup(row_width=1)
 
     if not on_cooldown:
-        kb.add(types.InlineKeyboardButton("🐾 Hop Now", callback_data="hop:go"))
+        kb.add(
+            types.InlineKeyboardButton(
+                "🐾 Hop Now",
+                callback_data=f"{HOP_PREFIX}go"
+            )
+        )
 
-    kb.add(types.InlineKeyboardButton("🔙 Back to XP Hub", callback_data="__xphub__:home"))
+    kb.add(
+        types.InlineKeyboardButton(
+            "🔙 Back to XP Hub",
+            callback_data="__xphub__:home"
+        )
+    )
 
     try:
         if message_id:
@@ -148,9 +159,9 @@ def setup(bot: TeleBot):
         show_hop_ui(bot, chat_id, sent.message_id)
 
     # ----------------------------
-    # Hop callbacks
+    # Hop callbacks (NAMESPACED)
     # ----------------------------
-    @bot.callback_query_handler(func=lambda c: c.data.startswith("hop:"))
+    @bot.callback_query_handler(func=lambda c: c.data.startswith(HOP_PREFIX))
     def hop_cb(call):
         bot.answer_callback_query(call.id)
 
@@ -198,7 +209,12 @@ def setup(bot: TeleBot):
             )
 
             kb = types.InlineKeyboardMarkup(row_width=1)
-            kb.add(types.InlineKeyboardButton("🔙 Back to XP Hub", callback_data="__xphub__:home"))
+            kb.add(
+                types.InlineKeyboardButton(
+                    "🔙 Back to XP Hub",
+                    callback_data="__xphub__:home"
+                )
+            )
 
             try:
                 bot.edit_message_text(
