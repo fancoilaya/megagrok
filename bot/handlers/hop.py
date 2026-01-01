@@ -1,11 +1,6 @@
 # bot/handlers/hop.py
 # -------------------------------------------------
-# Hop — Daily XP Ritual
-# Entry points:
-#   - /hop command
-#   - XP Hub callback (show_hop_ui)
-#   - __hop__:go callback
-# Uses cooldown timestamps (NOT quests)
+# Hop — Daily XP Ritual (FINAL FIXED VERSION)
 # -------------------------------------------------
 
 import time
@@ -18,9 +13,9 @@ import bot.db as db
 # CONFIG
 # -------------------------------------------------
 
-HOP_NEXT_TS = "hop_next_ts"      # timestamp when hop becomes available again
-HOP_STREAK_KEY = "hop_streak"    # daily streak counter
-HOP_PREFIX = "__hop__:"          # callback namespace (IMPORTANT)
+HOP_NEXT_TS = "hop_next_ts"
+HOP_STREAK_KEY = "hop_streak"
+HOP_PREFIX = "__hop__:"
 
 # -------------------------------------------------
 # TIME HELPERS
@@ -61,21 +56,22 @@ def _save_cd(uid: int, cd: dict):
         pass
 
 def _streak_bonus_pct(streak: int) -> int:
-    return min(25, max(0, streak * 2))  # +2% per day, capped at 25%
+    return min(25, max(0, streak * 2))
 
 # -------------------------------------------------
 # UI
 # -------------------------------------------------
 
-def show_hop_ui(bot: TeleBot, chat_id: int, message_id: int | None = None):
+def show_hop_ui(
+    bot: TeleBot,
+    chat_id: int,
+    message_id: int | None,
+    uid: int
+):
     """
-    Main Hop UI renderer.
-    Called from:
-      - /hop command
-      - XP Hub (show_hop_ui(bot, chat_id, msg_id))
-      - hop callbacks
+    Renders Hop UI.
+    uid MUST be explicitly passed (never infer from chat_id).
     """
-    uid = chat_id  # private chat: chat_id == user_id
 
     cd = _load_cd(uid)
     next_ts = int(cd.get(HOP_NEXT_TS, 0) or 0)
@@ -149,17 +145,18 @@ def show_hop_ui(bot: TeleBot, chat_id: int, message_id: int | None = None):
 def setup(bot: TeleBot):
 
     # ----------------------------
-    # /hop command (ENTRY POINT)
+    # /hop COMMAND
     # ----------------------------
     @bot.message_handler(commands=["hop"])
     def hop_cmd(message):
         chat_id = message.chat.id
+        uid = message.from_user.id
 
         sent = bot.send_message(chat_id, "🐾 Opening the rift…")
-        show_hop_ui(bot, chat_id, sent.message_id)
+        show_hop_ui(bot, chat_id, sent.message_id, uid)
 
     # ----------------------------
-    # Hop callbacks (NAMESPACED)
+    # HOP CALLBACKS (NAMESPACED)
     # ----------------------------
     @bot.callback_query_handler(func=lambda c: c.data.startswith(HOP_PREFIX))
     def hop_cb(call):
@@ -177,15 +174,12 @@ def setup(bot: TeleBot):
 
         now = int(time.time())
 
-        # ----------------------------
-        # EXECUTE HOP
-        # ----------------------------
         if action == "go":
             if now < next_ts:
-                show_hop_ui(bot, chat_id, msg_id)
+                show_hop_ui(bot, chat_id, msg_id, uid)
                 return
 
-            # Roll XP
+            # XP roll
             base_xp = random.randint(15, 35)
             bonus_pct = _streak_bonus_pct(streak)
             gained = int(round(base_xp * (1 + bonus_pct / 100)))
