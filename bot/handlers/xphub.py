@@ -50,7 +50,7 @@ def setup(bot: TeleBot):
             return
 
         if action == "hop":
-            show_hop_ui(bot, chat_id, msg_id)
+            show_hop_ui(bot, chat_id, msg_id, uid)
             return
 
         if action == "evolution":
