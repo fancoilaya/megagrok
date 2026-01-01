@@ -1,5 +1,5 @@
 # bot/handlers/growmygrok.py
-# GrowMyGrok 2.5 — Single-message UX with cooldown refresh (FIXED)
+# GrowMyGrok 2.5 — Single-message UX with cooldown refresh (PATCHED)
 
 import os
 import time
@@ -135,7 +135,6 @@ def _cooldown_keyboard():
 
 
 def _button_label(mode: str) -> str:
-    # REMOVE HTML for buttons (Telegram does not support it)
     first = MODE_DESCRIPTIONS[mode].split("\n")[0]
     return first.replace("<b>", "").replace("</b>", "")
 
@@ -143,7 +142,34 @@ def _button_label(mode: str) -> str:
 # ----------------------------
 # PUBLIC UI ENTRY
 # ----------------------------
-def show_grow_ui(bot: TeleBot, chat_id: int, message_id: int | None = None):
+def show_grow_ui(
+    bot: TeleBot,
+    chat_id: int,
+    message_id: int | None = None,
+    uid: int | None = None,
+):
+    # =====================================================
+    # NEW: COOLDOWN CHECK ON ENTRY (THIS IS THE FIX)
+    # =====================================================
+    if uid is not None:
+        cd = _load_cd(uid)
+        last = cd.get("grow_last_action", 0)
+        now = _now()
+
+        if last and now - last < GLOBAL_GROW_COOLDOWN:
+            left = GLOBAL_GROW_COOLDOWN - (now - last)
+
+            bot.edit_message_text(
+                f"⏳ <b>Grow is on cooldown</b>\n\n"
+                f"⏱️ {_format_cd(left)} remaining",
+                chat_id,
+                message_id,
+                reply_markup=_cooldown_keyboard(),
+                parse_mode="HTML",
+            )
+            return
+    # =====================================================
+
     kb = types.InlineKeyboardMarkup(row_width=1)
 
     for m in XP_RANGES:
@@ -154,16 +180,7 @@ def show_grow_ui(bot: TeleBot, chat_id: int, message_id: int | None = None):
             )
         )
 
-    # Cooldown info on entry
-    uid = None
-    cd_text = ""
-    if message_id:
-        # Try to infer uid safely
-        try:
-            # TeleBot keeps last user on callback entry
-            uid = None
-        except Exception:
-            uid = None
+    kb.add(types.InlineKeyboardButton("🔙 Back to XP Hub", callback_data="__xphub__:home"))
 
     text = (
         "🌱 <b>Choose how to grow your Grok</b>\n\n"
@@ -172,9 +189,6 @@ def show_grow_ui(bot: TeleBot, chat_id: int, message_id: int | None = None):
         f"{MODE_DESCRIPTIONS['gamble']}\n\n"
         "👇 Select an option:"
     )
-
-    # ALWAYS include Back button
-    kb.add(types.InlineKeyboardButton("🔙 Back to XP Hub", callback_data="__xphub__:home"))
 
     if message_id:
         bot.edit_message_text(
@@ -218,12 +232,13 @@ def setup(bot: TeleBot):
         last = cd.get("grow_last_action", 0)
 
         # ----------------------------
-        # COOLDOWN REFRESH HANDLER
+        # REFRESH
         # ----------------------------
         if data == "grow:refresh":
             left = max(0, GLOBAL_GROW_COOLDOWN - (now - last))
             if left <= 0:
-                return show_grow_ui(bot, chat_id, msg_id)
+                show_grow_ui(bot, chat_id, msg_id, uid)
+                return
 
             bot.edit_message_text(
                 f"⏳ <b>Grow is on cooldown</b>\n\n"
