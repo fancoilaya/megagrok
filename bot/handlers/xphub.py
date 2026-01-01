@@ -46,7 +46,7 @@ def setup(bot: TeleBot):
         uid = call.from_user.id
 
         if action == "grow":
-            show_grow_ui(bot, chat_id, msg_id)
+            show_grow_ui(bot, chat_id, msg_id, uid)
             return
 
         if action == "hop":
