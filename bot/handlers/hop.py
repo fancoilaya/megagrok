@@ -1,9 +1,8 @@
 # bot/handlers/hop.py
 # -------------------------------------------------
 # Hop — Daily XP Ritual
-# - Shows cooldown + streak in menu
-# - Safe XP Hub integration
-# - No signature changes
+# Uses cooldown timestamps (NOT quests)
+# Preserves all previous logic + fixes Telegram edit crash
 # -------------------------------------------------
 
 import time
@@ -11,25 +10,24 @@ import random
 from telebot import TeleBot, types
 
 import bot.db as db
-from bot.db import get_quests, record_quest
 
 # -------------------------------------------------
 # CONFIG
 # -------------------------------------------------
 
-GLOBAL_HOP_KEY = "hop_used_today"
-HOP_STREAK_KEY = "hop_streak"
+HOP_NEXT_TS = "hop_next_ts"      # timestamp when hop becomes available again
+HOP_STREAK_KEY = "hop_streak"    # daily streak counter
 
 # -------------------------------------------------
-# Helpers
+# TIME HELPERS
 # -------------------------------------------------
 
 def _utc_midnight_ts() -> int:
     now = int(time.time())
     return now - (now % 86400) + 86400
 
-def _seconds_until_next_day() -> int:
-    return max(0, _utc_midnight_ts() - int(time.time()))
+def _seconds_until(ts: int) -> int:
+    return max(0, ts - int(time.time()))
 
 def _format_hms(sec: int) -> str:
     h = sec // 3600
@@ -41,13 +39,25 @@ def _format_hms(sec: int) -> str:
         return f"{m}m {s}s"
     return f"{s}s"
 
-def _safe_get_cd(user_id: int) -> dict:
-    return db.get_cooldowns(user_id) or {}
+# -------------------------------------------------
+# COOLDOWN HELPERS
+# -------------------------------------------------
+
+def _load_cd(uid: int) -> dict:
+    try:
+        cd = db.get_cooldowns(uid)
+        return cd if isinstance(cd, dict) else {}
+    except Exception:
+        return {}
+
+def _save_cd(uid: int, cd: dict):
+    try:
+        db.set_cooldowns(uid, cd)
+    except Exception:
+        pass
 
 def _streak_bonus_pct(streak: int) -> int:
-    if streak <= 0:
-        return 0
-    return min(25, streak * 2)  # caps at +25%
+    return min(25, max(0, streak * 2))  # +2% per day, capped at 25%
 
 # -------------------------------------------------
 # UI
@@ -55,21 +65,23 @@ def _streak_bonus_pct(streak: int) -> int:
 
 def show_hop_ui(bot: TeleBot, chat_id: int, message_id: int | None = None):
     """
-    ENTRY POINT
-    Called from XP Hub:
+    ENTRY POINT — called from XP Hub:
         show_hop_ui(bot, chat_id, msg_id)
+
+    chat_id == user_id (private chat)
     """
-    uid = chat_id  # private chat = user id
+    uid = chat_id
+    cd = _load_cd(uid)
 
-    quests = get_quests(uid)
-    cooldowns = _safe_get_cd(uid)
+    next_ts = int(cd.get(HOP_NEXT_TS, 0) or 0)
+    streak = int(cd.get(HOP_STREAK_KEY, 0) or 0)
 
-    on_cooldown = quests.get(GLOBAL_HOP_KEY) == 1
-    streak = int(cooldowns.get(HOP_STREAK_KEY, 0) or 0)
+    now = int(time.time())
+    on_cooldown = now < next_ts
     bonus = _streak_bonus_pct(streak)
 
     if on_cooldown:
-        remaining = _seconds_until_next_day()
+        remaining = _seconds_until(next_ts)
         text = (
             "🐾 <b>HOP — ON COOLDOWN</b>\n\n"
             "The rift has closed for today.\n\n"
@@ -93,24 +105,30 @@ def show_hop_ui(bot: TeleBot, chat_id: int, message_id: int | None = None):
 
     kb.add(types.InlineKeyboardButton("🔙 Back to XP Hub", callback_data="__xphub__:home"))
 
-    if message_id:
-        bot.edit_message_text(
-            text,
-            chat_id,
-            message_id,
-            reply_markup=kb,
-            parse_mode="HTML"
-        )
-    else:
-        bot.send_message(
-            chat_id,
-            text,
-            reply_markup=kb,
-            parse_mode="HTML"
-        )
+    # --- SAFE EDIT (Telegram may reject identical edits) ---
+    try:
+        if message_id:
+            bot.edit_message_text(
+                text,
+                chat_id,
+                message_id,
+                reply_markup=kb,
+                parse_mode="HTML"
+            )
+        else:
+            bot.send_message(
+                chat_id,
+                text,
+                reply_markup=kb,
+                parse_mode="HTML"
+            )
+    except Exception as e:
+        if "message is not modified" in str(e):
+            return
+        raise
 
 # -------------------------------------------------
-# Callback handler (unchanged routing)
+# CALLBACK HANDLER
 # -------------------------------------------------
 
 def setup(bot: TeleBot):
@@ -125,39 +143,35 @@ def setup(bot: TeleBot):
 
         action = call.data.split(":", 1)[1]
 
-        # -------------------------
-        # Execute Hop
-        # -------------------------
+        cd = _load_cd(uid)
+        next_ts = int(cd.get(HOP_NEXT_TS, 0) or 0)
+        streak = int(cd.get(HOP_STREAK_KEY, 0) or 0)
+
+        now = int(time.time())
+
+        # -------------------------------------------------
+        # EXECUTE HOP
+        # -------------------------------------------------
         if action == "go":
-            quests = get_quests(uid)
-            if quests.get(GLOBAL_HOP_KEY) == 1:
+            if now < next_ts:
                 show_hop_ui(bot, chat_id, msg_id)
                 return
 
             # --- roll XP ---
             base_xp = random.randint(15, 35)
-
-            cooldowns = _safe_get_cd(uid)
-            streak = int(cooldowns.get(HOP_STREAK_KEY, 0) or 0)
             bonus_pct = _streak_bonus_pct(streak)
-
             gained = int(round(base_xp * (1 + bonus_pct / 100)))
 
-            # --- apply XP ---
             user = db.get_user(uid)
-            new_total = int(user.get("xp_total", 0)) + gained
-
             db.update_user_xp(uid, {
-                "xp_total": new_total
+                "xp_total": int(user.get("xp_total", 0)) + gained
             })
 
-            # --- mark hop used ---
-            record_quest(uid, GLOBAL_HOP_KEY)
+            # --- update cooldown + streak ---
+            cd[HOP_STREAK_KEY] = streak + 1
+            cd[HOP_NEXT_TS] = _utc_midnight_ts()
+            _save_cd(uid, cd)
 
-            cooldowns[HOP_STREAK_KEY] = streak + 1
-            db.set_cooldowns(uid, cooldowns)
-
-            # --- feedback ---
             text = (
                 "✨ <b>HOP COMPLETE</b>\n\n"
                 f"📈 XP gained: <b>{gained}</b>\n"
@@ -169,10 +183,15 @@ def setup(bot: TeleBot):
             kb = types.InlineKeyboardMarkup(row_width=1)
             kb.add(types.InlineKeyboardButton("🔙 Back to XP Hub", callback_data="__xphub__:home"))
 
-            bot.edit_message_text(
-                text,
-                chat_id,
-                msg_id,
-                reply_markup=kb,
-                parse_mode="HTML"
-            )
+            try:
+                bot.edit_message_text(
+                    text,
+                    chat_id,
+                    msg_id,
+                    reply_markup=kb,
+                    parse_mode="HTML"
+                )
+            except Exception as e:
+                if "message is not modified" in str(e):
+                    return
+                raise
