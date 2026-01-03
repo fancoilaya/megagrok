@@ -2,9 +2,13 @@ from telebot import TeleBot, types
 from services.permissions import is_megacrew, is_admin
 import bot.db as db
 import time
+import os
 
 # chat_id -> admin UI message_id
 ADMIN_UI_MESSAGE = {}
+
+# same group used for announcements
+ANNOUNCE_GROUP_ID = int(os.getenv("LEADERBOARD_CHANNEL_ID", "0"))
 
 
 def setup(bot: TeleBot):
@@ -59,6 +63,7 @@ def setup(bot: TeleBot):
             types.InlineKeyboardButton("📣 Announcements (Channel)", callback_data="ui_announce"),
             types.InlineKeyboardButton("🔔 Notify Users (DM)", callback_data="ui_notifyusers"),
             types.InlineKeyboardButton("📜 Admin Logs", callback_data="ui_logs"),
+            types.InlineKeyboardButton("⚠️ Advanced / Risky", callback_data="ui_risky"),
         )
         if is_admin(user_id):
             kb.add(types.InlineKeyboardButton("👥 MegaCrew Management", callback_data="ui_crew"))
@@ -161,6 +166,64 @@ def setup(bot: TeleBot):
             )
 
         # ---------------------------
+        # ADVANCED / RISKY
+        # ---------------------------
+        elif call.data == "ui_risky":
+            try:
+                group = bot.get_chat(ANNOUNCE_GROUP_ID)
+                group_name = group.title
+            except Exception:
+                group_name = "Unknown group"
+
+            users = db.get_all_users()
+            known_usernames = [u for u in users if u.get("username")]
+            estimate = len(known_usernames)
+
+            kb = types.InlineKeyboardMarkup(row_width=1)
+            kb.add(
+                types.InlineKeyboardButton("🚨 Ping Group", callback_data="ui_ping_preview"),
+                types.InlineKeyboardButton("⬅ Back", callback_data="ui_main"),
+            )
+
+            edit_ui(
+                call,
+                breadcrumb("Advanced › Ping Group") +
+                "🚨 <b>Ping Group Members (Risky)</b>\n\n"
+                "This will send messages in the group that @mention many users.\n\n"
+                "<b>Target group:</b>\n"
+                f"• {group_name}\n\n"
+                f"<b>Estimated pings:</b> {estimate} users\n\n"
+                "⚠️ Only users with a <b>@username</b> can be pinged.\n"
+                "⚠️ The chat will be spammed temporarily.\n\n"
+                "Use for emergencies only.",
+                kb
+            )
+
+        # ---------------------------
+        # FINAL PING PREVIEW
+        # ---------------------------
+        elif call.data == "ui_ping_preview":
+            users = db.get_all_users()
+            known_usernames = [u for u in users if u.get("username")]
+            estimate = len(known_usernames)
+
+            kb = types.InlineKeyboardMarkup(row_width=2)
+            kb.add(
+                types.InlineKeyboardButton("🚨 SEND", callback_data="pinggroup_send"),
+                types.InlineKeyboardButton("❌ Cancel", callback_data="ui_main"),
+            )
+
+            edit_ui(
+                call,
+                breadcrumb("Ping Group") +
+                "🚨 <b>FINAL WARNING</b>\n\n"
+                f"<b>Estimated pings:</b> {estimate} users\n"
+                "Method: @mentions in group\n\n"
+                "This action cannot be undone.",
+                kb
+            )
+
+        # ---------------------------
         # MEGACREW MENU
         # ---------------------------
         elif call.data == "ui_crew":
@@ -196,7 +259,6 @@ def setup(bot: TeleBot):
             edit_ui(call, loading_text("MegaCrew Members"), None)
             time.sleep(0.3)
 
-            # Pull MegaCrew users directly from DB
             users = db.get_all_users()
             lines = []
 
