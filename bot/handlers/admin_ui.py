@@ -1,6 +1,5 @@
 from telebot import TeleBot, types
 from services.permissions import is_megacrew, is_admin
-from services.megacrew import list_megacrew
 import bot.db as db
 import time
 
@@ -197,20 +196,21 @@ def setup(bot: TeleBot):
             edit_ui(call, loading_text("MegaCrew Members"), None)
             time.sleep(0.3)
 
-            crew_ids = list_megacrew()
+            # Pull MegaCrew users directly from DB
+            users = db.get_all_users()
             lines = []
 
-            for uid in crew_ids:
-                user = db.get_user(uid)
-                if not user:
-                    lines.append(f"• <code>{uid}</code>")
+            for u in users:
+                if not u.get("megacrew"):
                     continue
 
-                username = user.get("username")
+                username = u.get("username")
+                uid_str = str(u.get("id"))
+
                 if username:
                     lines.append(f"• @{username}")
                 else:
-                    lines.append(f"• <code>{uid}</code>")
+                    lines.append(f"• <code>{uid_str}</code>")
 
             if not lines:
                 body = "No MegaCrew members found."
