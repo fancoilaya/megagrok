@@ -1,7 +1,21 @@
+import os
 from telebot import TeleBot, types
-from services.permissions import is_megacrew
+from services.permissions import is_megacrew, is_admin
 from services.audit_log import log_admin_action
-from config import GROKPEDIA_CHANNEL_ID
+
+# -------------------------------------------------
+# Channel ID (ENV-BASED, SAFE)
+# -------------------------------------------------
+
+_CHANNEL_RAW = os.getenv("GROKPEDIA_CHANNEL_ID")
+
+GROKPEDIA_CHANNEL_ID = None
+if _CHANNEL_RAW:
+    try:
+        GROKPEDIA_CHANNEL_ID = int(_CHANNEL_RAW)
+    except ValueError:
+        GROKPEDIA_CHANNEL_ID = None
+
 
 # Per-user draft store
 DRAFTS = {}
@@ -11,8 +25,19 @@ def setup(bot: TeleBot):
 
     @bot.message_handler(commands=["notifyall"])
     def preview(message):
-        if not is_megacrew(message.from_user.id):
+        uid = message.from_user.id
+
+        # ✅ Admin OR MegaCrew allowed
+        if not (is_admin(uid) or is_megacrew(uid)):
             bot.reply_to(message, "⛔ MegaCrew access required.")
+            return
+
+        if GROKPEDIA_CHANNEL_ID is None:
+            bot.reply_to(
+                message,
+                "❌ GROKPEDIA_CHANNEL_ID is not configured.\n"
+                "Please set it in environment variables."
+            )
             return
 
         text = message.text.replace("/notifyall", "").strip()
@@ -21,7 +46,7 @@ def setup(bot: TeleBot):
             return
 
         payload = f"📣 **MegaGrok Announcement**\n\n{text}"
-        DRAFTS[message.from_user.id] = payload
+        DRAFTS[uid] = payload
 
         kb = types.InlineKeyboardMarkup()
         kb.add(
@@ -40,8 +65,12 @@ def setup(bot: TeleBot):
     @bot.callback_query_handler(func=lambda c: c.data.startswith("announce_"))
     def announce_action(call):
         uid = call.from_user.id
-        payload = DRAFTS.get(uid)
 
+        if not (is_admin(uid) or is_megacrew(uid)):
+            bot.answer_callback_query(call.id, "Access denied.")
+            return
+
+        payload = DRAFTS.get(uid)
         if not payload:
             bot.answer_callback_query(call.id, "No draft found.")
             return
