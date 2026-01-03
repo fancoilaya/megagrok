@@ -4,6 +4,9 @@ from services.permissions import is_megacrew, is_admin
 
 def setup(bot: TeleBot):
 
+    # -------------------------------
+    # /megaadmin entry (reset UI)
+    # -------------------------------
     @bot.message_handler(commands=["megaadmin"])
     def admin_panel(message):
         uid = message.from_user.id
@@ -11,20 +14,23 @@ def setup(bot: TeleBot):
             bot.reply_to(message, "⛔ MegaCrew access required.")
             return
 
-        show_main_menu(message.chat.id, uid)
+        send_main_menu(message.chat.id, uid)
 
-    def show_main_menu(chat_id, user_id):
+    # -------------------------------
+    # UI SCREENS
+    # -------------------------------
+    def send_main_menu(chat_id, user_id):
         kb = types.InlineKeyboardMarkup(row_width=1)
         kb.add(
-            types.InlineKeyboardButton("📣 Announcements (Channel)", callback_data="admin_announce"),
-            types.InlineKeyboardButton("🔔 Notify Users (DM)", callback_data="admin_notifyusers"),
-            types.InlineKeyboardButton("📜 Admin Logs", callback_data="admin_logs"),
+            types.InlineKeyboardButton("📣 Announcements (Channel)", callback_data="ui_announce"),
+            types.InlineKeyboardButton("🔔 Notify Users (DM)", callback_data="ui_notifyusers"),
+            types.InlineKeyboardButton("📜 Admin Logs", callback_data="ui_logs"),
         )
 
         if is_admin(user_id):
-            kb.add(types.InlineKeyboardButton("👥 MegaCrew Management", callback_data="admin_crew"))
+            kb.add(types.InlineKeyboardButton("👥 MegaCrew Management", callback_data="ui_crew"))
 
-        kb.add(types.InlineKeyboardButton("❌ Close", callback_data="admin_close"))
+        kb.add(types.InlineKeyboardButton("❌ Close", callback_data="ui_close"))
 
         bot.send_message(
             chat_id,
@@ -34,21 +40,45 @@ def setup(bot: TeleBot):
             parse_mode="HTML"
         )
 
-    @bot.callback_query_handler(func=lambda c: c.data.startswith("admin_"))
-    def admin_callbacks(call):
+    def edit_ui(call, text, kb):
+        bot.edit_message_text(
+            text,
+            call.message.chat.id,
+            call.message.message_id,
+            reply_markup=kb,
+            parse_mode="HTML"
+        )
+
+    def back_close_kb(back_cb):
+        kb = types.InlineKeyboardMarkup(row_width=2)
+        kb.add(
+            types.InlineKeyboardButton("⬅ Back", callback_data=back_cb),
+            types.InlineKeyboardButton("❌ Close", callback_data="ui_close"),
+        )
+        return kb
+
+    # -------------------------------
+    # CALLBACK ROUTER
+    # -------------------------------
+    @bot.callback_query_handler(func=lambda c: c.data.startswith("ui_"))
+    def ui_router(call):
         uid = call.from_user.id
-        cid = call.message.chat.id
 
         if not (is_admin(uid) or is_megacrew(uid)):
             bot.answer_callback_query(call.id, "Access denied.")
             return
 
+        # MAIN MENU
+        if call.data == "ui_main":
+            send_main_menu(call.message.chat.id, uid)
+            return
+
         # 📣 ANNOUNCEMENTS
-        if call.data == "admin_announce":
-            bot.send_message(
-                cid,
+        if call.data == "ui_announce":
+            edit_ui(
+                call,
                 "📣 <b>Announcements (Channel)</b>\n\n"
-                "Posts an official announcement and pins it.\n\n"
+                "Posts an official announcement to the channel and pins it.\n\n"
                 "<b>Example:</b>\n"
                 "<code>/announce_html &lt;b&gt;🚀 Update&lt;/b&gt;\n"
                 "PvP Arena is now live!\n"
@@ -56,15 +86,15 @@ def setup(bot: TeleBot):
                 "• HTML supported\n"
                 "• Permanent\n"
                 "• Pinned",
-                parse_mode="HTML"
+                back_close_kb("ui_main")
             )
 
         # 🔔 NOTIFY USERS
-        elif call.data == "admin_notifyusers":
-            bot.send_message(
-                cid,
+        elif call.data == "ui_notifyusers":
+            edit_ui(
+                call,
                 "🔔 <b>Notify Users (Direct Messages)</b>\n\n"
-                "Sends a private message to <b>all users who started the bot</b>.\n\n"
+                "Sends a private message to all users who started the bot.\n\n"
                 "<b>Example:</b>\n"
                 "<code>/notifyusers &lt;b&gt;🚨 Important&lt;/b&gt;\n"
                 "Servers restart in 10 minutes.\n"
@@ -73,21 +103,23 @@ def setup(bot: TeleBot):
                 "1️⃣ Preview\n"
                 "2️⃣ 🧪 Test (DM to yourself)\n"
                 "3️⃣ 🚨 Final confirmation\n"
-                "4️⃣ Sent as real notifications\n\n"
-                "<b>Uses the SAME HTML rules as /announce_html</b>",
-                parse_mode="HTML"
+                "4️⃣ Sent as real notifications",
+                back_close_kb("ui_main")
             )
 
-        elif call.data == "admin_logs":
-            bot.send_message(
-                cid,
+        # 📜 LOGS
+        elif call.data == "ui_logs":
+            edit_ui(
+                call,
                 "📜 <b>Admin Logs</b>\n\n"
+                "View recent admin actions.\n\n"
                 "<code>/adminlog</code>\n"
                 "<code>/adminlog 2</code>",
-                parse_mode="HTML"
+                back_close_kb("ui_main")
             )
 
-        elif call.data == "admin_crew":
+        # 👥 MEGACREW
+        elif call.data == "ui_crew":
             if not is_admin(uid):
                 bot.answer_callback_query(call.id, "Admin only.")
                 return
@@ -97,21 +129,19 @@ def setup(bot: TeleBot):
                 types.InlineKeyboardButton("➕ Add MegaCrew", switch_inline_query_current_chat="/addmegacrew"),
                 types.InlineKeyboardButton("➖ Remove MegaCrew", switch_inline_query_current_chat="/removemegacrew"),
                 types.InlineKeyboardButton("📋 List MegaCrew", switch_inline_query_current_chat="/listmegacrew"),
-                types.InlineKeyboardButton("⬅️ Back", callback_data="admin_back"),
+                types.InlineKeyboardButton("⬅ Back", callback_data="ui_main"),
+                types.InlineKeyboardButton("❌ Close", callback_data="ui_close"),
             )
 
-            bot.send_message(
-                cid,
+            edit_ui(
+                call,
                 "👥 <b>MegaCrew Management</b>\n\n"
-                "Reply to a user, then tap a button:",
-                reply_markup=kb,
-                parse_mode="HTML"
+                "Reply to a user, then tap an action:",
+                kb
             )
 
-        elif call.data == "admin_back":
-            show_main_menu(cid, uid)
-
-        elif call.data == "admin_close":
-            bot.delete_message(cid, call.message.message_id)
+        # CLOSE
+        elif call.data == "ui_close":
+            bot.delete_message(call.message.chat.id, call.message.message_id)
 
         bot.answer_callback_query(call.id)
