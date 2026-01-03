@@ -3,10 +3,6 @@ from telebot import TeleBot, types
 from services.permissions import is_megacrew, is_admin
 from services.audit_log import log_admin_action
 
-# -------------------------------------------------
-# Channel ID (ENV-BASED, SAFE)
-# -------------------------------------------------
-
 _CHANNEL_RAW = os.getenv("GROKPEDIA_CHANNEL_ID")
 
 GROKPEDIA_CHANNEL_ID = None
@@ -17,7 +13,7 @@ if _CHANNEL_RAW:
         GROKPEDIA_CHANNEL_ID = None
 
 
-# Per-user draft store
+# Per-user drafts
 DRAFTS = {}
 
 
@@ -27,7 +23,6 @@ def setup(bot: TeleBot):
     def preview(message):
         uid = message.from_user.id
 
-        # ✅ Admin OR MegaCrew allowed
         if not (is_admin(uid) or is_megacrew(uid)):
             bot.reply_to(message, "⛔ MegaCrew access required.")
             return
@@ -35,8 +30,7 @@ def setup(bot: TeleBot):
         if GROKPEDIA_CHANNEL_ID is None:
             bot.reply_to(
                 message,
-                "❌ GROKPEDIA_CHANNEL_ID is not configured.\n"
-                "Please set it in environment variables."
+                "❌ GROKPEDIA_CHANNEL_ID is not configured."
             )
             return
 
@@ -57,7 +51,8 @@ def setup(bot: TeleBot):
 
         bot.send_message(
             message.chat.id,
-            f"🧪 **Preview**\n\n{payload}",
+            f"🧪 **Preview**\n\n{payload}\n\n"
+            "_Test Mode is button-only. There is NO test command._",
             reply_markup=kb,
             parse_mode="Markdown"
         )
@@ -75,7 +70,6 @@ def setup(bot: TeleBot):
             bot.answer_callback_query(call.id, "No draft found.")
             return
 
-        # ❌ CANCEL
         if call.data == "announce_cancel":
             DRAFTS.pop(uid, None)
             bot.edit_message_text(
@@ -85,17 +79,17 @@ def setup(bot: TeleBot):
             )
             return
 
-        # 🧪 TEST (ADMIN CHAT ONLY)
         if call.data == "announce_test":
             bot.send_message(
                 call.message.chat.id,
-                "🧪 **TEST POST (ADMIN ONLY)**\n\n" + payload,
+                "🧪 **TEST POST (ADMIN ONLY)**\n\n"
+                "(This message is NOT visible to the public channel)\n\n"
+                + payload,
                 parse_mode="Markdown"
             )
             bot.answer_callback_query(call.id, "Test message sent.")
             return
 
-        # ✅ REAL PUBLISH
         if call.data == "announce_publish":
             bot.send_message(
                 GROKPEDIA_CHANNEL_ID,
