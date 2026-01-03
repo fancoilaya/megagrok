@@ -28,7 +28,7 @@ def setup(bot: TeleBot):
 
         bot.send_message(
             chat_id,
-            "👑 <b>MegaGrok Admin Console</b><br><br>"
+            "👑 <b>MegaGrok Admin Console</b>\n\n"
             "Choose how you want to communicate:",
             reply_markup=kb,
             parse_mode="HTML"
@@ -47,14 +47,14 @@ def setup(bot: TeleBot):
         if call.data == "admin_announce":
             bot.send_message(
                 cid,
-                "📣 <b>Announcements (Channel)</b><br><br>"
-                "Posts an official announcement and pins it.<br><br>"
-                "<b>Example:</b><br>"
-                "<code>/announce_html &lt;b&gt;🚀 Update&lt;/b&gt;&lt;br&gt;"
-                "PvP Arena is now live!&lt;br&gt;"
-                "&lt;a href='https://example.com'&gt;Read more&lt;/a&gt;</code><br><br>"
-                "• HTML supported<br>"
-                "• Permanent<br>"
+                "📣 <b>Announcements (Channel)</b>\n\n"
+                "Posts an official announcement and pins it.\n\n"
+                "<b>Example:</b>\n"
+                "<code>/announce_html &lt;b&gt;🚀 Update&lt;/b&gt;\n"
+                "PvP Arena is now live!\n"
+                "&lt;a href='https://example.com'&gt;Read more&lt;/a&gt;</code>\n\n"
+                "• HTML supported\n"
+                "• Permanent\n"
                 "• Pinned",
                 parse_mode="HTML"
             )
@@ -63,17 +63,17 @@ def setup(bot: TeleBot):
         elif call.data == "admin_notifyusers":
             bot.send_message(
                 cid,
-                "🔔 <b>Notify Users (Direct Messages)</b><br><br>"
-                "Sends a private message to <b>all users who started the bot</b>.<br><br>"
-                "<b>Example:</b><br>"
-                "<code>/notifyusers &lt;b&gt;🚨 Important&lt;/b&gt;&lt;br&gt;"
-                "Servers restart in 10 minutes.&lt;br&gt;"
-                "Please finish battles.</code><br><br>"
-                "<b>Flow:</b><br>"
-                "1️⃣ Preview<br>"
-                "2️⃣ 🧪 Test (DM to yourself)<br>"
-                "3️⃣ 🚨 Final confirmation<br>"
-                "4️⃣ Sent as real notifications<br><br>"
+                "🔔 <b>Notify Users (Direct Messages)</b>\n\n"
+                "Sends a private message to <b>all users who started the bot</b>.\n\n"
+                "<b>Example:</b>\n"
+                "<code>/notifyusers &lt;b&gt;🚨 Important&lt;/b&gt;\n"
+                "Servers restart in 10 minutes.\n"
+                "Please finish battles.</code>\n\n"
+                "<b>Flow:</b>\n"
+                "1️⃣ Preview\n"
+                "2️⃣ 🧪 Test (DM to yourself)\n"
+                "3️⃣ 🚨 Final confirmation\n"
+                "4️⃣ Sent as real notifications\n\n"
                 "<b>Uses the SAME HTML rules as /announce_html</b>",
                 parse_mode="HTML"
             )
@@ -81,8 +81,8 @@ def setup(bot: TeleBot):
         elif call.data == "admin_logs":
             bot.send_message(
                 cid,
-                "📜 <b>Admin Logs</b><br><br>"
-                "<code>/adminlog</code><br>"
+                "📜 <b>Admin Logs</b>\n\n"
+                "<code>/adminlog</code>\n"
                 "<code>/adminlog 2</code>",
                 parse_mode="HTML"
             )
@@ -102,7 +102,7 @@ def setup(bot: TeleBot):
 
             bot.send_message(
                 cid,
-                "👥 <b>MegaCrew Management</b><br><br>"
+                "👥 <b>MegaCrew Management</b>\n\n"
                 "Reply to a user, then tap a button:",
                 reply_markup=kb,
                 parse_mode="HTML"
