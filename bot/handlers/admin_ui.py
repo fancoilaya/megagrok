@@ -7,7 +7,7 @@ def setup(bot: TeleBot):
     # -------------------------------------------------
     # /admin entry point
     # -------------------------------------------------
-    @bot.message_handler(commands=["admin"])
+    @bot.message_handler(commands=["megaadmin"])
     def admin_panel(message):
         if not is_megacrew(message.from_user.id):
             bot.reply_to(message, "⛔ MegaCrew access required.")
