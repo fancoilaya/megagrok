@@ -53,6 +53,16 @@ def init_db():
             -- PvP columns will be added later via _add_column_if_missing
         )
     """)
+    # Create admin logs for control center
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS admin_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            actor_id INTEGER,
+            action TEXT,
+            data TEXT,
+            timestamp INTEGER
+        )
+    """)
     # Create a simple VIP table placeholder for future shared store usage
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS vip_users (
