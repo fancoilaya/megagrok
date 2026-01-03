@@ -6,10 +6,14 @@ from services.audit_log import log_admin_action
 
 RATE_DELAY = 0.05  # ~20 msgs/sec
 DRAFTS = {}
+PENDING_CONFIRM = {}
 
 
 def setup(bot: TeleBot):
 
+    # -------------------------------------------------
+    # /notifyusers — preview
+    # -------------------------------------------------
     @bot.message_handler(commands=["notifyusers"])
     def preview(message):
         uid = message.from_user.id
@@ -29,11 +33,12 @@ def setup(bot: TeleBot):
             return
 
         DRAFTS[uid] = html
+        PENDING_CONFIRM.pop(uid, None)
 
         kb = types.InlineKeyboardMarkup()
         kb.add(
             types.InlineKeyboardButton("🧪 Test (DM to me)", callback_data="notifyusers_test"),
-            types.InlineKeyboardButton("✅ Send to Users", callback_data="notifyusers_send"),
+            types.InlineKeyboardButton("📤 Proceed to Send", callback_data="notifyusers_prepare"),
             types.InlineKeyboardButton("❌ Cancel", callback_data="notifyusers_cancel"),
         )
 
@@ -44,6 +49,9 @@ def setup(bot: TeleBot):
             parse_mode="HTML"
         )
 
+    # -------------------------------------------------
+    # Callbacks
+    # -------------------------------------------------
     @bot.callback_query_handler(func=lambda c: c.data.startswith("notifyusers_"))
     def handle_notifyusers(call):
         uid = call.from_user.id
@@ -60,6 +68,7 @@ def setup(bot: TeleBot):
         # ❌ Cancel
         if call.data == "notifyusers_cancel":
             DRAFTS.pop(uid, None)
+            PENDING_CONFIRM.pop(uid, None)
             bot.edit_message_text(
                 "❌ User notification cancelled.",
                 call.message.chat.id,
@@ -67,7 +76,7 @@ def setup(bot: TeleBot):
             )
             return
 
-        # 🧪 Test (DM to admin)
+        # 🧪 Test
         if call.data == "notifyusers_test":
             bot.send_message(
                 uid,
@@ -77,11 +86,36 @@ def setup(bot: TeleBot):
             bot.answer_callback_query(call.id, "Test DM sent.")
             return
 
-        # ✅ Send to users
+        # 📤 First confirmation step
+        if call.data == "notifyusers_prepare":
+            PENDING_CONFIRM[uid] = True
+
+            kb = types.InlineKeyboardMarkup()
+            kb.add(
+                types.InlineKeyboardButton("🚨 YES, SEND NOW", callback_data="notifyusers_send"),
+                types.InlineKeyboardButton("❌ Cancel", callback_data="notifyusers_cancel"),
+            )
+
+            bot.edit_message_text(
+                "🚨 <b>FINAL CONFIRMATION</b><br><br>"
+                "You are about to send a <b>DIRECT MESSAGE</b> to <b>ALL USERS</b> who started the bot.<br><br>"
+                "This will trigger real Telegram notifications.<br><br>"
+                "<b>This action cannot be undone.</b>",
+                call.message.chat.id,
+                call.message.message_id,
+                reply_markup=kb,
+                parse_mode="HTML"
+            )
+            return
+
+        # ✅ Final send
         if call.data == "notifyusers_send":
+            if not PENDING_CONFIRM.get(uid):
+                bot.answer_callback_query(call.id, "Confirmation required.")
+                return
+
             sent = 0
             failed = 0
-
             users = db.get_all_users()
 
             for u in users:
@@ -90,11 +124,7 @@ def setup(bot: TeleBot):
                     continue
 
                 try:
-                    bot.send_message(
-                        user_id,
-                        html,
-                        parse_mode="HTML"
-                    )
+                    bot.send_message(user_id, html, parse_mode="HTML")
                     sent += 1
                     time.sleep(RATE_DELAY)
                 except Exception:
@@ -116,5 +146,6 @@ def setup(bot: TeleBot):
             )
 
             DRAFTS.pop(uid, None)
+            PENDING_CONFIRM.pop(uid, None)
 
         bot.answer_callback_query(call.id)
