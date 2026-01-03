@@ -13,12 +13,12 @@ def setup(bot: TeleBot):
             bot.reply_to(message, "⛔ MegaCrew access required.")
             return
 
-        show_main_menu(bot, message.chat.id, message.from_user.id)
+        show_main_menu(message.chat.id, message.from_user.id)
 
     # -------------------------------------------------
     # Main menu
     # -------------------------------------------------
-    def show_main_menu(bot, chat_id, user_id):
+    def show_main_menu(chat_id, user_id):
         kb = types.InlineKeyboardMarkup(row_width=1)
 
         kb.add(
@@ -34,8 +34,8 @@ def setup(bot: TeleBot):
         bot.send_message(
             chat_id,
             "👑 **MegaCrew Control Panel**\n\n"
-            "Use the menu below to manage MegaGrok.\n"
-            "All actions start here 👇",
+            "All admin actions start here.\n"
+            "Use the menus below to safely manage MegaGrok 👇",
             reply_markup=kb,
             parse_mode="Markdown"
         )
@@ -52,11 +52,14 @@ def setup(bot: TeleBot):
             bot.answer_callback_query(call.id, "Access denied.")
             return
 
-        # 📣 ANNOUNCEMENTS
+        # -------------------------
+        # 📣 ANNOUNCEMENTS MENU
+        # -------------------------
         if call.data == "admin_announcements":
             kb = types.InlineKeyboardMarkup(row_width=1)
             kb.add(
                 types.InlineKeyboardButton("✏️ Create Announcement", callback_data="admin_announce_start"),
+                types.InlineKeyboardButton("🧪 How Test Mode Works", callback_data="admin_announce_testinfo"),
                 types.InlineKeyboardButton("🧪 Example", callback_data="admin_announce_example"),
                 types.InlineKeyboardButton("⬅️ Back", callback_data="admin_back"),
             )
@@ -64,47 +67,74 @@ def setup(bot: TeleBot):
             bot.send_message(
                 cid,
                 "📣 **Announcements**\n\n"
-                "Announcements are published to the **MegaGrok channel**.\n"
-                "They always go through **Preview → Confirm → Publish**.",
+                "Announcements are published to the **MegaGrok channel**.\n\n"
+                "They always follow this flow:\n"
+                "🧪 Test in Admin Chat → ✅ Publish to Channel",
                 reply_markup=kb,
                 parse_mode="Markdown"
             )
 
+        # ---- Start announcement
         elif call.data == "admin_announce_start":
             bot.send_message(
                 cid,
                 "✏️ **Create Announcement**\n\n"
-                "**Step 1:** Type the command below with your message\n\n"
+                "**Step 1:** Type the command below with your message:\n\n"
                 "`/notifyall Your announcement text`\n\n"
-                "You will see a **preview** before anything is published.",
+                "**Step 2:** Choose:\n"
+                "• 🧪 Test in Admin Chat\n"
+                "• ✅ Publish to Channel\n\n"
+                "Nothing is public until you confirm.",
                 parse_mode="Markdown"
             )
 
+        # ---- Test mode explanation
+        elif call.data == "admin_announce_testinfo":
+            bot.send_message(
+                cid,
+                "🧪 **Test Mode (Admin Only)**\n\n"
+                "Test Mode lets you:\n"
+                "• Preview formatting\n"
+                "• Check links & emojis\n"
+                "• Verify Markdown\n\n"
+                "🟢 Test messages are sent **ONLY** to this admin chat.\n"
+                "🔴 Nothing is posted publicly until you press **Publish**.",
+                parse_mode="Markdown"
+            )
+
+        # ---- Example
         elif call.data == "admin_announce_example":
             bot.send_message(
                 cid,
                 "🧪 **Example Announcement**\n\n"
-                "`/notifyall ⚔️ PvP Arena v2 is now LIVE! Enter with /arena`\n\n"
-                "This will:\n"
-                "• Show a preview\n"
-                "• Ask for confirmation\n"
-                "• Publish to the channel",
+                "`/notifyall ⚔️ PvP Arena v2 is now LIVE!`\n\n"
+                "Flow:\n"
+                "1️⃣ Preview appears\n"
+                "2️⃣ 🧪 Test in Admin Chat\n"
+                "3️⃣ ✅ Publish to MegaGrok channel",
                 parse_mode="Markdown"
             )
 
+        # -------------------------
         # 📜 ADMIN LOGS
+        # -------------------------
         elif call.data == "admin_logs":
             bot.send_message(
                 cid,
                 "📜 **Admin Audit Logs**\n\n"
-                "View all admin actions (publish, edit, pin, etc).\n\n"
+                "View all admin actions:\n"
+                "• announcements\n"
+                "• edits\n"
+                "• pins\n\n"
                 "**Usage:**\n"
                 "`/adminlog`\n"
-                "`/adminlog 2` (older entries)",
+                "`/adminlog 2`",
                 parse_mode="Markdown"
             )
 
+        # -------------------------
         # 👥 MEGACREW (ADMIN ONLY)
+        # -------------------------
         elif call.data == "admin_crew":
             if not is_admin(uid):
                 bot.answer_callback_query(call.id, "Admin only.")
@@ -122,8 +152,11 @@ def setup(bot: TeleBot):
                 parse_mode="Markdown"
             )
 
+        # -------------------------
+        # NAVIGATION
+        # -------------------------
         elif call.data == "admin_back":
-            show_main_menu(bot, cid, uid)
+            show_main_menu(cid, uid)
 
         elif call.data == "admin_close":
             bot.delete_message(cid, call.message.message_id)
