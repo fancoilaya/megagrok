@@ -8,7 +8,7 @@
 #   /announce_preview <html or markdown> → Preview only (private to admin)
 #
 # Safety:
-# - Only admin (MEGAGROK_ADMIN_ID) may use announcement commands.
+# - Only admin (MEGAGROK_ADMIN_ID) OR MegaCrew may use announcement commands.
 # - Posts exclusively to LEADERBOARD_CHANNEL_ID.
 # - HTML is sanitized to Telegram-supported markup.
 
@@ -16,6 +16,8 @@ import os
 import re
 import traceback
 from telebot import TeleBot
+
+from services.permissions import is_megacrew
 
 # Allowed HTML tags for Telegram
 _ALLOWED_TAGS = {"b", "i", "u", "code", "pre", "a"}
@@ -28,8 +30,10 @@ _TAG_NORMALIZE = {
 
 # Regex helpers
 _RE_TAG = re.compile(r"</?([a-zA-Z0-9:_-]+)(\s+[^>]*)?>", re.IGNORECASE)
-_RE_A_HREF = re.compile(r'<a\s+[^>]*href\s*=\s*["\']([^"\']+)["\'][^>]*>(.*?)</a>',
-                        re.IGNORECASE | re.DOTALL)
+_RE_A_HREF = re.compile(
+    r'<a\s+[^>]*href\s*=\s*["\']([^"\']+)["\'][^>]*>(.*?)</a>',
+    re.IGNORECASE | re.DOTALL
+)
 _RE_LI = re.compile(r"<li\b[^>]*>(.*?)</li>", re.IGNORECASE | re.DOTALL)
 _RE_UL = re.compile(r"<ul\b[^>]*>(.*?)</ul>", re.IGNORECASE | re.DOTALL)
 _RE_P = re.compile(r"<p\b[^>]*>(.*?)</p>", re.IGNORECASE | re.DOTALL)
@@ -37,9 +41,6 @@ _RE_BR = re.compile(r"<br\s*/?>", re.IGNORECASE)
 
 
 def _safe_href(href: str):
-    """
-    Only allow http(s) links in <a href=""> tags.
-    """
     if not href:
         return None
     href = href.strip()
@@ -49,70 +50,63 @@ def _safe_href(href: str):
 
 
 def _sanitize_html_to_telegram(html: str) -> str:
-    """
-    Convert/sanitize incoming HTML into a Telegram-friendly HTML string.
-    """
     if not html:
         return ""
 
     s = html
 
-    # Normalize <strong>/<em> → <b>/<i>
     for src, dst in _TAG_NORMALIZE.items():
-        s = re.sub(fr"</?{src}\b",
-                   lambda m: m.group(0).replace(src, dst),
-                   s,
-                   flags=re.IGNORECASE)
+        s = re.sub(
+            fr"</?{src}\b",
+            lambda m: m.group(0).replace(src, dst),
+            s,
+            flags=re.IGNORECASE,
+        )
 
-    # Convert <br> to newlines
     s = _RE_BR.sub("\n", s)
 
-    # Convert <p>...</p> to paragraphs
     def _p_repl(m):
         inner = m.group(1).strip()
         return inner + "\n\n"
+
     s = _RE_P.sub(_p_repl, s)
 
-    # Convert <ul><li> to bullet lists
     def _ul_repl(m):
         inner = m.group(1)
-        bullets = _RE_LI.sub(lambda mm: "• " + mm.group(1).strip() + "\n", inner)
+        bullets = _RE_LI.sub(
+            lambda mm: "• " + mm.group(1).strip() + "\n", inner
+        )
         return bullets + "\n"
+
     s = _RE_UL.sub(_ul_repl, s)
 
-    # Convert <a href="">
     def _a_repl(m):
         href = m.group(1)
         inner = m.group(2).strip()
         good = _safe_href(href)
         if good:
             return f'<a href="{good}">{inner}</a>'
-        else:
-            return inner
+        return inner
+
     s = _RE_A_HREF.sub(_a_repl, s)
 
-    # Strip unsupported tags but keep inner text
     def _tag_repl(m):
         tag = m.group(1).lower()
         full = m.group(0)
 
-        # Closing tag
         if full.startswith("</"):
             if tag in _ALLOWED_TAGS:
                 return f"</{tag}>"
             return ""
 
-        # Opening tag
         if tag in _ALLOWED_TAGS:
             return f"<{tag}>"
 
         return ""
+
     s = _RE_TAG.sub(_tag_repl, s)
 
-    # Collapse excessive blank lines
     s = re.sub(r"\n\s*\n\s*\n+", "\n\n", s)
-
-    # Remove empty tags like <b></b>
     s = re.sub(r"<([biu]|code|pre)>\s*</\1>", "", s)
 
     return s.strip()
@@ -131,8 +125,9 @@ def setup(bot: TeleBot):
     # --------------------------------------------------------
     @bot.message_handler(commands=["announce"])
     def announce_markdown(message):
-        if message.from_user.id != ADMIN_ID:
-            return bot.reply_to(message, "❌ Not authorized.")
+        uid = message.from_user.id
+        if uid != ADMIN_ID and not is_megacrew(uid):
+            return bot.reply_to(message, "❌ MegaCrew access required.")
 
         if not CHANNEL_ID:
             return bot.reply_to(message, "❌ LEADERBOARD_CHANNEL_ID not set.")
@@ -147,10 +142,9 @@ def setup(bot: TeleBot):
             sent = bot.send_message(
                 int(CHANNEL_ID),
                 f"📢 *Announcement*\n\n{content}",
-                parse_mode="Markdown"
+                parse_mode="Markdown",
             )
 
-            # Try pinning (silent)
             try:
                 bot.pin_chat_message(
                     chat_id=int(CHANNEL_ID),
@@ -158,7 +152,10 @@ def setup(bot: TeleBot):
                     disable_notification=True,
                 )
             except Exception as e:
-                bot.reply_to(message, f"⚠️ Announcement sent but could not pin:\n{e}")
+                bot.reply_to(
+                    message,
+                    f"⚠️ Announcement sent but could not pin:\n{e}",
+                )
 
             bot.reply_to(message, "✅ Announcement posted.")
 
@@ -174,8 +171,10 @@ def setup(bot: TeleBot):
     # --------------------------------------------------------
     @bot.message_handler(commands=["announce_html"])
     def announce_html(message):
-        if message.from_user.id != ADMIN_ID:
-            return bot.reply_to(message, "❌ Not authorized.")
+        uid = message.from_user.id
+        if uid != ADMIN_ID and not is_megacrew(uid):
+            return bot.reply_to(message, "❌ MegaCrew access required.")
+
         if not CHANNEL_ID:
             return bot.reply_to(message, "❌ LEADERBOARD_CHANNEL_ID not set.")
 
@@ -187,9 +186,11 @@ def setup(bot: TeleBot):
 
         try:
             sanitized = _sanitize_html_to_telegram(raw_html)
-
             if not sanitized:
-                return bot.reply_to(message, "❌ Announcement is empty after sanitization.")
+                return bot.reply_to(
+                    message,
+                    "❌ Announcement is empty after sanitization.",
+                )
 
             payload = f"📢 <b>Announcement</b>\n\n{sanitized}"
 
@@ -200,7 +201,6 @@ def setup(bot: TeleBot):
                 disable_web_page_preview=False,
             )
 
-            # Try pinning
             try:
                 bot.pin_chat_message(
                     chat_id=int(CHANNEL_ID),
@@ -208,7 +208,10 @@ def setup(bot: TeleBot):
                     disable_notification=True,
                 )
             except Exception as e:
-                bot.reply_to(message, f"⚠️ Announcement sent but could not pin:\n{e}")
+                bot.reply_to(
+                    message,
+                    f"⚠️ Announcement sent but could not pin:\n{e}",
+                )
 
             bot.reply_to(message, "✅ HTML announcement posted.")
 
@@ -220,18 +223,19 @@ def setup(bot: TeleBot):
             )
 
     # --------------------------------------------------------
-    # /announce_preview  (Shows admin what announcement will look like)
+    # /announce_preview  (Preview only)
     # --------------------------------------------------------
     @bot.message_handler(commands=["announce_preview"])
     def announce_preview(message):
-        if message.from_user.id != ADMIN_ID:
-            return bot.reply_to(message, "❌ Not authorized.")
+        uid = message.from_user.id
+        if uid != ADMIN_ID and not is_megacrew(uid):
+            return bot.reply_to(message, "❌ MegaCrew access required.")
 
         parts = message.text.split(" ", 1)
         if len(parts) < 2 or not parts[1].strip():
             return bot.reply_to(
                 message,
-                "Usage:\n/announce_preview <html or markdown text>"
+                "Usage:\n/announce_preview <html or markdown text>",
             )
 
         raw = parts[1].strip()
@@ -248,12 +252,12 @@ def setup(bot: TeleBot):
                 message.chat.id,
                 preview_payload,
                 parse_mode="HTML",
-                disable_web_page_preview=False
+                disable_web_page_preview=False,
             )
 
         except Exception:
             bot.reply_to(
                 message,
                 f"Preview failed:\n```\n{traceback.format_exc()}\n```",
-                parse_mode="Markdown"
+                parse_mode="Markdown",
             )
