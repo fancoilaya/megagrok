@@ -17,7 +17,12 @@ def setup(bot: TeleBot):
         )
 
         if is_admin(message.from_user.id):
-            kb.add(types.InlineKeyboardButton("👥 MegaCrew Management", callback_data="admin_crew"))
+            kb.add(
+                types.InlineKeyboardButton(
+                    "👥 MegaCrew Management",
+                    callback_data="admin_crew"
+                )
+            )
 
         kb.add(types.InlineKeyboardButton("❌ Close", callback_data="admin_close"))
 
@@ -30,11 +35,17 @@ def setup(bot: TeleBot):
 
     @bot.callback_query_handler(func=lambda c: c.data.startswith("admin_"))
     def admin_callbacks(call):
+        # 🔒 REQUIRED SECURITY CHECK
+        if not is_megacrew(call.from_user.id):
+            bot.answer_callback_query(call.id, "Access denied.")
+            return
+
         if call.data == "admin_notify":
             bot.send_message(
                 call.message.chat.id,
                 "📣 **Announcements**\n\n"
                 "`/notifyall Your message`\n\n"
+                "Flow:\n"
                 "Preview → Confirm → Publish",
                 parse_mode="Markdown"
             )
@@ -42,16 +53,25 @@ def setup(bot: TeleBot):
         elif call.data == "admin_help":
             bot.send_message(
                 call.message.chat.id,
-                "📘 **Commands**\n\n"
-                "/notifyall\n/editlast\n/addmegacrew\n/removemegacrew",
+                "📘 **MegaCrew Commands**\n\n"
+                "/notifyall — Publish announcement\n"
+                "/editlast — Edit last announcement\n"
+                "/addmegacrew — Add crew (admin only)\n"
+                "/removemegacrew — Remove crew (admin only)",
                 parse_mode="Markdown"
             )
 
         elif call.data == "admin_crew":
+            if not is_admin(call.from_user.id):
+                bot.answer_callback_query(call.id, "Admin only.")
+                return
+
             bot.send_message(
                 call.message.chat.id,
-                "👥 **MegaCrew**\n\n"
-                "Reply to a user:\n/addmegacrew\n/removemegacrew",
+                "👥 **MegaCrew Management**\n\n"
+                "Reply to a user:\n"
+                "`/addmegacrew`\n"
+                "`/removemegacrew`",
                 parse_mode="Markdown"
             )
 
