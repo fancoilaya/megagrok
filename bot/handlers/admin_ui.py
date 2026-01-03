@@ -48,10 +48,12 @@ def setup(bot: TeleBot):
             bot.send_message(
                 cid,
                 "📣 <b>Announcements (Channel)</b><br><br>"
-                "Posts an official announcement to the channel and pins it.<br><br>"
-                "<b>Command:</b><br>"
-                "<code>/announce_html &lt;b&gt;Title&lt;/b&gt;&lt;br&gt;Text</code><br><br>"
-                "• Uses HTML<br>"
+                "Posts an official announcement and pins it.<br><br>"
+                "<b>Example:</b><br>"
+                "<code>/announce_html &lt;b&gt;🚀 Update&lt;/b&gt;&lt;br&gt;"
+                "PvP Arena is now live!&lt;br&gt;"
+                "&lt;a href='https://example.com'&gt;Read more&lt;/a&gt;</code><br><br>"
+                "• HTML supported<br>"
                 "• Permanent<br>"
                 "• Pinned",
                 parse_mode="HTML"
@@ -62,13 +64,17 @@ def setup(bot: TeleBot):
             bot.send_message(
                 cid,
                 "🔔 <b>Notify Users (Direct Messages)</b><br><br>"
-                "Sends a private message to all users who started the bot.<br><br>"
-                "<b>Command:</b><br>"
-                "<code>/notifyusers &lt;b&gt;HTML message&lt;/b&gt;</code><br><br>"
-                "• Uses SAME HTML rules as announcements<br>"
-                "• Triggers real notifications<br>"
-                "• Preview → Test → Confirm<br>"
-                "• Does NOT post to channel",
+                "Sends a private message to <b>all users who started the bot</b>.<br><br>"
+                "<b>Example:</b><br>"
+                "<code>/notifyusers &lt;b&gt;🚨 Important&lt;/b&gt;&lt;br&gt;"
+                "Servers restart in 10 minutes.&lt;br&gt;"
+                "Please finish battles.</code><br><br>"
+                "<b>Flow:</b><br>"
+                "1️⃣ Preview<br>"
+                "2️⃣ 🧪 Test (DM to yourself)<br>"
+                "3️⃣ 🚨 Final confirmation<br>"
+                "4️⃣ Sent as real notifications<br><br>"
+                "<b>Uses the SAME HTML rules as /announce_html</b>",
                 parse_mode="HTML"
             )
 
