@@ -97,6 +97,9 @@ _add_column_if_missing("last_pvp_alert_ts", "INTEGER DEFAULT 0")
 # Ensure last_active column (for recent activity / recommended targets)
 _add_column_if_missing("last_active", "INTEGER DEFAULT 0")
 
+# --- Admin / MegaCrew support ---
+_add_column_if_missing("megacrew", "INTEGER DEFAULT 0")
+
 # ---------------------------
 # PvP Attack Log Table (for Revenge system)
 # (Idempotent — will not recreate if exists)
