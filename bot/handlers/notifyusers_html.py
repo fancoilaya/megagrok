@@ -4,16 +4,13 @@ import bot.db as db
 from services.permissions import is_admin, is_megacrew
 from services.audit_log import log_admin_action
 
-RATE_DELAY = 0.05  # ~20 msgs/sec
+RATE_DELAY = 0.05
 DRAFTS = {}
 PENDING_CONFIRM = {}
 
 
 def setup(bot: TeleBot):
 
-    # -------------------------------------------------
-    # /notifyusers — preview
-    # -------------------------------------------------
     @bot.message_handler(commands=["notifyusers"])
     def preview(message):
         uid = message.from_user.id
@@ -44,14 +41,11 @@ def setup(bot: TeleBot):
 
         bot.send_message(
             message.chat.id,
-            "🧪 <b>Preview — User Notification</b><br><br>" + html,
+            "🧪 <b>Preview — User Notification</b>\n\n" + html,
             reply_markup=kb,
             parse_mode="HTML"
         )
 
-    # -------------------------------------------------
-    # Callbacks
-    # -------------------------------------------------
     @bot.callback_query_handler(func=lambda c: c.data.startswith("notifyusers_"))
     def handle_notifyusers(call):
         uid = call.from_user.id
@@ -65,7 +59,6 @@ def setup(bot: TeleBot):
             bot.answer_callback_query(call.id, "No draft found.")
             return
 
-        # ❌ Cancel
         if call.data == "notifyusers_cancel":
             DRAFTS.pop(uid, None)
             PENDING_CONFIRM.pop(uid, None)
@@ -76,17 +69,15 @@ def setup(bot: TeleBot):
             )
             return
 
-        # 🧪 Test
         if call.data == "notifyusers_test":
             bot.send_message(
                 uid,
-                "🧪 <b>TEST NOTIFICATION (ADMIN ONLY)</b><br><br>" + html,
+                "🧪 <b>TEST NOTIFICATION (ADMIN ONLY)</b>\n\n" + html,
                 parse_mode="HTML"
             )
             bot.answer_callback_query(call.id, "Test DM sent.")
             return
 
-        # 📤 First confirmation step
         if call.data == "notifyusers_prepare":
             PENDING_CONFIRM[uid] = True
 
@@ -97,9 +88,9 @@ def setup(bot: TeleBot):
             )
 
             bot.edit_message_text(
-                "🚨 <b>FINAL CONFIRMATION</b><br><br>"
-                "You are about to send a <b>DIRECT MESSAGE</b> to <b>ALL USERS</b> who started the bot.<br><br>"
-                "This will trigger real Telegram notifications.<br><br>"
+                "🚨 <b>FINAL CONFIRMATION</b>\n\n"
+                "You are about to send a <b>DIRECT MESSAGE</b> to <b>ALL USERS</b> who started the bot.\n\n"
+                "This will trigger real Telegram notifications.\n\n"
                 "<b>This action cannot be undone.</b>",
                 call.message.chat.id,
                 call.message.message_id,
@@ -108,7 +99,6 @@ def setup(bot: TeleBot):
             )
             return
 
-        # ✅ Final send
         if call.data == "notifyusers_send":
             if not PENDING_CONFIRM.get(uid):
                 bot.answer_callback_query(call.id, "Confirmation required.")
@@ -137,8 +127,8 @@ def setup(bot: TeleBot):
             )
 
             bot.edit_message_text(
-                f"✅ <b>User notification sent</b><br><br>"
-                f"Delivered: {sent}<br>"
+                f"✅ <b>User notification sent</b>\n\n"
+                f"Delivered: {sent}\n"
                 f"Failed: {failed}",
                 call.message.chat.id,
                 call.message.message_id,
