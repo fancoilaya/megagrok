@@ -407,10 +407,10 @@ def start_battle_from_ui(
     except Exception:
         # Fallback if image missing
         bot.edit_message_text(
-            caption,
+            _build_caption(sess),
             chat_id,
             msg_id,
-            reply_markup=kb,
+            reply_markup=_build_keyboard(sess),
             parse_mode="Markdown"
         )
 
