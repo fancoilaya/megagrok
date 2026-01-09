@@ -363,8 +363,7 @@ def start_battle_from_ui(
     mob_full = None
     
     if mob_id:
-       if hasattr(mobs, "get_mob_by_id"):
-           mob_full = mobs.get_mob_by_id(mob_id)
+       mob_full = mobs.get_mob(mob_id)
 
     if not mob_full:
         mob_full = mobs.get_random_mob(tier)
