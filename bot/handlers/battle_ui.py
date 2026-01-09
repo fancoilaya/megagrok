@@ -134,7 +134,7 @@ def setup(bot: TeleBot):
         bot.answer_callback_query(call.id)
 
     # ----------------------------
-    # TIER SELECT
+    # TIER SELECT (FIXED)
     # ----------------------------
     @bot.callback_query_handler(func=lambda c: c.data.startswith(f"{BATTLE_UI_PREFIX}tier:"))
     def battle_tier_cb(call):
@@ -143,9 +143,11 @@ def setup(bot: TeleBot):
         msg_id = call.message.message_id
 
         try:
-            tier = int(call.data.split(":")[-1])
-        except:
-            return bot.answer_callback_query(call.id, "Invalid tier.")
+            tier_str = call.data.replace(f"{BATTLE_UI_PREFIX}tier:", "")
+            tier = int(tier_str)
+        except Exception:
+            bot.answer_callback_query(call.id, "Invalid tier.")
+            return
 
         text, kb = render_mob_select(uid, tier)
 
@@ -167,7 +169,8 @@ def setup(bot: TeleBot):
         chat_id = call.message.chat.id
         msg_id = call.message.message_id
 
-        _, tier, mob_id = call.data.split(":", 2)
+        payload = call.data.replace(f"{BATTLE_UI_PREFIX}mob:", "")
+        tier, mob_id = payload.split(":", 1)
 
         text = (
             "⚔️ <b>BATTLE PREVIEW</b>\n"
