@@ -42,7 +42,7 @@ def render_mob_select(tier: int):
         kb.add(
             types.InlineKeyboardButton(
                 mob["name"],
-                callback_data=f"{BATTLE_UI_PREFIX}mob:{tier}:{mob['id']}"
+                callback_data=f"{BATTLE_UI_PREFIX}mob:{tier}:{mob['name']}"
             )
         )
 
