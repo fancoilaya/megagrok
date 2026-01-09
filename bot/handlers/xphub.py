@@ -38,7 +38,7 @@ def setup(bot: TeleBot):
     @bot.callback_query_handler(func=lambda c: c.data.startswith(XP_PREFIX))
     def hub_cb(call):
         # Required by Telegram
-        bot.answer_callback_query(call.id)
+        #bot.answer_callback_query(call.id)
 
         action = call.data.split(":", 1)[1]
         chat_id = call.message.chat.id
