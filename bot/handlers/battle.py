@@ -360,12 +360,15 @@ def start_battle_from_ui(
     db.set_cooldowns(uid, cds)
 
     # --- mob resolution (reuse existing mob system) ---
+    mob_full = None
+    
     if mob_id:
-        mob_full = mobs.get_mob_by_id(mob_id)
-    else:
-        mob_full = mobs.get_random_mob(tier)
+       if hasattr(mobs, "get_mob_by_id"):
+           mob_full = mobs.get_mob_by_id(mob_id)
 
     if not mob_full:
+        mob_full = mobs.get_random_mob(tier)
+        
         return
 
     user = db.get_user(uid)
