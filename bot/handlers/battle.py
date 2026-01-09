@@ -346,15 +346,15 @@ def start_battle_from_ui(
     if last_ts and (last_ts + COOLDOWN_SECONDS) > now_ts:
         remaining = (last_ts + COOLDOWN_SECONDS) - now_ts
         mins = remaining // 60
-        try:
-            bot.answer_callback_query(
-                None,
-                f"⏳ Battle available in {mins} minutes",
-                show_alert=True
-            )
-        except Exception:
-            pass
+        # UX entry has no callback_id → show message instead
+        bot.edit_message_text(
+            f"⏳ Battle available in {mins} minutes.",
+            chat_id,
+            msg_id
+        )
         return
+        
+
 
     cds["battle"] = now_ts
     db.set_cooldowns(uid, cds)
