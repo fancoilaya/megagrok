@@ -1,6 +1,6 @@
 # bot/handlers/battle_ui.py
 # -------------------------------------------------
-# Battle UX — Step 1
+# Battle UX — Step 1 (XP Hub integrated)
 # Tier + Mob selection (NO battle execution yet)
 # -------------------------------------------------
 
@@ -69,7 +69,7 @@ def render_battle_home(uid: int):
         types.InlineKeyboardButton("🐉 Tier V", callback_data=f"{BATTLE_UI_PREFIX}tier:5"),
     )
     kb.add(
-        types.InlineKeyboardButton("🔙 Back to Training Grounds", callback_data="__nav__:training")
+        types.InlineKeyboardButton("🔙 Back to XP Hub", callback_data="__xphub__:home")
     )
 
     return text, kb
@@ -99,6 +99,9 @@ def render_mob_select(uid: int, tier: int):
 
     kb.add(
         types.InlineKeyboardButton("⬅️ Back to Tier Select", callback_data=f"{BATTLE_UI_PREFIX}home")
+    )
+    kb.add(
+        types.InlineKeyboardButton("🔙 Back to XP Hub", callback_data="__xphub__:home")
     )
 
     return text, kb
@@ -179,7 +182,7 @@ def setup(bot: TeleBot):
             types.InlineKeyboardButton("⬅️ Back to Mobs", callback_data=f"{BATTLE_UI_PREFIX}tier:{tier}")
         )
         kb.add(
-            types.InlineKeyboardButton("🔙 Back to Training Grounds", callback_data="__nav__:training")
+            types.InlineKeyboardButton("🔙 Back to XP Hub", callback_data="__xphub__:home")
         )
 
         bot.edit_message_text(
