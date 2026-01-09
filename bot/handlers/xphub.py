@@ -81,7 +81,18 @@ def setup(bot: TeleBot):
             return
 
         if action == "battle":
-            bot.send_message(chat_id, "/battle")
+            # Enter Battle UX (no chat messages, same interface)
+            from bot.handlers.battle_ui import render_battle_home
+            
+            text, kb = render_battle_home(uid)
+            bot.edit_message_text(
+                text,
+                chat_id,
+                msg_id,
+                reply_markup=kb,
+                parse_mode="HTML"
+            )
+            
             return
 
 
