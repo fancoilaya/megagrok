@@ -10,7 +10,7 @@ from bot.handlers.battle import start_battle_from_ui
 BATTLE_UI_PREFIX = "__battle_ui__"
 
 
-def render_battle_home():
+def render_battle_home(uid:int):
     text = (
         "⚔️ <b>TRAINING BATTLES</b>\n"
         "━━━━━━━━━━━━━━━━━━\n\n"
