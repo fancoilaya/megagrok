@@ -383,13 +383,41 @@ def start_battle_from_ui(
     caption = _build_caption(sess)
     kb = _build_keyboard(sess)
 
-    bot.edit_message_text(
-        caption,
-        chat_id,
-        msg_id,
-        reply_markup=kb,
-        parse_mode="Markdown"
-    )
+    # ---------------------------------
+    # MOB IMAGE (shown immediately)
+    # ---------------------------------
+    mob_name = mob_full.get("name")
+    tier = mob_full.get("tier")
+
+    # Expected path: assets/mobs/tier_<n>/<mob_name>.png    
+    image_path = f"assets/mobs/tier_{tier}/{mob_name}.png"
+
+    try:
+        with open(image_path, "rb") as img:
+            bot.edit_message_media(
+                media=types.InputMediaPhoto(
+                    img,
+                    caption=caption,
+                    parse_mode="Markdown"
+                    ),
+                chat_id=chat_id,
+                message_id=msg_id,
+                reply_markup=kb
+            )
+    except Exception:
+        # Fallback if image missing
+        bot.edit_message_text(
+            caption,
+            chat_id,
+            msg_id,
+            reply_markup=kb,
+            parse_mode="Markdown"
+        )
+
+
+
+
+
 
 
 
