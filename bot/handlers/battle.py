@@ -368,7 +368,8 @@ def start_battle_from_ui(
 
     if not mob_full:
         mob_full = mobs.get_random_mob(tier)
-        
+
+    if not mob_full:        
         return
 
     user = db.get_user(uid)
