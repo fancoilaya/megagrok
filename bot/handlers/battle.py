@@ -401,9 +401,15 @@ def start_battle_from_ui(
                     parse_mode="Markdown"
                     ),
                 chat_id=chat_id,
+                message_id=msg_id,                
+            )
+            # IMPORTANT: re-attach keyboard in a second call
+            bot.edit_message_reply_markup(
+                chat_id=chat_id,
                 message_id=msg_id,
                 reply_markup=kb
             )
+            
     except Exception:
         # Fallback if image missing
         bot.edit_message_text(
