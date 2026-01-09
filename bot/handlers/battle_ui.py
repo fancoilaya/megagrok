@@ -33,7 +33,7 @@ def render_battle_home(uid=None):
 
 
 def render_mob_select(tier: int):
-    mobs_list = mobs.get_mobs_by_tier(tier) or []
+    mobs_list = mobs.list_mobs_by_tier(tier) or []
 
     text = f"👹 <b>TIER {tier}</b>\n\nSelect your enemy:"
 
