@@ -320,6 +320,74 @@ def _build_keyboard(sess: BattleSession) -> types.InlineKeyboardMarkup:
     )
     return kb
 
+# ============================================================
+# UX ENTRY POINT (SAFE ADDITION — DOES NOT MODIFY EXISTING FLOW)
+# ============================================================
+
+def start_battle_from_ui(
+    bot: TeleBot,
+    uid: int,
+    chat_id: int,
+    msg_id: int,
+    tier: int,
+    mob_id: Optional[str] = None
+):
+    """
+    UX-safe battle entry.
+    This reuses the existing battle system without touching /battle.
+    """
+
+    # --- cooldown (same logic as /battle) ---
+    COOLDOWN_SECONDS = 12 * 3600
+    cds = db.get_cooldowns(uid) or {}
+    last_ts = int(cds.get("battle", 0) or 0)
+    now_ts = int(time.time())
+
+    if last_ts and (last_ts + COOLDOWN_SECONDS) > now_ts:
+        remaining = (last_ts + COOLDOWN_SECONDS) - now_ts
+        mins = remaining // 60
+        try:
+            bot.answer_callback_query(
+                None,
+                f"⏳ Battle available in {mins} minutes",
+                show_alert=True
+            )
+        except Exception:
+            pass
+        return
+
+    cds["battle"] = now_ts
+    db.set_cooldowns(uid, cds)
+
+    # --- mob resolution (reuse existing mob system) ---
+    if mob_id:
+        mob_full = mobs.get_mob_by_id(mob_id)
+    else:
+        mob_full = mobs.get_random_mob(tier)
+
+    if not mob_full:
+        return
+
+    user = db.get_user(uid)
+    mob_stats = build_mob_stats_from_mob(mob_full)
+    player_stats = build_player_stats_from_user(user)
+
+    sess = battle_manager.create_session(uid, player_stats, mob_stats, mob_full)
+    sess._last_msg = {"chat": chat_id, "msg": msg_id}
+    battle_manager.save_session(sess)
+
+    caption = _build_caption(sess)
+    kb = _build_keyboard(sess)
+
+    bot.edit_message_text(
+        caption,
+        chat_id,
+        msg_id,
+        reply_markup=kb,
+        parse_mode="Markdown"
+    )
+
+
 
 # ============================================================
 # FINAL RESULT MESSAGE (single message)
