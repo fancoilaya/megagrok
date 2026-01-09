@@ -143,7 +143,7 @@ def setup(bot: TeleBot):
         msg_id = call.message.message_id
 
         try:
-            tier = int(call.data.split(":")[1])
+            tier = int(call.data.split(":")[-1])
         except:
             return bot.answer_callback_query(call.id, "Invalid tier.")
 
